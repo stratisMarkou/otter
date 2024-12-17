@@ -48,7 +48,7 @@ def main():
         logging.info("Downloading %s from %s to %s...", dataset, path, output_path)
 
         # Open remote zarr and save it locally.
-        zarr = xr.open_zarr(path).isel(time=slice(0, 100, 1)).sel(level=ALL_GRID_VARIABLE_LEVELS)[ALL_GRID_VARIABLE_NAMES]
+        zarr = xr.open_zarr(path).sel(level=ALL_GRID_VARIABLE_LEVELS)[ALL_GRID_VARIABLE_NAMES]
         for var in zarr:
             del zarr[var].encoding['chunks']
         zarr = zarr.chunk(dict(time=1))
