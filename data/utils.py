@@ -1,15 +1,20 @@
 ALL_GRID_VARIABLE_NAMES = [
-    # "2m_temperature",
-    # "10m_u_component_of_wind",
-    # "10m_v_component_of_wind",
+    "2m_temperature",
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
     "geopotential",
-    # "mean_sea_level_pressure",
-    # "sea_surface_temperature",
+    "mean_sea_level_pressure",
+    "sea_surface_temperature",
     "specific_humidity",
     "temperature",
     "u_component_of_wind",
     "v_component_of_wind",
     "vertical_velocity",
+    "angle_of_sub_gridscale_orography",
+    "anisotropy_of_sub_gridscale_orography",
+    "land_sea_mask",
+    "slope_of_sub_gridscale_orography",
+    "geopotential_at_surface",
 ]
 
 ALL_GRID_VARIABLE_LEVELS = [
