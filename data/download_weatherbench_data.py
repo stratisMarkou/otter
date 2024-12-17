@@ -18,7 +18,7 @@ DATASETS = {
     ),
     "era5_240x121": (
         "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-240x121_equiangular_with_poles_conservative.zarr"
-    )
+    ),
 }
 
 def main():
@@ -48,7 +48,10 @@ def main():
         logging.info("Downloading %s from %s to %s...", dataset, path, output_path)
 
         # Open remote zarr and save it locally.
-        zarr = xr.open_zarr(path).sel(level=ALL_GRID_VARIABLE_LEVELS)[ALL_GRID_VARIABLE_NAMES]
+        zarr = xr.open_zarr(path).isel(time=slice(0, 100, 1)).sel(level=ALL_GRID_VARIABLE_LEVELS)[ALL_GRID_VARIABLE_NAMES]
+        for var in zarr:
+            del zarr[var].encoding['chunks']
+        zarr = zarr.chunk(dict(time=1))
         zarr.to_zarr(f"{args.output_dir}/{dataset}.zarr", mode="w")
 
 if __name__ == "__main__":
