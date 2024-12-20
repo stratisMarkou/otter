@@ -40,3 +40,4 @@ jobs:
       - run: black --check otter tests data setup.py
       - run: flake8 otter tests data setup.py
       - run: mypy --disallow-untyped-defs --strict otter tests data
+      - run: pytest tests
