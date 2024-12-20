@@ -31,7 +31,7 @@ class MLP(torch.nn.Module):
         )
         self.final_layer = nn.Linear(hidden_features, output_features)
 
-    def __forward__(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Input tensor has shape {x.shape}, "
