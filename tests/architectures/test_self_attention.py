@@ -1,14 +1,9 @@
-from typing import Tuple
 import pytest
 import torch
 
-from otter.models.architectures.attention import (
-    SelfAttention,
-    MultiHeadSelfAttention,
-)
+from otter.models.architectures import attention
 
 
-# Test the forward pass of the SelfAttention module for different projection dimensions
 @pytest.mark.parametrize(
     "token_dim, projection_dim, batch_dim, sequence_length",
     [
@@ -22,7 +17,7 @@ def test_self_attention_forward(
     batch_dim: int,
     sequence_length: int,
 ):
-    self_attention = SelfAttention(token_dim, projection_dim)
+    self_attention = attention.SelfAttention(token_dim, projection_dim)
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y = self_attention(x)
     assert y.shape == (batch_dim, sequence_length, token_dim)
@@ -42,7 +37,7 @@ def test_multi_head_self_attention_forward(
     sequence_length: int,
     num_heads: int,
 ):
-    multi_head_self_attention = MultiHeadSelfAttention(
+    multi_head_self_attention = attention.MultiHeadSelfAttention(
         token_dim=token_dim,
         projection_dim=projection_dim,
         num_heads=num_heads,

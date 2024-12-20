@@ -62,7 +62,10 @@ class MultiHeadSelfAttention(nn.Module):
     ):
         super().__init__()
         self.self_attention = nn.ModuleList(
-            [SelfAttention(token_dim, projection_dim) for _ in range(num_heads)]
+            [
+                SelfAttention(token_dim, projection_dim)
+                for _ in range(num_heads)
+            ]
         )
         self.linear = nn.ModuleList(
             [

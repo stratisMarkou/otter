@@ -1,4 +1,5 @@
 from typing import Tuple
+
 import pytest
 import torch
 
@@ -6,7 +7,8 @@ from otter.models.architectures.mlp import MLP
 
 
 @pytest.mark.parametrize(
-    "in_features, hidden_features, num_hidden_layers, output_features, input_tensor_leading_dims",
+    "in_features, hidden_features, num_hidden_layers, "
+    + "output_features, input_tensor_leading_dims",
     [
         (32, 64, 2, 10, (7,)),
         (32, 64, 2, 10, (7, 5)),
