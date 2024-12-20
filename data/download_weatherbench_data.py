@@ -21,7 +21,7 @@ DATASETS = {
 }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--datasets", type=str, nargs="+", default=[])
     parser.add_argument("--output_dir", type=str, default="_data")

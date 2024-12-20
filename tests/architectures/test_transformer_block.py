@@ -1,9 +1,14 @@
+"""Tests forward passes through transformer block."""
+
 import pytest
 import torch
 
 from otter.models.architectures.transformer import TransformerBlock
 
 
+# Tests that the forward pass of the transformer block runs without error for
+# different token dimensions, MLP hidden dimensions, MLP number of layers,
+# number of heads, batch dimensions, and sequence lengths.
 @pytest.mark.parametrize(
     "token_dim, mlp_num_hidden, mlp_num_layers, "
     + "num_heads, batch_dim, sequence_length",
@@ -19,7 +24,7 @@ def test_transformer_block(
     num_heads: int,
     batch_dim: int,
     sequence_length: int,
-):
+) -> None:
     transformer_block = TransformerBlock(
         token_dim=token_dim,
         mlp_num_hidden=mlp_num_hidden,

@@ -1,9 +1,14 @@
+"""Tests forward passes through self- and multi-head self-attention."""
+
 import pytest
 import torch
 
 from otter.models.architectures import attention
 
 
+# Tests that the forward pass of the self-attention layer runs without error
+# for different token dimensions, projection dimensions, batch dimensions, and
+# sequence lengths.
 @pytest.mark.parametrize(
     "token_dim, projection_dim, batch_dim, sequence_length",
     [
@@ -16,13 +21,16 @@ def test_self_attention_forward(
     projection_dim: int,
     batch_dim: int,
     sequence_length: int,
-):
+) -> None:
     self_attention = attention.SelfAttention(token_dim, projection_dim)
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y = self_attention(x)
     assert y.shape == (batch_dim, sequence_length, token_dim)
 
 
+# Tests that the forward pass of the multi-head self-attention layer runs
+# without error for different token dimensions, projection dimensions, batch
+# dimensions, and sequence lengths.
 @pytest.mark.parametrize(
     "token_dim, projection_dim, batch_dim, sequence_length, num_heads",
     [
@@ -36,7 +44,7 @@ def test_multi_head_self_attention_forward(
     batch_dim: int,
     sequence_length: int,
     num_heads: int,
-):
+) -> None:
     multi_head_self_attention = attention.MultiHeadSelfAttention(
         token_dim=token_dim,
         projection_dim=projection_dim,
