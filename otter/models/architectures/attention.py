@@ -3,10 +3,11 @@ from torch import nn
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, projection_dim: int):
+    def __init__(self, token_dim: int, projection_dim: int):
         super().__init__()
-        self.Uk = nn.Linear(projection_dim, projection_dim, bias=False)
-        self.Uq = nn.Linear(projection_dim, projection_dim, bias=False)
+        self.projection_dim = projection_dim
+        self.Uk = nn.Linear(token_dim, projection_dim, bias=False)
+        self.Uq = nn.Linear(token_dim, projection_dim, bias=False)
 
     def self_attention_weights(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -14,23 +15,27 @@ class SelfAttention(nn.Module):
 
         Args:
             x: input sequence of tokens, shape (B, N, D)
-        
+
         Returns:
             attention weights, shape (B, N, N)
         """
-        B, N, D = x.shape
+        B, N, _ = x.shape
         k = self.Uk(x)
         q = self.Uq(x)
 
         dot_product = torch.matmul(k, q.transpose(1, 2))
-        dot_product /= torch.sqrt(torch.tensor(k.shape[-1], dtype=torch.float32))
+        dot_product /= torch.sqrt(
+            torch.tensor(k.shape[-1], dtype=torch.float32)
+        )
         assert dot_product.shape == (B, N, N)
 
-        self_attention_weights = torch.nn.functional.softmax(dot_product, dim=1)
+        self_attention_weights = torch.nn.functional.softmax(
+            dot_product, dim=1
+        )
         assert self_attention_weights.shape == (B, N, N)
 
         return self_attention_weights
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply self-attention to a sequence of tokens
@@ -49,14 +54,22 @@ class SelfAttention(nn.Module):
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, token_dim: int, projection_dim: int, num_heads: int,):
+    def __init__(
+        self,
+        token_dim: int,
+        projection_dim: int,
+        num_heads: int,
+    ):
         super().__init__()
-        self.self_attention = nn.ModuleList([
-            SelfAttention(projection_dim) for _ in range(num_heads)
-        ])
-        self.linear = nn.ModuleList([
-            nn.Linear(projection_dim, token_dim, bias=False) for _ in range(num_heads)
-        ])
+        self.self_attention = nn.ModuleList(
+            [SelfAttention(token_dim, projection_dim) for _ in range(num_heads)]
+        )
+        self.linear = nn.ModuleList(
+            [
+                nn.Linear(token_dim, token_dim, bias=False)
+                for _ in range(num_heads)
+            ]
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -75,4 +88,4 @@ class MultiHeadSelfAttention(nn.Module):
         assert len(heads) == len(self.self_attention) == len(self.linear)
         assert all(h.shape == x.shape for h in heads)
 
-        return torch.mean(torch.stack(heads, dim=2), dim=2)
+        return torch.mean(torch.stack(heads, dim=-1), dim=-1)
