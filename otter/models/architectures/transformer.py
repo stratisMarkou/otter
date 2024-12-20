@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 
-from otter.models.architectures.mlp import MLP
 from otter.models.architectures.attention import MultiHeadSelfAttention
+from otter.models.architectures.mlp import MLP
 
 
 class TransformerBlock(nn.Module):
