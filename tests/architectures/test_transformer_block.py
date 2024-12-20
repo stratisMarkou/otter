@@ -24,7 +24,7 @@ def test_transformer_block(
     num_heads: int,
     batch_dim: int,
     sequence_length: int,
-):
+) -> None:
     transformer_block = TransformerBlock(
         token_dim=token_dim,
         mlp_num_hidden=mlp_num_hidden,

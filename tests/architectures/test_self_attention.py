@@ -21,7 +21,7 @@ def test_self_attention_forward(
     projection_dim: int,
     batch_dim: int,
     sequence_length: int,
-):
+) -> None:
     self_attention = attention.SelfAttention(token_dim, projection_dim)
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y = self_attention(x)
@@ -44,7 +44,7 @@ def test_multi_head_self_attention_forward(
     batch_dim: int,
     sequence_length: int,
     num_heads: int,
-):
+) -> None:
     multi_head_self_attention = attention.MultiHeadSelfAttention(
         token_dim=token_dim,
         projection_dim=projection_dim,

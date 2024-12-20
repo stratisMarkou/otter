@@ -22,7 +22,7 @@ def test_mlp_forward(
     num_hidden_layers: int,
     output_features: int,
     input_tensor_leading_dims: Tuple[int],
-):
+) -> None:
     mlp = MLP(
         in_features=in_features,
         hidden_features=hidden_features,
