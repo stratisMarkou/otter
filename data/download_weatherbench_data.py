@@ -1,29 +1,29 @@
 import argparse
 import logging
-import shutil
 import os
+import shutil
 
 import xarray as xr
-
-from utils import ALL_GRID_VARIABLE_NAMES, ALL_GRID_VARIABLE_LEVELS
+from utils import ALL_GRID_VARIABLE_LEVELS, ALL_GRID_VARIABLE_NAMES
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+BASE_ERA5_PATH = "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h"
+
 DATASETS = {
-    "era5_64x32": (
-        "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr"
-    ),
+    "era5_64x32": (f"{BASE_ERA5_PATH}-64x32_equiangular_conservative.zarr"),
     "era5_240x121": (
-        "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-240x121_equiangular_with_poles_conservative.zarr"
+        f"{BASE_ERA5_PATH}-240x121_equiangular_with_poles_conservative.zarr"
     ),
 }
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--datasets", type=str, nargs='+', default=[])
+    parser.add_argument("--datasets", type=str, nargs="+", default=[])
     parser.add_argument("--output_dir", type=str, default="_data")
     parser.add_argument("--overwrite_existing", action="store_true")
     args = parser.parse_args()
@@ -38,21 +38,29 @@ def main():
         path_exists = os.path.exists(output_path)
 
         if path_exists and not args.overwrite_existing:
-            logging.info("Path %s exists and overwrite not specified. Skipping...", output_path)
+            logging.info(
+                "Path %s exists and overwrite not specified. Skipping...",
+                output_path,
+            )
             continue
-        
+
         elif path_exists:
             logging.info("Path %s exists. Deleting old path...", output_path)
             shutil.rmtree(output_path)
 
-        logging.info("Downloading %s from %s to %s...", dataset, path, output_path)
+        logging.info(
+            "Downloading %s from %s to %s...", dataset, path, output_path
+        )
 
         # Open remote zarr and save it locally.
-        zarr = xr.open_zarr(path).sel(level=ALL_GRID_VARIABLE_LEVELS)[ALL_GRID_VARIABLE_NAMES]
+        zarr = xr.open_zarr(path).sel(level=ALL_GRID_VARIABLE_LEVELS)[
+            ALL_GRID_VARIABLE_NAMES
+        ]
         for var in zarr:
-            del zarr[var].encoding['chunks']
+            del zarr[var].encoding["chunks"]
         zarr = zarr.chunk(dict(time=1))
         zarr.to_zarr(f"{args.output_dir}/{dataset}.zarr", mode="w")
+
 
 if __name__ == "__main__":
     main()
