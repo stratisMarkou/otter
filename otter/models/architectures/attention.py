@@ -1,0 +1,78 @@
+import torch
+from torch import nn
+
+
+class SelfAttention(nn.Module):
+    def __init__(self, projection_dim: int):
+        super().__init__()
+        self.Uk = nn.Linear(projection_dim, projection_dim, bias=False)
+        self.Uq = nn.Linear(projection_dim, projection_dim, bias=False)
+
+    def self_attention_weights(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute self-attention weights for tokens in a sequence
+
+        Args:
+            x: input sequence of tokens, shape (B, N, D)
+        
+        Returns:
+            attention weights, shape (B, N, N)
+        """
+        B, N, D = x.shape
+        k = self.Uk(x)
+        q = self.Uq(x)
+
+        dot_product = torch.matmul(k, q.transpose(1, 2))
+        dot_product /= torch.sqrt(torch.tensor(k.shape[-1], dtype=torch.float32))
+        assert dot_product.shape == (B, N, N)
+
+        self_attention_weights = torch.nn.functional.softmax(dot_product, dim=1)
+        assert self_attention_weights.shape == (B, N, N)
+
+        return self_attention_weights
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply self-attention to a sequence of tokens
+
+        Args:
+            x: input sequence of tokens, shape (B, N, D)
+
+        Returns:
+            output sequence of tokens, shape (B, N, D)
+        """
+        B, N, D = x.shape
+        attended_tokens = torch.matmul(self.self_attention_weights(x), x)
+        assert attended_tokens.shape == (B, N, D)
+
+        return attended_tokens
+
+
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, token_dim: int, projection_dim: int, num_heads: int,):
+        super().__init__()
+        self.self_attention = nn.ModuleList([
+            SelfAttention(projection_dim) for _ in range(num_heads)
+        ])
+        self.linear = nn.ModuleList([
+            nn.Linear(projection_dim, token_dim, bias=False) for _ in range(num_heads)
+        ])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply multi-head self-attention to a sequence of tokens
+
+        Args:
+            x: input sequence of tokens, shape (B, N, D)
+
+        Returns:
+            output sequence of tokens, shape (B, N, D)
+        """
+        heads = [
+            linear(self_attention(x))
+            for self_attention, linear in zip(self.self_attention, self.linear)
+        ]
+        assert len(heads) == len(self.self_attention) == len(self.linear)
+        assert all(h.shape == x.shape for h in heads)
+
+        return torch.mean(torch.stack(heads, dim=2), dim=2)
