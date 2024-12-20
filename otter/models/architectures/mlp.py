@@ -27,9 +27,8 @@ class MLP(torch.nn.Module):
                     torch.nn.GELU(),
                 )
                 for i in range(num_hidden_layers)
-            ]
+            ] + [torch.nn.Linear(hidden_features, output_features,)]
         )
-        self.final_layer = nn.Linear(hidden_features, output_features)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[-1] != self.in_features:
@@ -39,4 +38,4 @@ class MLP(torch.nn.Module):
             )
         for layer in self.layers:
             x = layer(x)
-        return self.final_layer(x)
+        return x
