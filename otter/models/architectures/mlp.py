@@ -1,7 +1,6 @@
 """Base MLP model, for use within the transformer."""
 
 import torch
-from torch import nn
 
 
 class MLP(torch.nn.Module):
@@ -27,7 +26,13 @@ class MLP(torch.nn.Module):
                     torch.nn.GELU(),
                 )
                 for i in range(num_hidden_layers)
-            ] + [torch.nn.Linear(hidden_features, output_features,)]
+            ]
+            + [
+                torch.nn.Linear(
+                    hidden_features,
+                    output_features,
+                )
+            ]
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
