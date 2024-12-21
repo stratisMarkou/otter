@@ -1,0 +1,150 @@
+import torch
+
+from otter.models.architectures.transformer import TransformerBlock
+
+
+def extract_windows(x: torch.Tensor, window_size: int) -> torch.Tensor:
+    """Extract non-overlapping windows from input tensor `x`.
+
+    Arguments:
+        x: input tensor of shape
+
+    Returns:
+        output tensor of shape (B*(H//2)*(W//2), 4, D)
+    """
+    B, H, W, D = x.shape
+    S = window_size
+
+    assert H % S == 0, f"Height {H} must be divisible by window size {S}"
+    assert W % S == 0, f"Width {W} must be divisible by window size {S}"
+
+    x = torch.reshape(x, [B, H // S, S, W // S, S, D])
+    x = torch.permute(x, [0, 1, 3, 2, 4, 5])  # (B, H//S, W//S, S, S, D)
+    return torch.reshape(x, [B * (H // S) * (W // S), S**2, D])
+
+
+def combine_windows(
+    x: torch.Tensor,
+    original_shape: torch.Tensor,
+    window_size: int,
+) -> torch.Tensor:
+    """Combine windows extracted from input tensor `x`.
+
+    Arguments:
+        x: input tensor of shape (B*(H//2)*(W//2), 4, D)
+        x_shape: shape of original tensor
+
+    Returns:
+        output tensor of shape (B, H, W, D)
+    """
+    B, H, W, D = original_shape
+    S = window_size
+
+    assert H % S == 0, f"Height {H} must be divisible by window size {S}"
+    assert W % S == 0, f"Width {W} must be divisible by window size {S}"
+
+    x = torch.reshape(x, [B, H // S, W // S, S, S, D])
+    x = torch.permute(x, [0, 1, 3, 2, 4, 5])  # (B, H//S, S, W//S, S, D)
+    return torch.reshape(x, [B, H, W, D])
+
+
+def shift_horizontally_and_vertically(
+    x: torch.Tensor, shift: int
+) -> torch.Tensor:
+    """Shift windows in the input tensor `x` by shift along its width and
+    height. For example, using shift == 1 (and fixing an index for the B and D
+    dimensions), the corresponding image would change as follows:
+
+                      Original                Shifted
+                 -----------------       -----------------
+                |  x   x   x   o  |     |  *   +   +   +  |
+                |  x   x   x   o  |     |  o   x   x   x  |
+                |  x   x   x   o  |     |  o   x   x   x  |
+                |  +   +   +   *  |     |  o   x   x   x  |
+                 -----------------       -----------------
+
+    Arguments:
+        x: input tensor of shape (B, H, W, D)
+        shift: amount of shift to apply
+
+    Returns:
+        output tensor of shape (B, H, W, D)
+    """
+    if len(x.shape) != 4:
+        raise ValueError("Input tensor must have shape (B, H, W, D)")
+    return torch.roll(torch.roll(x, shift, axis=1), shift, axis=2)
+
+
+class SwinTransformerBlock(torch.nn.Module):
+    def __init__(
+        self,
+        token_dim: int,
+        mlp_num_hidden: int,
+        mlp_num_layers: int,
+        num_heads: int,
+        num_block_pairs: int,
+        window_size: int,
+    ):
+
+        super().__init__()
+
+        self.first_blocks = torch.nn.ModuleList(
+            [
+                TransformerBlock(
+                    token_dim=token_dim,
+                    mlp_num_hidden=mlp_num_hidden,
+                    mlp_num_layers=mlp_num_layers,
+                    num_heads=num_heads,
+                )
+                for _ in range(num_block_pairs)
+            ]
+        )
+
+        self.second_blocks = torch.nn.ModuleList(
+            [
+                TransformerBlock(
+                    token_dim=token_dim,
+                    mlp_num_hidden=mlp_num_hidden,
+                    mlp_num_layers=mlp_num_layers,
+                    num_heads=num_heads,
+                )
+                for _ in range(num_block_pairs)
+            ]
+        )
+
+        self.window_size = window_size
+
+    def call(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the Swin Transformer block to input tokens `x`.
+
+        Arguments:
+            x: input tensor of shape (B, H, W, D)
+
+        Returns:
+            output tensor of shape (B, H, W, D)
+        """
+        original_shape = x.shape
+        S = self.window_size
+
+        for first_block, second_block in zip(
+            self.first_blocks, self.second_blocks
+        ):
+
+            # Apply first transformer block, extracting windows, applying
+            # the transformer block to them, and re-combining them to the
+            # original image.
+            x = extract_windows(x, S)  # (B*H//S*W//S, S**2, D)
+            x = first_block(x)  # (B*H//S*W//S, S**2, D)
+            x = combine_windows(x, original_shape, S)  # (B, H, W, D)
+
+            # Apply second transformer block same as the first block, but
+            # shifting the windows before and after the block.
+            x = shift_horizontally_and_vertically(x, S // 2)  # (B, H, W, D)
+            x = extract_windows(x, S)  # (B*H//S*W//S, S**2, D)
+            x = second_block(x)  # (B*H//S*W//S, S**2, D)
+            x = combine_windows(x, original_shape, S)  # (B, H, W, D)
+            x = shift_horizontally_and_vertically(x, -S // 2)  # (B, H, W, D)
+
+        x = combine_windows(x, original_shape, S)  # (B, H, W, D)
+
+        return x
