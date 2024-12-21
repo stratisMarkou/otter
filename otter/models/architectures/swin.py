@@ -72,7 +72,7 @@ def shift_horizontally_and_vertically(
     """
     if len(x.shape) != 4:
         raise ValueError("Input tensor must have shape (B, H, W, D)")
-    return torch.roll(torch.roll(x, shift, axis=1), shift, axis=2)
+    return torch.roll(torch.roll(x, shift, dims=1), shift, dims=2)
 
 
 class SwinTransformerBlock(torch.nn.Module):
