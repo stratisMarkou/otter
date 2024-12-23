@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 
 from otter.models.architectures.transformer import TransformerBlock
@@ -25,7 +27,7 @@ def extract_windows(x: torch.Tensor, window_size: int) -> torch.Tensor:
 
 def combine_windows(
     x: torch.Tensor,
-    original_shape: torch.Tensor,
+    original_shape: torch.Size | Tuple[int, ...],
     window_size: int,
 ) -> torch.Tensor:
     """Combine windows extracted from input tensor `x`.
