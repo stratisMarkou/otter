@@ -4,7 +4,8 @@ import os
 import shutil
 
 import xarray as xr
-from utils import (
+
+from .utils import (
     ALL_GRID_VARIABLE_LEVELS,
     ALL_GRID_VARIABLE_NAMES,
 )
