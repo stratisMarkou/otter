@@ -6,7 +6,7 @@ import xarray as xr
 
 
 def collate_batch_wise(batch: List[xr.Dataset]) -> xr.Dataset:
-    return xr.concat(batch, dim="batch").compute()
+    return xr.concat(batch, dim="batch")  # .compute()
 
 
 class GriddedWeatherDataset(torch.utils.data.Dataset):
@@ -26,4 +26,4 @@ class GriddedWeatherDataset(torch.utils.data.Dataset):
         return len(self.zarr.time)
 
     def __getitem__(self, idx: int):
-        return self.zarr.isel(time=idx)
+        return self.zarr.isel(time=idx).compute()
