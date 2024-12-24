@@ -6,7 +6,7 @@ import xarray as xr
 
 
 def collate_batch_wise(batch: List[xr.Dataset]) -> xr.Dataset:
-    return xr.concat(batch, dim="batch")  # .compute()
+    return xr.concat(batch, dim="batch")
 
 
 class GriddedWeatherDataset(torch.utils.data.Dataset):
