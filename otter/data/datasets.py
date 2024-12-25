@@ -8,40 +8,19 @@ from torch.utils.data import Dataset
 
 
 @dataclass
-class GriddedWeatherTaskData:
+class ContextTargetData:
     ctx: xr.Dataset
     trg: xr.Dataset
 
 
-def collate_batch_wise(batch: List[xr.Dataset]) -> xr.Dataset:
-    return xr.concat(batch, dim="batch")
+def collate_batch_wise(batch: List[ContextTargetData]) -> ContextTargetData:
+    return ContextTargetData(
+        ctx=xr.concat([example.ctx for example in batch], dim="batch"),
+        trg=xr.concat([example.trg for example in batch], dim="batch"),
+    )
 
 
-class GriddedWeatherDataset(Dataset[xr.Dataset]):
-
-    def __init__(
-        self,
-        zarr_name: str,
-        start_date: str,
-        end_date: str,
-        base_path: str = "_data",
-    ):
-        super().__init__()
-        zarr_path = os.path.join(base_path, zarr_name)
-        self.zarr = xr.open_zarr(zarr_path)
-        self.zarr = self.zarr.sel(time=slice(start_date, end_date))
-
-    def __len__(self) -> int:
-        return len(self.zarr.time)
-
-    def __getitem__(self, idx: int) -> xr.Dataset:
-        item = self.zarr.isel(time=idx).compute()
-        # Making sure that mypy knows that the return type is a Dataset.
-        assert isinstance(item, xr.Dataset)
-        return item
-
-
-class GriddedWeatherTask(Dataset[GriddedWeatherTaskData]):
+class GriddedWeatherTask(Dataset[ContextTargetData]):
 
     def __init__(
         self,
@@ -49,29 +28,71 @@ class GriddedWeatherTask(Dataset[GriddedWeatherTaskData]):
         start_date: str,
         end_date: str,
         num_context_frames: int,
+        num_target_frames: int,
         temporal_resolution_hours: int,
-        num_target_timesteps: int,
         base_path: str = "_data",
     ):
         super().__init__()
-        self.gridded_weather_dataset = GriddedWeatherDataset(
-            zarr_name=zarr_name,
-            start_date=start_date,
-            end_date=end_date,
-            base_path=base_path,
-        )
+        assert num_context_frames > 0
+        assert num_target_frames > 0
 
-        self.start_time = np.datetime64(start_date)
-        self.end_time = np.datetime64(end_date)
+        # Start and end dates that will be used to form training tasks,
+        # i.e. no tasks will contain data outside of this range.
+        self.start_date = np.datetime64(start_date)
+        self.end_date = np.datetime64(end_date)
+
+        # Temporal resolution of the tasks in hours. This is used as the
+        # lead time resolution as well as the context frame resolution.
         self.temporal_resolution = np.timedelta64(
             temporal_resolution_hours, "h"
         )
-        self.num_target_timesteps = num_target_timesteps
+
+        # Time window spanned by a single task, including context and
+        # target frames. For example, if the temporal resolution is 6 hours,
+        # the number of context frames is 3 and the number of target frames
+        # is 2, the single task time window will be 30 hours.
+        num_frames = num_context_frames + num_target_frames
         self.single_task_time_window = np.timedelta64(
-            temporal_resolution_hours
-            * (num_context_frames + num_target_timesteps - 1),
+            temporal_resolution_hours * (num_frames - 1),
             "h",
         )
 
+        # Timedeltas between each context frame and zero time.
+        self.context_timedeltas = self.temporal_resolution * (
+            -np.arange(num_context_frames)
+        )
+
+        # Timedeltas between each target frame and zero time.
+        self.target_timedeltas = self.temporal_resolution * (
+            np.arange(num_target_frames) + 1
+        )
+
+        # Specify data source zarr and select the time range that will be
+        # used to form tasks.
+        zarr_path = os.path.join(base_path, zarr_name)
+        data_zarr = xr.open_zarr(os.path.join(zarr_path, zarr_name))
+        self.data_zarr = data_zarr.sel(time=slice(start_date, end_date))
+
     def __len__(self) -> int:
-        return len(self.gridded_weather_dataset) - 1
+        # Trailing time interval that is not enough to form a full task
+        # and will be discarded.
+        trailing_time_interval = (
+            self.start_date - self.end_date
+        ) % self.single_task_time_window
+
+        # Return the number of full tasks that can be formed with the
+        # parameters specified for the task.
+        return int(
+            (self.end_date - self.start_date - trailing_time_interval)
+            // self.temporal_resolution
+        )
+
+    def __getitem__(self, idx: int) -> ContextTargetData:
+        zero_time = self.start_date + idx * self.temporal_resolution
+        context_times = zero_time + self.context_timedeltas
+        target_times = zero_time + self.target_timedeltas
+
+        ctx = self.data_zarr.sel(time=context_times).compute()
+        trg = self.data_zarr.sel(time=target_times).compute()
+
+        return ContextTargetData(ctx=ctx, trg=trg)
