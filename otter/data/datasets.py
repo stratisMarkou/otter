@@ -6,8 +6,6 @@ import numpy as np
 import xarray as xr
 from torch.utils.data import Dataset
 
-GriddedWeatherData: type[xr.Dataset] = xr.Dataset
-
 
 @dataclass
 class GriddedWeatherTaskData:
