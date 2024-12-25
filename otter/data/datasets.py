@@ -47,6 +47,13 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
             temporal_resolution_hours, "h"
         )
 
+        # First zero-time of the collection of tasks. Since the tasks may have
+        # more than one context frame, the first zero-time is not the same as
+        # the start time, as we need to account for the first context frame
+        self.first_zero_time = self.start_date + self.temporal_resolution * (
+            num_context_frames - 1
+        )
+
         # Time window spanned by a single task, including context and
         # target frames. For example, if the temporal resolution is 6 hours,
         # the number of context frames is 3 and the number of target frames
@@ -69,8 +76,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         # Specify data source zarr and select the time range that will be
         # used to form tasks.
-        zarr_path = os.path.join(base_path, zarr_name)
-        data_zarr = xr.open_zarr(os.path.join(zarr_path, zarr_name))
+        data_zarr = xr.open_zarr(os.path.join(base_path, zarr_name))
         self.data_zarr = data_zarr.sel(time=slice(start_date, end_date))
 
     def __len__(self) -> int:
@@ -88,7 +94,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         )
 
     def __getitem__(self, idx: int) -> ContextTargetData:
-        zero_time = self.start_date + idx * self.temporal_resolution
+        zero_time = self.first_zero_time + idx * self.temporal_resolution
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
