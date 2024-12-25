@@ -14,11 +14,10 @@ class ContextTargetData:
 
 
 def collate_batch_wise(batch: List[ContextTargetData]) -> ContextTargetData:
-    result = ContextTargetData(
+    return ContextTargetData(
         ctx=xr.concat([example.ctx for example in batch], dim="batch"),
         trg=xr.concat([example.trg for example in batch], dim="batch"),
     )
-    return result
 
 
 class GriddedWeatherTask(Dataset[ContextTargetData]):
