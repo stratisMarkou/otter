@@ -14,10 +14,11 @@ class ContextTargetData:
 
 
 def collate_batch_wise(batch: List[ContextTargetData]) -> ContextTargetData:
-    return ContextTargetData(
+    result = ContextTargetData(
         ctx=xr.concat([example.ctx for example in batch], dim="batch"),
         trg=xr.concat([example.trg for example in batch], dim="batch"),
     )
+    return result
 
 
 class GriddedWeatherTask(Dataset[ContextTargetData]):
@@ -98,7 +99,11 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
-        ctx = self.data_zarr.sel(time=context_times).compute()
-        trg = self.data_zarr.sel(time=target_times).compute()
+        ctx = self.data_zarr.sel(time=context_times)
+        trg = self.data_zarr.sel(time=target_times)
 
-        return ContextTargetData(ctx=ctx, trg=trg)
+        # Remove time dimension from coordinates, but keep it as a variable
+        ctx = ctx.reset_index(["time"]).reset_coords("time", drop=True)
+        trg = trg.reset_index(["time"]).reset_coords("time", drop=True)
+
+        return ContextTargetData(ctx=ctx.compute(), trg=trg.compute())
