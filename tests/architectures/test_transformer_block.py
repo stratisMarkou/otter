@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from otter.models.architectures.transformer import TransformerBlock
+from otter.models.architectures.transformer_blocks import TransformerBlock
 
 
 # Tests that the forward pass of the transformer block runs without error for

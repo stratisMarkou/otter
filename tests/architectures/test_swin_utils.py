@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from otter.models.architectures.swin import (
+from otter.models.architectures.transformer_blocks import (
     combine_windows,
     extract_windows,
     shift_horizontally_and_vertically,
