@@ -3,6 +3,7 @@ from torch import nn
 
 from otter.models.architectures.utils import conv_channel_last
 
+
 class ImageTokeniser(nn.Module):
 
     def __init__(
