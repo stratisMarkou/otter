@@ -1,3 +1,5 @@
+from typing import List
+
 import pytest
 import torch
 
@@ -25,7 +27,7 @@ def test_swin_transformer(
     token_dim: int,
     patch_size: int,
     window_size: int,
-    num_blocks_per_stage: list,
+    num_blocks_per_stage: List[int],
 ) -> None:
 
     batch_dim = 2
