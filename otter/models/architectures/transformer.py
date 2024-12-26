@@ -6,6 +6,7 @@ from torch import nn
 from otter.models.architectures.embeddings import PositionEmbedding
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import SwinTransformerBlock
+from otter.models.architectures.utils import conv_channel_last
 
 
 class PatchConv2d(nn.Module):
@@ -19,7 +20,8 @@ class PatchConv2d(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
+        out: torch.Tensor = self.conv(x)
+        return out
 
 
 class PatchConvTranspose2d(nn.Module):
@@ -33,7 +35,8 @@ class PatchConvTranspose2d(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.transpose_conv(x)
+        out: torch.Tensor = self.transpose_conv(x)
+        return out
 
 
 class SwinTransformer(nn.Module):
@@ -138,4 +141,4 @@ class SwinTransformer(nn.Module):
             x = up_swin_stage(x)
             x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
 
-        return self.final_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+        return conv_channel_last(self.final_conv, x)
