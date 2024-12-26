@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+from otter.models.architectures.utils import conv_channel_last
 
 class ImageTokeniser(nn.Module):
 
@@ -45,4 +46,4 @@ class ImageTokeniser(nn.Module):
             f"corresponding kernel dims, found {self.conv.kernel_size}."
         )
 
-        return self.conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+        return conv_channel_last(self.conv, x)
