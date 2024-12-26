@@ -19,8 +19,12 @@ def extract_windows(x: torch.Tensor, window_size: int) -> torch.Tensor:
     B, H, W, D = x.shape
     S = window_size
 
-    assert H % S == 0, f"Height {H} must be divisible by window size {S}"
-    assert W % S == 0, f"Width {W} must be divisible by window size {S}"
+    assert (
+        H % S == 0
+    ), f"Height {H} must be divisible by window size {S} ({x.shape=})"
+    assert (
+        W % S == 0
+    ), f"Width {W} must be divisible by window size {S} ({x.shape=})"
 
     x = torch.reshape(x, [B, H // S, S, W // S, S, D])
     x = torch.permute(x, [0, 1, 3, 2, 4, 5])  # (B, H//S, W//S, S, S, D)
@@ -133,6 +137,7 @@ class SwinTransformerBlock(torch.nn.Module):
     ):
 
         super().__init__()
+        self.token_dim = token_dim
 
         self.first_blocks = torch.nn.ModuleList(
             [
@@ -160,7 +165,7 @@ class SwinTransformerBlock(torch.nn.Module):
 
         self.window_size = window_size
 
-    def call(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the Swin Transformer block to input tokens `x`.
 
         Arguments:

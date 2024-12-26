@@ -9,7 +9,7 @@ class PositionEmbedding(nn.Module):
         token_dimension: int,
         height: int,
         width: int,
-        init_scale: float,
+        init_scale: float = 1e-1,
     ):
         super().__init__()
 
@@ -18,7 +18,7 @@ class PositionEmbedding(nn.Module):
             requires_grad=True,
         )
 
-    def call(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Add position embeddings to input tensor.
 
         Arguments:
