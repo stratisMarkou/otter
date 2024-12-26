@@ -163,3 +163,4 @@ cython_debug/
 
 _data
 _log
+_scratch

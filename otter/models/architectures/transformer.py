@@ -1,47 +1,144 @@
+from typing import List
+
 import torch
 from torch import nn
 
-from otter.models.architectures.attention import MultiHeadSelfAttention
-from otter.models.architectures.mlp import MLP
+from otter.models.architectures.embeddings import PositionEmbedding
+from otter.models.architectures.tokeniser import ImageTokeniser
+from otter.models.architectures.transformer_blocks import SwinTransformerBlock
+from otter.models.architectures.utils import conv_channel_last
 
 
-class TransformerBlock(nn.Module):
+class PatchConv2d(nn.Module):
+    def __init__(self, in_channels: int):
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=2 * in_channels,
+            kernel_size=2,
+            stride=2,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out: torch.Tensor = self.conv(x)
+        return out
+
+
+class PatchConvTranspose2d(nn.Module):
+    def __init__(self, out_channels: int):
+        super().__init__()
+        self.transpose_conv = nn.ConvTranspose2d(
+            in_channels=2 * out_channels,
+            out_channels=out_channels,
+            kernel_size=2,
+            stride=2,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out: torch.Tensor = self.transpose_conv(x)
+        return out
+
+
+class SwinTransformer(nn.Module):
+
     def __init__(
         self,
-        token_dim: int,
+        tokeniser: ImageTokeniser,
+        embedding: PositionEmbedding,
+        token_dimension: int,
+        output_dimension: int,
+        window_size: int,
         mlp_num_hidden: int,
         mlp_num_layers: int,
         num_heads: int,
+        num_blocks_per_stage: List[int],
     ):
         super().__init__()
 
-        self.mhsa = MultiHeadSelfAttention(
-            token_dim=token_dim,
-            projection_dim=token_dim,
-            num_heads=num_heads,
+        assert len(num_blocks_per_stage) > 0
+
+        down_swin_stages = []
+        up_swin_stages = []
+        patch_downsampling_layers = []
+        patch_upsampling_layers = []
+
+        current_token_dimension = token_dimension
+        for num_blocks in num_blocks_per_stage:
+            patch_downsampling_layers.append(
+                PatchConv2d(in_channels=current_token_dimension)
+            )
+            current_token_dimension = current_token_dimension * 2
+
+            down_swin_stages.append(
+                SwinTransformerBlock(
+                    token_dim=current_token_dimension,
+                    mlp_num_hidden=mlp_num_hidden,
+                    mlp_num_layers=mlp_num_layers,
+                    num_heads=num_heads,
+                    num_block_pairs=num_blocks,
+                    window_size=window_size,
+                )
+            )
+
+        for num_blocks in num_blocks_per_stage[::-1]:
+            up_swin_stages.append(
+                SwinTransformerBlock(
+                    token_dim=current_token_dimension,
+                    mlp_num_hidden=mlp_num_hidden,
+                    mlp_num_layers=mlp_num_layers,
+                    num_heads=num_heads,
+                    num_block_pairs=num_blocks,
+                    window_size=window_size,
+                )
+            )
+            patch_upsampling_layers.append(
+                PatchConvTranspose2d(out_channels=current_token_dimension // 2)
+            )
+            current_token_dimension = current_token_dimension // 2
+
+        self.down_swin_stages = torch.nn.ModuleList(down_swin_stages)
+        self.up_swin_stages = torch.nn.ModuleList(up_swin_stages)
+        self.patch_downsampling_layers = torch.nn.ModuleList(
+            patch_downsampling_layers
+        )
+        self.patch_upsampling_layers = torch.nn.ModuleList(
+            patch_upsampling_layers
         )
 
-        self.mlp = MLP(
-            in_features=token_dim,
-            hidden_features=mlp_num_hidden,
-            num_hidden_layers=mlp_num_layers,
-            output_features=token_dim,
+        self.tokeniser = tokeniser
+        self.embedding = embedding
+        self.final_conv = nn.ConvTranspose2d(
+            in_channels=token_dimension,
+            out_channels=output_dimension,
+            stride=(tokeniser.patch_size, tokeniser.patch_size),
+            kernel_size=(tokeniser.patch_size, tokeniser.patch_size),
         )
-
-        self.ln1 = nn.LayerNorm(token_dim)
-        self.ln2 = nn.LayerNorm(token_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Apply the transformer block to input tokens `x`.
+        """Apply vision transformer to batch of images.
 
-        Args:
-            x: input tensor of shape (B, N, D)
+        Arguments:
+            x: input image tensor of shape (B, H, W, C)
 
         Returns:
-            output tensor of shape (B, N, D)
+            output logits tensor of shape (B, H, W, C)
         """
-        x = x + self.mhsa(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
 
-        return x
+        x = self.tokeniser(x)
+        x = self.embedding(x)
+
+        for downsampling_conv, down_swin_stage in zip(
+            self.patch_downsampling_layers,
+            self.down_swin_stages,
+        ):
+            x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            x = down_swin_stage(x)
+
+        for upsampling_conv, up_swin_stage in zip(
+            self.patch_upsampling_layers,
+            self.up_swin_stages,
+        ):
+            x = up_swin_stage(x)
+            x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+
+        return conv_channel_last(self.final_conv, x)

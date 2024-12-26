@@ -1,8 +1,10 @@
 from typing import Tuple
 
 import torch
+from torch import nn
 
-from otter.models.architectures.transformer import TransformerBlock
+from otter.models.architectures.attention import MultiHeadSelfAttention
+from otter.models.architectures.mlp import MLP
 
 
 def extract_windows(x: torch.Tensor, window_size: int) -> torch.Tensor:
@@ -17,8 +19,12 @@ def extract_windows(x: torch.Tensor, window_size: int) -> torch.Tensor:
     B, H, W, D = x.shape
     S = window_size
 
-    assert H % S == 0, f"Height {H} must be divisible by window size {S}"
-    assert W % S == 0, f"Width {W} must be divisible by window size {S}"
+    assert (
+        H % S == 0
+    ), f"Height {H} must be divisible by window size {S} ({x.shape=})"
+    assert (
+        W % S == 0
+    ), f"Width {W} must be divisible by window size {S} ({x.shape=})"
 
     x = torch.reshape(x, [B, H // S, S, W // S, S, D])
     x = torch.permute(x, [0, 1, 3, 2, 4, 5])  # (B, H//S, W//S, S, S, D)
@@ -77,6 +83,48 @@ def shift_horizontally_and_vertically(
     return torch.roll(torch.roll(x, shift, dims=1), shift, dims=2)
 
 
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        token_dim: int,
+        mlp_num_hidden: int,
+        mlp_num_layers: int,
+        num_heads: int,
+    ):
+        super().__init__()
+
+        self.mhsa = MultiHeadSelfAttention(
+            token_dim=token_dim,
+            projection_dim=token_dim,
+            num_heads=num_heads,
+        )
+
+        self.mlp = MLP(
+            in_features=token_dim,
+            hidden_features=mlp_num_hidden,
+            num_hidden_layers=mlp_num_layers,
+            output_features=token_dim,
+        )
+
+        self.ln1 = nn.LayerNorm(token_dim)
+        self.ln2 = nn.LayerNorm(token_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply the transformer block to input tokens `x`.
+
+        Args:
+            x: input tensor of shape (B, N, D)
+
+        Returns:
+            output tensor of shape (B, N, D)
+        """
+        x = x + self.mhsa(self.ln1(x))
+        x = x + self.mlp(self.ln2(x))
+
+        return x
+
+
 class SwinTransformerBlock(torch.nn.Module):
     def __init__(
         self,
@@ -89,6 +137,7 @@ class SwinTransformerBlock(torch.nn.Module):
     ):
 
         super().__init__()
+        self.token_dim = token_dim
 
         self.first_blocks = torch.nn.ModuleList(
             [
@@ -116,7 +165,7 @@ class SwinTransformerBlock(torch.nn.Module):
 
         self.window_size = window_size
 
-    def call(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the Swin Transformer block to input tokens `x`.
 
         Arguments:

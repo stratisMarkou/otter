@@ -2,10 +2,12 @@ import argparse
 import logging
 import os
 import shutil
+import sys
 
 import xarray as xr
 
-from .utils import (
+sys.path.append(".")
+from .utils import (  # noqa: E402
     ALL_GRID_VARIABLE_LEVELS,
     ALL_GRID_VARIABLE_NAMES,
 )
