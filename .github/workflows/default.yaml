@@ -37,7 +37,7 @@ jobs:
           conda info
           conda list
 
-      - run: black --check otter tests data setup.py
-      - run: flake8 otter tests data setup.py
-      - run: mypy --disallow-untyped-defs --strict otter tests data
-      - run: pytest tests
+      - run: black --check otter tests setup.py
+      - run: flake8 otter tests setup.py
+      - run: mypy --disallow-untyped-defs --strict otter tests
+      - run: OTTER_RUN_ALL_TESTS=true pytest tests
