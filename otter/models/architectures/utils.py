@@ -10,9 +10,10 @@ def conv_channel_last(conv: nn.Module, x: torch.Tensor) -> torch.Tensor:
 def interpolate_bilinear_channel_last(
     x: torch.Tensor, height: int, width: int
 ) -> torch.Tensor:
-    return torch.nn.functional.interpolate(
+    out: torch.Tensor = torch.nn.functional.interpolate(
         x.permute(0, 3, 1, 2),
         size=(height, width),
         mode="bilinear",
         align_corners=False,
     ).permute(0, 2, 3, 1)
+    return out
