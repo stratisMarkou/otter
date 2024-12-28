@@ -27,4 +27,5 @@ class PositionEmbedding(nn.Module):
         Returns:
             output tensor of shape (B, H, W, D)
         """
+        breakpoint()
         return x + self.embeddings[None, :, :, :]
