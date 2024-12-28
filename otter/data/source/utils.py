@@ -2,7 +2,7 @@ import logging
 import os
 import shutil
 
-import xarray as xr  # type: ignore
+import xarray as xr
 
 ALL_GRID_SURFACE_DYNAMIC_VARIABLES = [
     "2m_temperature",
