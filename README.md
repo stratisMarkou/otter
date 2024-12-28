@@ -1,8 +1,14 @@
 # Otter
 
 
+__Functionality to implement:__
+- [ ] Implement losses.
+- [ ] Input and output normalisation (as pure lists in repo).
+- [ ] Wrapper for rollouts (should handle residuals etc).
+- [ ] Evaluation metrics.
+- [ ] Wandb logging.
+
 __Tests to implement:__
-Below is a list of tests to implement for the codebase.
 
 - [x] Test that forward pass through small transformer architecture works.
 - [ ] Extend existing tests to ensure all parameters are receiving gradients. (How do we get a list of parameters that should receive gradients though?)
