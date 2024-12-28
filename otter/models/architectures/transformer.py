@@ -6,7 +6,10 @@ from torch import nn
 from otter.models.architectures.embeddings import PositionEmbedding
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import SwinTransformerBlock
-from otter.models.architectures.utils import conv_channel_last
+from otter.models.architectures.utils import (
+    conv_channel_last,
+    interpolate_bilinear_channel_last,
+)
 
 
 class PatchConv2d(nn.Module):
@@ -138,14 +141,12 @@ class SwinTransformer(nn.Module):
         Returns:
             output logits tensor of shape (B, H, W, C)
         """
+        _, original_height, original_width, _ = x.shape
 
         # Interpolate image to target dimensions
-        x = torch.nn.functional.interpolate(
-            x.permute(0, 3, 1, 2),
-            size=(self.height, self.width),
-            mode="bilinear",
-            align_corners=False,
-        ).permute(0, 2, 3, 1)
+        x = interpolate_bilinear_channel_last(
+            x, height=self.height, width=self.width
+        )
 
         x = self.tokeniser(x)
         x = self.embedding(x)
@@ -164,4 +165,9 @@ class SwinTransformer(nn.Module):
             x = up_swin_stage(x)
             x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
 
-        return conv_channel_last(self.final_conv, x)
+        x = conv_channel_last(self.final_conv, x)
+
+        # Interpolate image to original dimensions
+        return interpolate_bilinear_channel_last(
+            x, height=original_height, width=original_width
+        )

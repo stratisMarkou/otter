@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from otter.data.download.utils import (
+from otter.data.source.utils import (
     DATASETS,
     download_zarr_and_store,
 )
