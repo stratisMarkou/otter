@@ -3,8 +3,6 @@ from typing import List
 import pytest
 import torch
 
-from otter.models.architectures.embeddings import PositionEmbedding
-from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer import SwinTransformer
 
 
@@ -35,23 +33,11 @@ def test_swin_transformer(
     num_mlp_layers = 2
     num_heads = 3
 
-    tokeniser = ImageTokeniser(
-        in_channels=grid_channel_dim,
-        token_dimension=token_dim,
-        patch_size=patch_size,
-    )
-
-    embedding_height = grid_height // patch_size
-    embedding_width = grid_width // patch_size
-    embedding = PositionEmbedding(
-        token_dimension=token_dim,
-        height=embedding_height,
-        width=embedding_width,
-    )
-
     swin_transformer = SwinTransformer(
-        tokeniser=tokeniser,
-        embedding=embedding,
+        in_channels=grid_channel_dim,
+        height=grid_height,
+        width=grid_width,
+        patch_size=patch_size,
         token_dimension=token_dim,
         output_dimension=grid_channel_dim,
         window_size=window_size,

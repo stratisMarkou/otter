@@ -43,14 +43,16 @@ class SwinTransformer(nn.Module):
 
     def __init__(
         self,
-        tokeniser: ImageTokeniser,
-        embedding: PositionEmbedding,
         token_dimension: int,
         output_dimension: int,
         window_size: int,
         mlp_num_hidden: int,
         mlp_num_layers: int,
         num_heads: int,
+        in_channels: int,
+        height: int,
+        width: int,
+        patch_size: int,
         num_blocks_per_stage: List[int],
     ):
         super().__init__()
@@ -105,14 +107,27 @@ class SwinTransformer(nn.Module):
             patch_upsampling_layers
         )
 
-        self.tokeniser = tokeniser
-        self.embedding = embedding
+        self.tokeniser = ImageTokeniser(
+            in_channels=in_channels,
+            token_dimension=token_dimension,
+            patch_size=patch_size,
+        )
+
+        self.embedding = PositionEmbedding(
+            token_dimension=token_dimension,
+            height=height // patch_size,
+            width=width // patch_size,
+        )
+
         self.final_conv = nn.ConvTranspose2d(
             in_channels=token_dimension,
             out_channels=output_dimension,
-            stride=(tokeniser.patch_size, tokeniser.patch_size),
-            kernel_size=(tokeniser.patch_size, tokeniser.patch_size),
+            stride=(patch_size, patch_size),
+            kernel_size=(patch_size, patch_size),
         )
+
+        self.width = width
+        self.height = height
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply vision transformer to batch of images.
@@ -123,6 +138,14 @@ class SwinTransformer(nn.Module):
         Returns:
             output logits tensor of shape (B, H, W, C)
         """
+
+        # Interpolate image to target dimensions
+        x = torch.nn.functional.interpolate(
+            x.permute(0, 3, 1, 2),
+            size=(self.height, self.width),
+            mode="bilinear",
+            align_corners=False,
+        ).permute(0, 2, 3, 1)
 
         x = self.tokeniser(x)
         x = self.embedding(x)
