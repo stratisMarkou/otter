@@ -1,10 +1,29 @@
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import (
+    List,
+    Sequence,
+)
 
 import numpy as np
 import xarray as xr
 from torch.utils.data import Dataset
+
+from otter.data.source.utils import (
+    ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+    ALL_GRID_STATIC_VARIABLES,
+    ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+)
+
+ALL_CTX_VARIABLES = (
+    ALL_GRID_SURFACE_DYNAMIC_VARIABLES
+    + ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES
+    + ALL_GRID_STATIC_VARIABLES
+)
+
+ALL_TRG_VARIABLES = (
+    ALL_GRID_SURFACE_DYNAMIC_VARIABLES + ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES
+)
 
 
 @dataclass
@@ -30,6 +49,8 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         num_context_frames: int,
         num_target_frames: int,
         temporal_resolution_hours: int,
+        ctx_variables: Sequence[str] | None = None,
+        trg_variables: Sequence[str] | None = None,
         base_path: str = "_data",
     ):
         super().__init__()
@@ -81,6 +102,10 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         )
         self.data_zarr = data_zarr.sel(time=slice(start_date, end_date))
 
+        # Context and target variable names
+        self.ctx_variables = ctx_variables or ALL_CTX_VARIABLES
+        self.trg_variables = trg_variables or ALL_TRG_VARIABLES
+
     def __len__(self) -> int:
         # Trailing time interval that is not enough to form a full task
         # and will be discarded.
@@ -100,15 +125,16 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
-        ctx = self.data_zarr.sel(time=context_times)
+        ctx = self.data_zarr.sel(time=context_times)[self.ctx_variables]
         ctx_time = ctx.time.values
-        trg = self.data_zarr.sel(time=target_times)
+        trg = self.data_zarr.sel(time=target_times)[self.trg_variables]
         trg_time = trg.time.values
 
         # Remove time dimension from coordinates, but keep it as a variable
         ctx = ctx.reset_index(["time"]).reset_coords("time", drop=True)
         ctx = ctx.rename({"time": "time_index"})
         ctx = ctx.assign(time=(("time_index",), ctx_time))
+
         trg = trg.reset_index(["time"]).reset_coords("time", drop=True)
         trg = trg.rename({"time": "time_index"})
         trg = trg.assign(time=(("time_index",), trg_time))
