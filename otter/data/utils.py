@@ -29,7 +29,7 @@ def split_into_different_variables_along_dim(
     return dataset
 
 
-def stack_dataset_variable_and_levels(dataset: xr.Dataset) -> xr.Dataset:
+def stack_dataset_variable_and_levels(dataset: xr.Dataset) -> xr.DataArray:
     dataset = dataset.drop_vars(["time"])
     # Broadcast all variables which do not have time_index as a coordinate
     # to have time_index as a coordinate, repeating the variable along the
