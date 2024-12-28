@@ -101,10 +101,16 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         target_times = zero_time + self.target_timedeltas
 
         ctx = self.data_zarr.sel(time=context_times)
+        ctx_time = ctx.time.values
         trg = self.data_zarr.sel(time=target_times)
+        trg_time = trg.time.values
 
         # Remove time dimension from coordinates, but keep it as a variable
         ctx = ctx.reset_index(["time"]).reset_coords("time", drop=True)
+        ctx = ctx.rename({"time": "time_index"})
+        ctx = ctx.assign(time=(("time_index",), ctx_time))
         trg = trg.reset_index(["time"]).reset_coords("time", drop=True)
+        trg = trg.rename({"time": "time_index"})
+        trg = trg.assign(time=(("time_index",), trg_time))
 
-        return ContextTargetData(ctx=ctx.compute(), trg=trg.compute())
+        return ContextTargetData(ctx=ctx, trg=trg)
