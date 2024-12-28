@@ -165,7 +165,7 @@ def compute_normalisation_stats_from_zarr(
     # Seed the random number generator for reproducibility.
     np.random.seed(SUBSAMPLING_SEED)
 
-    dataset = xr.open_zarr(f"{repo_dir}/_data/{zarr_name}.zarr")
+    dataset = xr.open_zarr(f"{repo_dir}/_data/{zarr_name}.zarr", chunks=None)
     dataset = dataset.sel(time=slice(start_date, end_date))
 
     stats: Dict[str, NormalisationStatisticType] = dict()
