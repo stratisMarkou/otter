@@ -211,7 +211,7 @@ def compute_normalisation_stats_from_zarr(
 def main() -> None:
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_time_frames", type=int, default=512)
+    parser.add_argument("--num_time_frames", type=int, default=2048)
     parser.add_argument("--repo_dir", type=str)
     parser.add_argument("--start_date", type=str, default="1979-01-01")
     parser.add_argument("--end_date", type=str, default="2022-12-31")
