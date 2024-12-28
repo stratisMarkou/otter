@@ -47,5 +47,4 @@ class ImageTokeniser(nn.Module):
             f"corresponding kernel dims, found {self.conv.kernel_size}."
         )
 
-        breakpoint()
         return conv_channel_last(self.conv, x)
