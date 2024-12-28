@@ -2,6 +2,7 @@
 
 
 __Functionality to implement:__
+- [ ] Implement losses.
 - [ ] Input and output normalisation (as pure lists in repo).
 - [ ] Wrapper for rollouts (should handle residuals etc).
 - [ ] Evaluation metrics.
