@@ -43,13 +43,15 @@ class Mean(NormalisationStatistic):
         self.sufficient_statistics = dict(
             sum=single_example.sum(dim=["latitude", "longitude"]),
         )
-        self.num_examples = 1
+        self.num_examples = single_example.notnull().sum(
+            dim=["latitude", "longitude"]
+        )
 
     def update(self, x: xr.Dataset) -> Mean:
         self.sufficient_statistics["sum"] += x.sum(
             dim=["latitude", "longitude"]
         )
-        self.num_examples += 1
+        self.num_examples += x.notnull().sum(dim=["latitude", "longitude"])
         return self
 
     def get_stat(self) -> xr.Dataset:
@@ -65,7 +67,9 @@ class StandardDeviation(NormalisationStatistic):
             ),
             sum=single_example.sum(dim=["latitude", "longitude"]),
         )
-        self.num_examples = 1
+        self.num_examples = single_example.notnull().sum(
+            dim=["latitude", "longitude"]
+        )
 
     def update(self, x: xr.Dataset) -> StandardDeviation:
         self.sufficient_statistics["sum_of_squares"] += (x**2).sum(
@@ -74,7 +78,7 @@ class StandardDeviation(NormalisationStatistic):
         self.sufficient_statistics["sum"] += x.sum(
             dim=["latitude", "longitude"]
         )
-        self.num_examples += 1
+        self.num_examples += x.notnull().sum(dim=["latitude", "longitude"])
         return self
 
     def get_stat(self) -> xr.Dataset:
@@ -138,6 +142,7 @@ def compute_normalisation_stats_from_zarr(
     start_date: str,
     end_date: str,
     save_results: bool = False,
+    subsampling_seed: int = SUBSAMPLING_SEED,
 ) -> None:
     """Compute normalisaton statistics from a zarr dataset.
 
@@ -159,11 +164,11 @@ def compute_normalisation_stats_from_zarr(
         start_date: Start date of the dataset.
         end_date: End date of the dataset.
         base_path: Base path of the zarr dataset.
-
+        subsampling_seed: Seed for subsampling the dataset.
     """
 
     # Seed the random number generator for reproducibility.
-    np.random.seed(SUBSAMPLING_SEED)
+    np.random.seed(subsampling_seed)
 
     dataset = xr.open_zarr(f"{repo_dir}/_data/{zarr_name}.zarr", chunks=None)
     dataset = dataset.sel(time=slice(start_date, end_date))
@@ -195,6 +200,9 @@ def compute_normalisation_stats_from_zarr(
     if save_results:
         for stat in stats:
             stat_to_save = stats[stat].get_stat()
+            # Assert there's no nans in the statistics
+            for var in stat_to_save.data_vars:
+                assert not stat_to_save[var].isnull().any().values
             stat_to_save.to_netcdf(
                 f"{repo_dir}/otter/data/normalisation/stats/"
                 f"{zarr_name}_{stat}.nc"
@@ -202,6 +210,9 @@ def compute_normalisation_stats_from_zarr(
 
         for stat in diff_stats:
             stat_to_save = diff_stats[stat].get_stat()
+            # Assert there's no nans in the statistics
+            for var in stat_to_save.data_vars:
+                assert not stat_to_save[var].isnull().any().values
             stat_to_save.to_netcdf(
                 f"{repo_dir}/otter/data/normalisation/stats/"
                 f"{zarr_name}_diff_{stat}.nc"
