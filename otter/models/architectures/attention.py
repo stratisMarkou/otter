@@ -5,7 +5,6 @@ from torch import nn
 class SelfAttention(nn.Module):
     def __init__(self, token_dim: int, projection_dim: int):
         super().__init__()
-        self.projection_dim = projection_dim
         self.Uk = nn.Linear(token_dim, projection_dim, bias=False)
         self.Uq = nn.Linear(token_dim, projection_dim, bias=False)
 
@@ -57,22 +56,21 @@ class MultiHeadSelfAttention(nn.Module):
     def __init__(
         self,
         token_dim: int,
-        projection_dim: int,
         num_heads: int,
     ):
         super().__init__()
-        self.self_attention = nn.ModuleList(
+        if token_dim % num_heads != 0:
+            raise ValueError(
+                f"{token_dim=} must be divisible by {num_heads=}."
+            )
+        self.num_heads = num_heads
+        self.heads = nn.ModuleList(
             [
-                SelfAttention(token_dim, projection_dim)
+                SelfAttention(token_dim, token_dim // num_heads)
                 for _ in range(num_heads)
             ]
         )
-        self.linear = nn.ModuleList(
-            [
-                nn.Linear(token_dim, token_dim, bias=False)
-                for _ in range(num_heads)
-            ]
-        )
+        self.linear = nn.Linear(token_dim, token_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -84,11 +82,6 @@ class MultiHeadSelfAttention(nn.Module):
         Returns:
             output sequence of tokens, shape (B, N, D)
         """
-        heads = [
-            linear(self_attention(x))
-            for self_attention, linear in zip(self.self_attention, self.linear)
-        ]
-        assert len(heads) == len(self.self_attention) == len(self.linear)
-        assert all(h.shape == x.shape for h in heads)
 
-        return torch.mean(torch.stack(heads, dim=-1), dim=-1)
+        x = torch.stack([head(x) for head in self.heads], dim=-1)
+        return self.linear(torch.mean(x, dim=-1))  # type: ignore

@@ -12,10 +12,10 @@ from otter.models.architectures.transformer import SwinTransformer
     "grid_width, grid_height, grid_channel_dim, token_dim, patch_size, "
     "window_size, num_blocks_per_stage",
     [
-        (64, 32, 7, 11, 2, 2, [1, 1]),
-        (64, 32, 7, 11, 2, 4, [2, 2]),
-        (64, 32, 9, 15, 4, 2, [1, 1]),
-        (128, 64, 9, 15, 4, 4, [2, 2]),
+        (64, 32, 7, 12, 2, 2, [1, 1]),
+        (64, 32, 7, 12, 2, 4, [2, 2]),
+        (64, 32, 9, 16, 4, 2, [1, 1]),
+        (128, 64, 9, 16, 4, 4, [2, 2]),
     ],
 )
 def test_swin_transformer(
@@ -31,7 +31,7 @@ def test_swin_transformer(
     batch_dim = 2
     mlp_num_hidden = 32
     num_mlp_layers = 2
-    num_heads = 3
+    num_heads = 4
 
     swin_transformer = SwinTransformer(
         in_channels=grid_channel_dim,
