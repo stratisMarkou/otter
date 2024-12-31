@@ -95,7 +95,6 @@ class TransformerBlock(nn.Module):
 
         self.mhsa = MultiHeadSelfAttention(
             token_dim=token_dim,
-            projection_dim=token_dim,
             num_heads=num_heads,
         )
 
