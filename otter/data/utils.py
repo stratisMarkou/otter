@@ -29,18 +29,15 @@ def split_into_different_variables_along_dim(
     return dataset
 
 
-def stack_dataset_variable_and_levels(dataset: xr.Dataset) -> xr.DataArray:
+def stack_dataset_variable_and_levels(
+    dataset: xr.Dataset,
+    name: str = "stacked",
+) -> xr.DataArray:
     dataset = dataset.drop_vars(["time"])
-    # Broadcast all variables which do not have time_index as a coordinate
-    # to have time_index as a coordinate, repeating the variable along the
-    # time_index dimension.
-    for variable in dataset.data_vars:
-        if "time_index" not in dataset[variable].dims:
-            dataset[variable] = dataset[variable].expand_dims(
-                {"time_index": dataset.time_index}
-            )
 
-    return dataset.to_stacked_array(
-        new_dim="variable_and_level",
-        sample_dims=("batch", "latitude", "longitude"),
-    )
+    # Stack all variables and levels into a single dimension. By default,
+    # xarray stacks the variables across the first dimension, so we then
+    # reshape the dimensions to have the variables and levels as the last
+    # dimension.
+    data_array = dataset.to_dataarray(dim="variable_and_level", name=name)
+    return data_array.transpose(*data_array.dims[1:], data_array.dims[0])
