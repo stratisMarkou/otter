@@ -158,7 +158,5 @@ def stack_dataset_variable_and_levels(
 def unstack_data_array_variable_and_levels(
     data_array: xr.DataArray,
 ) -> xr.Dataset:
-
     # Unstack the variables and levels from the last dimension to the first
-    dataset = data_array.to_dataset(dim="variable_and_level")
-    return dataset.transpose(data_array.dims[-1], *data_array.dims[:-1])
+    return data_array.to_dataset(dim="variable_and_level")
