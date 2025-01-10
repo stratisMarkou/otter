@@ -29,7 +29,7 @@ class SelfAttention(nn.Module):
         assert dot_product.shape == (B, N, N)
 
         self_attention_weights = torch.nn.functional.softmax(
-            dot_product, dim=1
+            dot_product, dim=2
         )
         assert self_attention_weights.shape == (B, N, N)
 

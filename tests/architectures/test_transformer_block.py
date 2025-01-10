@@ -3,7 +3,30 @@
 import pytest
 import torch
 
-from otter.models.architectures.transformer_blocks import TransformerBlock
+from otter.models.architectures.transformer_blocks import (
+    TransformerBlock,
+    combine_windows,
+    extract_windows,
+)
+
+
+# Tests that combine_windows is the inverse of the extract_windows.
+@pytest.mark.parametrize(
+    "batch_dim, height, width, channels, window_size",
+    [
+        (7, 4, 4, 3, 1),
+        (7, 4, 4, 3, 2),
+        (7, 8, 8, 3, 1),
+        (7, 8, 8, 3, 4),
+    ],
+)
+def test_extract_and_combine_windows(
+    batch_dim: int, height: int, width: int, channels: int, window_size: int
+) -> None:
+    x = torch.rand((batch_dim, height, width, channels))
+    extracted_windows = extract_windows(x, window_size)
+    combined_windows = combine_windows(extracted_windows, x.shape, window_size)
+    assert torch.allclose(x, combined_windows)
 
 
 # Tests that the forward pass of the transformer block runs without error for

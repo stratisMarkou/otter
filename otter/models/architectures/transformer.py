@@ -150,20 +150,24 @@ class SwinTransformer(nn.Module):
 
         x = self.tokeniser(x)
         x = self.embedding(x)
+        skips = []
 
         for downsampling_conv, down_swin_stage in zip(
             self.patch_downsampling_layers,
             self.down_swin_stages,
         ):
+            skips.append(x)
             x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
             x = down_swin_stage(x)
 
-        for upsampling_conv, up_swin_stage in zip(
+        for upsampling_conv, up_swin_stage, skip in zip(
             self.patch_upsampling_layers,
             self.up_swin_stages,
+            skips[::-1],
         ):
             x = up_swin_stage(x)
             x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            x = x + skip
 
         x = conv_channel_last(self.final_conv, x)
 

@@ -193,7 +193,7 @@ class SwinTransformerBlock(torch.nn.Module):
             x = extract_windows(x, S)  # (B*H//S*W//S, S**2, D)
             x = second_block(x)  # (B*H//S*W//S, S**2, D)
             x = combine_windows(x, original_shape, S)  # (B, H, W, D)
-            x = shift_horizontally_and_vertically(x, -S // 2)  # (B, H, W, D)
+            x = shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
 
         x = combine_windows(x, original_shape, S)  # (B, H, W, D)
 
