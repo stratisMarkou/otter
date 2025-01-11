@@ -5,8 +5,8 @@ import torch
 
 from otter.models.architectures.transformer_blocks import (
     TransformerBlock,
-    combine_windows,
-    extract_windows,
+    extract_subimages_and_fold_into_batch_dim,
+    unfold_from_batch_dim_and_combine_subimages,
 )
 
 
@@ -24,8 +24,12 @@ def test_extract_and_combine_windows(
     batch_dim: int, height: int, width: int, channels: int, window_size: int
 ) -> None:
     x = torch.rand((batch_dim, height, width, channels))
-    extracted_windows = extract_windows(x, window_size)
-    combined_windows = combine_windows(extracted_windows, x.shape, window_size)
+    extracted_windows = extract_subimages_and_fold_into_batch_dim(
+        x, window_size
+    )
+    combined_windows = unfold_from_batch_dim_and_combine_subimages(
+        extracted_windows, x.shape, window_size
+    )
     assert torch.allclose(x, combined_windows)
 
 
@@ -34,10 +38,12 @@ def test_extract_and_combine_windows(
 # number of heads, batch dimensions, and sequence lengths.
 @pytest.mark.parametrize(
     "token_dim, mlp_num_hidden, mlp_num_layers, "
-    + "num_heads, batch_dim, sequence_length",
+    + "num_heads, batch_dim, token_proj_dim_factor, sequence_length",
     [
-        (32, 64, 2, 8, 64, 128),
-        (64, 128, 4, 16, 128, 256),
+        (32, 64, 2, 8, 64, 1, 128),
+        (32, 64, 2, 8, 64, 2, 128),
+        (64, 128, 4, 16, 128, 1, 256),
+        (64, 128, 4, 16, 128, 2, 256),
     ],
 )
 def test_transformer_block(
@@ -47,12 +53,14 @@ def test_transformer_block(
     num_heads: int,
     batch_dim: int,
     sequence_length: int,
+    token_proj_dim_factor: int,
 ) -> None:
     transformer_block = TransformerBlock(
         token_dim=token_dim,
         mlp_num_hidden=mlp_num_hidden,
         mlp_num_layers=mlp_num_layers,
         num_heads=num_heads,
+        token_proj_dim_factor=token_proj_dim_factor,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y = transformer_block(x)

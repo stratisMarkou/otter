@@ -29,7 +29,8 @@ class SelfAttention(nn.Module):
         assert dot_product.shape == (B, N, N)
 
         self_attention_weights = torch.nn.functional.softmax(
-            dot_product, dim=2
+            dot_product,
+            dim=2,
         )
         assert self_attention_weights.shape == (B, N, N)
 
@@ -57,6 +58,7 @@ class MultiHeadSelfAttention(nn.Module):
         self,
         token_dim: int,
         num_heads: int,
+        divide_projection_dim_by_factor: int,
     ):
         super().__init__()
         if token_dim % num_heads != 0:
@@ -64,11 +66,20 @@ class MultiHeadSelfAttention(nn.Module):
                 f"{token_dim=} must be divisible by {num_heads=}."
             )
         self.num_heads = num_heads
+        projection_dim = token_dim // num_heads
+        projection_dim = projection_dim // divide_projection_dim_by_factor
         self.heads = nn.ModuleList(
             [
-                SelfAttention(token_dim, token_dim // num_heads)
+                SelfAttention(token_dim, projection_dim)
                 for _ in range(num_heads)
             ]
+        )
+        import logging
+
+        logging.warning(
+            f"About to initialise linear layer with {token_dim**2/1e6:.1f}M "
+            f"params.\n\t\tDo we really need linear layers in MHSA? "
+            f"The result is passed through a linear layer in the MLP anyway.\n"
         )
         self.linear = nn.Linear(token_dim, token_dim, bias=False)
 

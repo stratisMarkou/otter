@@ -68,18 +68,21 @@ class SwinTransformer(nn.Module):
         patch_upsampling_layers = []
 
         current_token_dimension = token_dimension
+        current_proj_dim_factor = 4
         for num_blocks in num_blocks_per_stage:
             patch_downsampling_layers.append(
                 PatchConv2d(in_channels=current_token_dimension)
             )
             current_token_dimension = current_token_dimension * 2
 
+            current_proj_dim_factor = current_proj_dim_factor * 2
             down_swin_stages.append(
                 SwinTransformerBlock(
                     token_dim=current_token_dimension,
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
+                    token_proj_dim_factor=current_proj_dim_factor,
                     num_block_pairs=num_blocks,
                     window_size=window_size,
                 )
@@ -92,10 +95,12 @@ class SwinTransformer(nn.Module):
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
+                    token_proj_dim_factor=current_proj_dim_factor,
                     num_block_pairs=num_blocks,
                     window_size=window_size,
                 )
             )
+            current_proj_dim_factor = current_proj_dim_factor // 2
             patch_upsampling_layers.append(
                 PatchConvTranspose2d(out_channels=current_token_dimension // 2)
             )
