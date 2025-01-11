@@ -38,7 +38,7 @@ def test_swin_transformer(
         height=grid_height,
         width=grid_width,
         patch_size=patch_size,
-        token_dimension=token_dim,
+        token_dimensions=token_dim,
         output_dimension=grid_channel_dim,
         window_size=window_size,
         mlp_num_hidden=mlp_num_hidden,

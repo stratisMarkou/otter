@@ -224,7 +224,7 @@ class SwinTransformerBlock(torch.nn.Module):
         num_heads: int,
         num_block_pairs: int,
         window_size: int,
-        token_proj_dim_factor: int,
+        token_proj_dim_factor: int = 1,
     ):
 
         super().__init__()
@@ -296,7 +296,5 @@ class SwinTransformerBlock(torch.nn.Module):
                 x, original_shape, S
             )  # (B, H, W, D)
             x = shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
-
-        # x = (x, original_shape, S)  # (B, H, W, D)
 
         return x
