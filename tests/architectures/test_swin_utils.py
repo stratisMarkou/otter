@@ -4,40 +4,44 @@ import pytest
 import torch
 
 from otter.models.architectures.transformer_blocks import (
-    combine_windows,
-    extract_windows,
+    extract_subimages_and_fold_into_batch_dim,
     shift_horizontally_and_vertically,
+    unfold_from_batch_dim_and_combine_subimages,
 )
 
 
-# Tests that combine_windows the is inverse of extract_windows.
-@pytest.mark.parametrize("window_size", [2, 4])
-def test_extract_then_combine_windows(window_size: int) -> None:
+# Tests that unfold+combine is the inverse of extract+fold.
+@pytest.mark.parametrize("subimage_size", [2, 4])
+def test_extract_then_combine_windows(subimage_size: int) -> None:
     B, H, W, D = 2, 8, 8, 64
     x = torch.rand((B, H, W, D))
-    extracted = extract_windows(x=x, window_size=window_size)
-    y = combine_windows(
+    extracted = extract_subimages_and_fold_into_batch_dim(
+        x=x, subimage_size=subimage_size
+    )
+    y = unfold_from_batch_dim_and_combine_subimages(
         x=extracted,
         original_shape=x.shape,
-        window_size=window_size,
+        subimage_size=subimage_size,
     )
     assert torch.allclose(x, y)
 
 
-# Tests that extract_windows is the inverse of combine_windows.
-@pytest.mark.parametrize("window_size", [2, 4])
-def test_combine_then_extract_windows(window_size: int) -> None:
+# Tests that extract+fold is the inverse of unfold+combine.
+@pytest.mark.parametrize("subimage_size", [2, 4])
+def test_combine_then_extract_windows(subimage_size: int) -> None:
     B, H, W, D = 2, 8, 8, 64
-    S = window_size
+    S = subimage_size
     B = B * (H // S) * (W // S)
 
     x = torch.rand((B * (H // S) * (W // S), S**2, D))
-    combined = combine_windows(
+    combined = unfold_from_batch_dim_and_combine_subimages(
         x=x,
         original_shape=(B, H, W, D),
-        window_size=window_size,
+        subimage_size=subimage_size,
     )
-    y = extract_windows(x=combined, window_size=window_size)
+    y = extract_subimages_and_fold_into_batch_dim(
+        x=combined, subimage_size=subimage_size
+    )
     assert torch.allclose(x, y)
 
 

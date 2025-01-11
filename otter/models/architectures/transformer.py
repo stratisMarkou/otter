@@ -1,4 +1,4 @@
-from typing import List
+from typing import Sequence
 
 import torch
 from torch import nn
@@ -12,41 +12,11 @@ from otter.models.architectures.utils import (
 )
 
 
-class PatchConv2d(nn.Module):
-    def __init__(self, in_channels: int):
-        super().__init__()
-        self.conv = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=2 * in_channels,
-            kernel_size=2,
-            stride=2,
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out: torch.Tensor = self.conv(x)
-        return out
-
-
-class PatchConvTranspose2d(nn.Module):
-    def __init__(self, out_channels: int):
-        super().__init__()
-        self.transpose_conv = nn.ConvTranspose2d(
-            in_channels=2 * out_channels,
-            out_channels=out_channels,
-            kernel_size=2,
-            stride=2,
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out: torch.Tensor = self.transpose_conv(x)
-        return out
-
-
 class SwinTransformer(nn.Module):
 
     def __init__(
         self,
-        token_dimension: int,
+        token_dimensions: Sequence[int] | int,
         output_dimension: int,
         window_size: int,
         mlp_num_hidden: int,
@@ -56,27 +26,40 @@ class SwinTransformer(nn.Module):
         height: int,
         width: int,
         patch_size: int,
-        num_blocks_per_stage: List[int],
+        num_blocks_per_stage: Sequence[int],
     ):
         super().__init__()
 
         assert len(num_blocks_per_stage) > 0
 
+        if isinstance(token_dimensions, int):
+            num_stages = len(num_blocks_per_stage)
+            token_dimensions = [token_dimensions] * (num_stages + 1)
+
         down_swin_stages = []
         up_swin_stages = []
         patch_downsampling_layers = []
         patch_upsampling_layers = []
+        token_in_out_dims = list(
+            zip(token_dimensions[:-1], token_dimensions[1:])
+        )
 
-        current_token_dimension = token_dimension
-        for num_blocks in num_blocks_per_stage:
+        for num_blocks, (t1, t2) in zip(
+            num_blocks_per_stage,
+            token_in_out_dims,
+        ):
             patch_downsampling_layers.append(
-                PatchConv2d(in_channels=current_token_dimension)
+                nn.Conv2d(
+                    in_channels=t1,
+                    out_channels=t2,
+                    kernel_size=2,
+                    stride=2,
+                )
             )
-            current_token_dimension = current_token_dimension * 2
 
             down_swin_stages.append(
                 SwinTransformerBlock(
-                    token_dim=current_token_dimension,
+                    token_dim=t2,
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
@@ -85,10 +68,13 @@ class SwinTransformer(nn.Module):
                 )
             )
 
-        for num_blocks in num_blocks_per_stage[::-1]:
+        for num_blocks, (t2, t1) in zip(
+            num_blocks_per_stage[::-1],
+            token_in_out_dims[::-1],
+        ):
             up_swin_stages.append(
                 SwinTransformerBlock(
-                    token_dim=current_token_dimension,
+                    token_dim=t1,
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
@@ -97,9 +83,13 @@ class SwinTransformer(nn.Module):
                 )
             )
             patch_upsampling_layers.append(
-                PatchConvTranspose2d(out_channels=current_token_dimension // 2)
+                nn.ConvTranspose2d(
+                    in_channels=t1,
+                    out_channels=t2,
+                    kernel_size=2,
+                    stride=2,
+                )
             )
-            current_token_dimension = current_token_dimension // 2
 
         self.down_swin_stages = torch.nn.ModuleList(down_swin_stages)
         self.up_swin_stages = torch.nn.ModuleList(up_swin_stages)
@@ -112,18 +102,18 @@ class SwinTransformer(nn.Module):
 
         self.tokeniser = ImageTokeniser(
             in_channels=in_channels,
-            token_dimension=token_dimension,
+            token_dimension=token_dimensions[0],
             patch_size=patch_size,
         )
 
         self.embedding = PositionEmbedding(
-            token_dimension=token_dimension,
+            token_dimension=token_dimensions[0],
             height=height // patch_size,
             width=width // patch_size,
         )
 
         self.final_conv = nn.ConvTranspose2d(
-            in_channels=token_dimension,
+            in_channels=token_dimensions[0],
             out_channels=output_dimension,
             stride=(patch_size, patch_size),
             kernel_size=(patch_size, patch_size),
