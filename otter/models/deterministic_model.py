@@ -3,6 +3,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Tuple,
 )
 
 import numpy as np
@@ -57,6 +58,43 @@ def _get_variable_and_level_list(
     ]
 
     return sorted(vars_without_levels + vars_with_levels)
+
+
+def _get_target_timedelta_hours(
+    ctx: xr.Dataset,
+    trg: xr.Dataset,
+) -> npt.NDArray[np.int32]:
+
+    # First, get the number of frames to predict with the rollout
+    ctx_zero_time = np.max(ctx.time.values, axis=-1)  # (batch,)
+    trg_time = trg.time.values  # (batch, trg_time_idx)
+
+    trg_timedelta = trg_time - ctx_zero_time[:, None]
+    trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(int)
+
+    # Check that entries of trg_timedelta_hours are the same in each column
+    if np.any(trg_timedelta_hours != trg_timedelta_hours[:1, :]):
+        raise ValueError("All target times must be the same for each batch")
+
+    return trg_timedelta_hours[0]  # type: ignore
+
+
+def _prepare_target_tensor(
+    trg: xr.Dataset,
+    trg_variables_and_levels: Sequence[str],
+    device: str,
+) -> torch.Tensor:
+    # Normalise and prepare the target data.
+    trg_norm = normalise_dataset_zero_mean_unit_std(trg)
+    trg_split = split_into_different_variables_along_dim(trg_norm, dim="level")
+    trg_stacked = stack_dataset_variable_and_levels(
+        trg_split, vars_to_drop=["time"]
+    )
+    trg_stacked = _standardise_data_array_dimensions(trg_stacked)
+    trg_stacked = trg_stacked.sel(variable_and_level=trg_variables_and_levels)
+
+    # Create target tensor.
+    return torch.tensor(trg_stacked.values).float().to(device)
 
 
 class DeterministicModel(torch.nn.Module):
@@ -220,55 +258,39 @@ class DeterministicModel(torch.nn.Module):
 
         return torch.stack(predictions, dim=-2)
 
-    def per_variable_loss(
+    def loss(
         self,
         ctx: xr.Dataset,
         trg: xr.Dataset,
         device: str,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
 
-        # First, get the number of frames to predict with the rollout
-        ctx_zero_time = np.max(ctx.time.values, axis=-1)  # (batch,)
-        trg_time = trg.time.values  # (batch, trg_time_idx)
+        def _apply_square_root_and_averaging(
+            squared_error: torch.Tensor,
+        ) -> torch.Tensor:
+            rmse = torch.mean(torch.mean(squared_error, dim=[1, 2]) ** 0.5)
+            return torch.mean(rmse, dim=[0, 1])  # (var_and_level,)
 
-        trg_timedelta = trg_time - ctx_zero_time[:, None]
-        trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(
-            int
-        )
-
-        # Check that entries of trg_timedelta_hours are the same in each column
-        if np.any(trg_timedelta_hours != trg_timedelta_hours[:1, :]):
-            raise ValueError(
-                "All target times must be the same for each batch"
-            )
-        trg_timedelta_hours = trg_timedelta_hours[0]
+        # Get the target timedelta hours.
+        trg_timedelta_hours = _get_target_timedelta_hours(ctx=ctx, trg=trg)
 
         # Get the predictions from the model.
         predictions = self.forward(ctx, trg_timedelta_hours, device=device)
 
-        # Normalise and prepare the target data.
-        trg_norm = normalise_dataset_zero_mean_unit_std(trg)
-        trg_split = split_into_different_variables_along_dim(
-            trg_norm, dim="level"
+        # Prepare the target tensor from the target dataset.
+        trg_tensor = _prepare_target_tensor(
+            trg=trg,
+            trg_variables_and_levels=self.trg_variables_and_levels,
+            device=device,
         )
-        trg_stacked = stack_dataset_variable_and_levels(
-            trg_split, vars_to_drop=["time"]
-        )
-        trg_stacked = _standardise_data_array_dimensions(trg_stacked)
-        trg_stacked = trg_stacked.sel(
-            variable_and_level=self.trg_variables_and_levels
-        )
-
-        # Create target tensor.
-        trg_tensor = torch.tensor(trg_stacked.values).float().to(device)
 
         # Calculate the loss.
         squared_error = (
             predictions - trg_tensor
         ) ** 2  # (batch, lat, lon, time_idx, var_and_level)
+        squared_error = apply_latitude_weighting(squared_error)
 
-        if self.apply_latitude_weighting_loss:
-            squared_error = apply_latitude_weighting(squared_error)
+        lwrmse_per_variable = _apply_square_root_and_averaging(squared_error)
 
         if self.apply_pressure_weighting_loss:
             squared_error = apply_pressure_weighting(
@@ -284,15 +306,27 @@ class DeterministicModel(torch.nn.Module):
             )
 
         # Compute mean across (lat, lon) dimensions and take square root.
-        rmse = torch.mean(squared_error, dim=[1, 2]) ** 0.5
+        rmse_loss = torch.mean(squared_error, dim=[1, 2]) ** 0.5
+        per_variable_loss = torch.mean(rmse_loss, dim=[0, 1])
 
-        # Compute mean across time_idx and batch dimensions.
-        return torch.mean(rmse, dim=[0, 1])
+        # Total loss is the sum of the per-variable losses.
+        loss = per_variable_loss.sum()
 
-    def loss(
-        self,
-        ctx: xr.Dataset,
-        trg: xr.Dataset,
-        device: str,
-    ) -> torch.Tensor:
-        return self.per_variable_loss(ctx, trg, device=device).sum()
+        # Per-variable losses as numpy arrays in a dictionary.
+        training_loss_info = {
+            f"train_loss_component/{var}": float(loss.cpu().detach().numpy())
+            for var, loss in zip(
+                self.trg_variables_and_levels,
+                per_variable_loss,
+            )
+        }
+
+        auxiliary_loss_info = {
+            f"train_loss_lwrmse/{var}": float(lwrmse.cpu().detach().numpy())
+            for var, lwrmse in zip(
+                self.trg_variables_and_levels,
+                lwrmse_per_variable,
+            )
+        }
+
+        return loss, dict(**training_loss_info, **auxiliary_loss_info)

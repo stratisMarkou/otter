@@ -132,6 +132,10 @@ def unnormalise_tensor_zero_mean_unit_std(
         tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
             with variables unnormalised.
     """
+
+    D = len(tensor.shape)
+    expand_shape = [1] * (D - 1) + [-1]
+
     mean_dataset = load_statistic(
         "mean",
         repo_base_path=repo_base_path,
@@ -146,9 +150,7 @@ def unnormalise_tensor_zero_mean_unit_std(
     mean_array = mean_dataset_stacked.sel(
         variable_and_level=variable_and_level
     ).values
-    mean = torch.tensor(mean_array[None, None, None, None, :]).to(
-        tensor.device
-    )
+    mean = torch.tensor(mean_array.reshape(*expand_shape)).to(tensor.device)
 
     std_dataset = load_statistic(
         "std",
@@ -162,7 +164,7 @@ def unnormalise_tensor_zero_mean_unit_std(
     std_array = std_dataset_stacked.sel(
         variable_and_level=variable_and_level
     ).values
-    std = torch.tensor(std_array[None, None, None, None, :]).to(tensor.device)
+    std = torch.tensor(std_array.reshape(*expand_shape)).to(tensor.device)
 
     return tensor * std + mean
 
@@ -176,15 +178,18 @@ def normalise_tensor_zero_mean_unit_std(
     """Normalise variables.
 
     Args:
-        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
+        tensor: tensor of shape (..., variable_and_level)
         variable_and_level: list of variable names and levels
         repo_base_path: path to the repository
         zarr_name: name of the zarr file
 
     Returns:
-        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
+        tensor: tensor of shape (..., variable_and_level)
             with variables normalised.
     """
+
+    D = len(tensor.shape)
+    expand_shape = [1] * (D - 1) + [-1]
 
     mean_dataset = load_statistic(
         "mean",
@@ -201,9 +206,7 @@ def normalise_tensor_zero_mean_unit_std(
     mean_array = mean_dataset_stacked.sel(
         variable_and_level=variable_and_level
     ).values
-    mean = torch.tensor(mean_array[None, None, None, None, :]).to(
-        tensor.device
-    )
+    mean = torch.tensor(mean_array.reshape(*expand_shape)).to(tensor.device)
 
     std_dataset = load_statistic(
         "std",
@@ -217,6 +220,6 @@ def normalise_tensor_zero_mean_unit_std(
     std_array = std_dataset_stacked.sel(
         variable_and_level=variable_and_level
     ).values
-    std = torch.tensor(std_array[None, None, None, None, :]).to(tensor.device)
+    std = torch.tensor(std_array.reshape(*expand_shape)).to(tensor.device)
 
     return (tensor - mean) / std
