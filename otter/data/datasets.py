@@ -34,8 +34,8 @@ class ContextTargetData:
 
 def collate_batch_wise(batch: List[ContextTargetData]) -> ContextTargetData:
     return ContextTargetData(
-        ctx=xr.concat([example.ctx for example in batch], dim="batch"),
-        trg=xr.concat([example.trg for example in batch], dim="batch"),
+        ctx=xr.concat([example.ctx for example in batch], dim="batch").load(),
+        trg=xr.concat([example.trg for example in batch], dim="batch").load(),
     )
 
 
@@ -52,6 +52,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         ctx_variables: Sequence[str] | None = None,
         trg_variables: Sequence[str] | None = None,
         base_path: str = "_data",
+        task_sub_sampling_factor: int = 1,
     ):
         super().__init__()
         assert num_context_frames > 0
@@ -106,6 +107,8 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         self.ctx_variables = ctx_variables or ALL_CTX_VARIABLES
         self.trg_variables = trg_variables or ALL_TRG_VARIABLES
 
+        self.task_sub_sampling_factor = task_sub_sampling_factor
+
     def __len__(self) -> int:
         # Trailing time interval that is not enough to form a full task
         # and will be discarded.
@@ -115,12 +118,18 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         # Return the number of full tasks that can be formed with the
         # parameters specified for the task.
-        return int(
-            (self.end_date - self.start_date - trailing_time_interval)
-            // self.temporal_resolution
+        length = (
+            int(
+                (self.end_date - self.start_date - trailing_time_interval)
+                // self.temporal_resolution
+            )
+            - 1
         )
 
+        return length // self.task_sub_sampling_factor
+
     def __getitem__(self, idx: int) -> ContextTargetData:
+        idx = idx * self.task_sub_sampling_factor
         zero_time = self.first_zero_time + idx * self.temporal_resolution
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
