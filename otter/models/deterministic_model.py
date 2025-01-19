@@ -18,6 +18,7 @@ from otter.data.utils import (
 )
 from otter.models.losses import (
     DEFAULT_SURFACE_VARIABLE_WEIGHTS,
+    apply_difference_weighting,
     apply_latitude_weighting,
     apply_pressure_weighting,
     apply_surface_variable_weighting,
@@ -112,6 +113,7 @@ class DeterministicModel(torch.nn.Module):
         trg_levels: Sequence[int],
         apply_pressure_weighting_loss: bool,
         apply_latitude_weighting_loss: bool,
+        apply_difference_weighting: bool,
         surface_variable_weights: Dict[
             str, float
         ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
@@ -158,6 +160,7 @@ class DeterministicModel(torch.nn.Module):
         self.apply_pressure_weighting_loss = apply_pressure_weighting_loss
         self.apply_latitude_weighting_loss = apply_latitude_weighting_loss
         self.surface_variable_weights = surface_variable_weights
+        self.apply_difference_weighting = apply_difference_weighting
 
         self.idx_residual = [
             i
@@ -311,6 +314,12 @@ class DeterministicModel(torch.nn.Module):
                 squared_error,
                 self.trg_variables_and_levels,
                 self.surface_variable_weights,
+            )
+
+        if self.apply_difference_weighting:
+            squared_error = apply_difference_weighting(
+                squared_error,
+                self.trg_variables_and_levels,
             )
 
         # Compute mean across (lat, lon) dimensions and take square root.
