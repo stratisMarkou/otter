@@ -263,13 +263,18 @@ class DeterministicModel(torch.nn.Module):
         ctx: xr.Dataset,
         trg: xr.Dataset,
         device: str,
-    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        mean_over_time_dimension: bool,
+    ) -> Tuple[torch.Tensor, Dict[str, npt.NDArray[np.float32]]]:
 
         def _apply_square_root_and_averaging(
             squared_error: torch.Tensor,
+            mean_over_time_dimension: bool,
         ) -> torch.Tensor:
-            rmse = torch.mean(torch.mean(squared_error, dim=[1, 2]) ** 0.5)
-            return torch.mean(rmse, dim=[0, 1])  # (var_and_level,)
+            rmse = torch.mean(squared_error, dim=[1, 2]) ** 0.5
+            if mean_over_time_dimension:
+                return torch.mean(rmse, dim=[0, 1])  # (var_and_level,)
+            else:
+                return torch.mean(rmse, dim=[0])  # (time_idx, var_and_level)
 
         # Get the target timedelta hours.
         trg_timedelta_hours = _get_target_timedelta_hours(ctx=ctx, trg=trg)
@@ -290,7 +295,10 @@ class DeterministicModel(torch.nn.Module):
         ) ** 2  # (batch, lat, lon, time_idx, var_and_level)
         squared_error = apply_latitude_weighting(squared_error)
 
-        lwrmse_per_variable = _apply_square_root_and_averaging(squared_error)
+        lwrmse_per_variable = _apply_square_root_and_averaging(
+            squared_error,
+            mean_over_time_dimension=mean_over_time_dimension,
+        )
 
         if self.apply_pressure_weighting_loss:
             squared_error = apply_pressure_weighting(
@@ -307,26 +315,25 @@ class DeterministicModel(torch.nn.Module):
 
         # Compute mean across (lat, lon) dimensions and take square root.
         rmse_loss = torch.mean(squared_error, dim=[1, 2]) ** 0.5
-        per_variable_loss = torch.mean(rmse_loss, dim=[0, 1])
+
+        if mean_over_time_dimension:
+            per_variable_loss = torch.mean(rmse_loss, dim=[0, 1])
+
+        else:
+            per_variable_loss = torch.mean(rmse_loss, dim=[0])
 
         # Total loss is the sum of the per-variable losses.
-        loss = per_variable_loss.sum()
+        loss = torch.sum(per_variable_loss, dim=-1)
 
         # Per-variable losses as numpy arrays in a dictionary.
         training_loss_info = {
-            f"train_loss_component/{var}": float(loss.cpu().detach().numpy())
-            for var, loss in zip(
-                self.trg_variables_and_levels,
-                per_variable_loss,
-            )
+            var: per_variable_loss[..., i].cpu().detach().numpy()
+            for i, var in enumerate(self.trg_variables_and_levels)
         }
 
         auxiliary_loss_info = {
-            f"train_loss_lwrmse/{var}": float(lwrmse.cpu().detach().numpy())
-            for var, lwrmse in zip(
-                self.trg_variables_and_levels,
-                lwrmse_per_variable,
-            )
+            f"lwrmse/{var}": lwrmse_per_variable[..., i].cpu().detach().numpy()
+            for i, var in enumerate(self.trg_variables_and_levels)
         }
 
         return loss, dict(**training_loss_info, **auxiliary_loss_info)
