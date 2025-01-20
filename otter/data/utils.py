@@ -45,7 +45,9 @@ def split_into_different_variables_along_dim(
     dim_values = dataset[dim].values
 
     for variable in dataset.variables:
-        if dim in dataset[variable].dims and not (variable in dataset.coords):
+        if (dim in dataset[variable].dims) and not (
+            variable in dataset.coords
+        ):
             for dim_value in dim_values:
                 dataset[f"{variable}/{dim}_{dim_value}"] = dataset[
                     variable
@@ -69,10 +71,11 @@ def join_into_single_variable_along_dim(
     `temperature/level_700`, then calling this function with
     dim="level" will return a new dataset where the `temperature`
     variable has been joined back into a single variable along the
-    `level` dimension.
+    `level` dimension, with the dimension values *sorted*.
 
-    This performs the inverse operation of the function
-    split_into_different_variables_along_dim.
+    This performs the reverse operation of the function
+    split_into_different_variables_along_dim, assuming that the
+    original dataarray was sorted before splitting.
 
     Args:
         dataset: xarray dataset to join
@@ -92,12 +95,12 @@ def join_into_single_variable_along_dim(
 
     for dataset_variable in dataset.variables:
         dataset_variable = str(dataset_variable)
-        # If the dimension we're joining over is in the variable name
-        # do the joining, otherwise continue.
+        # If the variable name we're currently at in the iteration has
+        # the dimension we're joining over, then we add it.
         if f"/{dim}_" in dataset_variable:
 
             # The `dataset_variable` string is assumed to be of the form
-            # `variable_dim_dimvalue`. We split the string by the dimension
+            # `variable/dim_dimvalue`. We split the string by the dimension
             # and extract the variable name and the dimension value.
             variable, dim_value = dataset_variable.split(f"/{dim}_")
 
@@ -120,8 +123,7 @@ def join_into_single_variable_along_dim(
         len(resulting_joined_variables) > 0
     ), f"No variables to join for {dim=}"
 
-    # For each unique value of the dimension, join the variables along
-    # the specified dimension.
+    # We will join the variables in sorted order
     dim_values_sorted = sorted(list(dim_values_as_list[0]))
 
     for variable in resulting_joined_variables:
