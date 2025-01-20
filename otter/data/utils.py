@@ -1,10 +1,14 @@
+import os
+import pickle
 from typing import (
     Dict,
     List,
     Optional,
 )
 
+import numpy as np
 import xarray as xr
+from tqdm import trange
 
 ERA5_START_DATE = "1979-01-01"
 ERA5_END_DATE = "2023-12-31"
@@ -162,3 +166,129 @@ def unstack_data_array_variable_and_levels(
 ) -> xr.Dataset:
     # Unstack the variables and levels from the last dimension to the first
     return data_array.to_dataset(dim="variable_and_level")
+
+
+def open_memmap_and_wrap_as_xarray_data_array(
+    path: str,
+) -> xr.DataArray:
+
+    # Get dimensions.
+    with open(os.path.join(path, "dims"), "rb") as file:
+        dims = pickle.load(file)
+
+    # Get coordinates.
+    with open(os.path.join(path, "coords"), "rb") as file:
+        coords = pickle.load(file)
+
+    for dim in dims:
+        if dim not in coords:
+            raise ValueError(f"Coordinate for {dim=} not found.")
+
+    # Get shape of data array.
+    with open(os.path.join(path, "shape"), "rb") as file:
+        shape = pickle.load(file)
+
+    # Get data type.
+    with open(os.path.join(path, "dtype"), "r") as file:
+        dtype = str(file.read())
+
+    # Open memmap.
+    data = np.memmap(
+        os.path.join(path, "data.memmap"),
+        dtype=dtype,
+        mode="r",
+        shape=shape,
+    )
+
+    return xr.DataArray(data, dims=dims, coords=coords)
+
+
+def _slice_axis_n_at_index_i(
+    n: int, i: int, num_axes: int
+) -> tuple[slice | int, ...]:
+    if not (0 <= n <= num_axes):
+        raise ValueError(f"Axis {n=} must be in the range [0, {num_axes=}].")
+    return (slice(None),) * n + (i,) + (slice(None),) * (num_axes - n - 1)
+
+
+def save_xarray_data_array_as_memmap(
+    data: xr.DataArray,
+    path: str,
+    iteration_dimension: str | None,
+) -> None:
+
+    os.makedirs(path)
+
+    # Save dimensions.
+    with open(os.path.join(path, "dims"), "wb") as file:
+        pickle.dump(data.dims, file)
+
+    # Save coordinates.
+    with open(os.path.join(path, "coords"), "wb") as file:
+        pickle.dump(data.coords, file)
+
+    # Save shape of data array.
+    with open(os.path.join(path, "shape"), "wb") as file:
+        pickle.dump(data.shape, file)
+
+    # Save data type.
+    with open(os.path.join(path, "dtype"), "w") as file:
+        file.write(str(data.dtype))
+
+    # Open memmap to save data.
+    data_memmap = np.memmap(
+        os.path.join(path, "data.memmap"),
+        dtype=data.dtype,
+        mode="w+",
+        shape=data.shape,
+    )
+
+    if iteration_dimension is None:
+        data_memmap[...] = data.values
+
+    else:
+        iteration_index = list(data.dims).index(iteration_dimension)
+
+        # Iterate over the data array and save the data.
+        for i in trange(data[iteration_dimension].shape[0]):
+
+            # Save data to memmap at index i along the iteration dim.
+            slice_i = _slice_axis_n_at_index_i(iteration_index, i, data.ndim)
+
+            # Save data to memmap.
+            data_memmap[slice_i] = data.isel({iteration_dimension: i}).values
+
+
+def save_xarray_dataset_in_memmap_format(
+    dataset: xr.Dataset,
+    path: str,
+    iteration_dimension: str,
+) -> None:
+
+    os.mkdir(path)
+
+    for variable in dataset.data_vars:
+        variable_data_array = dataset[variable]
+        iter_dim = (
+            iteration_dimension
+            if iteration_dimension in variable_data_array.dims
+            else None
+        )
+        save_xarray_data_array_as_memmap(
+            variable_data_array,
+            os.path.join(path, str(variable)),
+            iter_dim,
+        )
+
+
+def open_memmap_and_wrap_as_xarray_dataset(
+    path: str,
+) -> xr.Dataset:
+
+    data_vars = {}
+    for variable in os.listdir(path):
+        data_vars[variable] = open_memmap_and_wrap_as_xarray_data_array(
+            os.path.join(path, variable),
+        )
+
+    return xr.Dataset(data_vars)
