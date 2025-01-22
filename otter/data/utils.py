@@ -173,11 +173,11 @@ def open_memmap_and_wrap_as_xarray_data_array(
 ) -> xr.DataArray:
 
     # Get dimensions.
-    with open(os.path.join(path, "dims"), "rb") as file:
+    with open(os.path.join(path, "dims.pkl"), "rb") as file:
         dims = pickle.load(file)
 
     # Get coordinates.
-    with open(os.path.join(path, "coords"), "rb") as file:
+    with open(os.path.join(path, "coords.pkl"), "rb") as file:
         coords = pickle.load(file)
 
     for dim in dims:
@@ -185,7 +185,7 @@ def open_memmap_and_wrap_as_xarray_data_array(
             raise ValueError(f"Coordinate for {dim=} not found.")
 
     # Get shape of data array.
-    with open(os.path.join(path, "shape"), "rb") as file:
+    with open(os.path.join(path, "shape.pkl"), "rb") as file:
         shape = pickle.load(file)
 
     # Get data type.
@@ -220,15 +220,15 @@ def save_xarray_data_array_as_memmap(
     os.makedirs(path)
 
     # Save dimensions.
-    with open(os.path.join(path, "dims"), "wb") as file:
+    with open(os.path.join(path, "dims.pkl"), "wb") as file:
         pickle.dump(data.dims, file)
 
     # Save coordinates.
-    with open(os.path.join(path, "coords"), "wb") as file:
+    with open(os.path.join(path, "coords.pkl"), "wb") as file:
         pickle.dump(data.coords, file)
 
     # Save shape of data array.
-    with open(os.path.join(path, "shape"), "wb") as file:
+    with open(os.path.join(path, "shape.pkl"), "wb") as file:
         pickle.dump(data.shape, file)
 
     # Save data type.
@@ -252,11 +252,24 @@ def save_xarray_data_array_as_memmap(
         # Iterate over the data array and save the data.
         for i in trange(data[iteration_dimension].shape[0]):
 
+            from time import time
+
+            t0 = time()
             # Save data to memmap at index i along the iteration dim.
             slice_i = _slice_axis_n_at_index_i(iteration_index, i, data.ndim)
+            t1 = time()
+
+            breakpoint()
+            data_slice = data.isel({iteration_dimension: i}).values
+            t2 = time()
 
             # Save data to memmap.
-            data_memmap[slice_i] = data.isel({iteration_dimension: i}).values
+            data_memmap[slice_i] = data_slice
+            t3 = time()
+
+            print(f"Time taken for slicing: {t1 - t0}")
+            print(f"Time taken for isel: {t2 - t1}")
+            print(f"Time taken for saving: {t3 - t2}")
 
 
 def save_xarray_dataset_in_memmap_format(
@@ -292,3 +305,65 @@ def open_memmap_and_wrap_as_xarray_dataset(
         )
 
     return xr.Dataset(data_vars)
+
+
+def join_xarray_dataset_across_levels_and_save_as_single_memmap(
+    dataset: xr.Dataset,
+    path: str,
+    iteration_dimension: str | None = "time",
+) -> None:
+
+    os.makedirs(path)
+
+    split_dataset = split_into_different_variables_along_dim(dataset, "level")
+    data_array = stack_dataset_variable_and_levels(split_dataset)
+    data_array = data_array.sortby("variable_and_level")
+
+    # Save dimensions.
+    with open(os.path.join(path, "dims.pkl"), "wb") as file:
+        pickle.dump(data_array.dims, file)
+
+    # Save coordinates.
+    with open(os.path.join(path, "coords.pkl"), "wb") as file:
+        pickle.dump(data_array.coords, file)
+
+    # Save shape of data array.
+    with open(os.path.join(path, "shape.pkl"), "wb") as file:
+        pickle.dump(data_array.shape, file)
+
+    # Save data type.
+    with open(os.path.join(path, "dtype"), "w") as file:
+        file.write(str(data_array.dtype))
+
+    # Open memmap to save data.
+    data_memmap = np.memmap(
+        os.path.join(path, "data.memmap"),
+        dtype=data_array.dtype,
+        mode="w+",
+        shape=data_array.shape,
+    )
+
+    if iteration_dimension is None:
+        data_memmap[...] = dataset.values
+
+    else:
+        iteration_index = list(dataset.dims).index(iteration_dimension)
+
+        # Iterate over the data array and save the data.
+        for i in trange(dataset[iteration_dimension].shape[0]):
+
+            # Save data to memmap at index i along the iteration dim.
+            slice_i = _slice_axis_n_at_index_i(
+                iteration_index, i, data_array.ndim
+            )
+
+            data_slice = dataset.isel({iteration_dimension: i})
+
+            data_slice = split_into_different_variables_along_dim(
+                data_slice, "level"
+            )
+            data_array = stack_dataset_variable_and_levels(data_slice)
+            data_array = data_array.sortby("variable_and_level").compute()
+
+            # Save data to memmap.
+            data_memmap[slice_i] = data_array

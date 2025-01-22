@@ -22,6 +22,7 @@ from otter.models.losses import (
     apply_latitude_weighting,
     apply_pressure_weighting,
     apply_surface_variable_weighting,
+    load_difference_weighting,
 )
 
 
@@ -174,6 +175,8 @@ class DeterministicModel(torch.nn.Module):
             if var in self.ctx_variables_and_levels
         ]
 
+        self.std_ratio_weights = load_difference_weighting()
+
     def forward(
         self,
         ctx_ds: xr.Dataset,
@@ -181,6 +184,10 @@ class DeterministicModel(torch.nn.Module):
         device: str,
         skip_model: bool = False,
     ) -> torch.Tensor:
+
+        from time import time
+
+        t0 = time()
 
         if any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
@@ -193,29 +200,42 @@ class DeterministicModel(torch.nn.Module):
 
         # First, normalise the ctx data and split into variables and levels
         ctx_norm = normalise_dataset_zero_mean_unit_std(ctx_ds)
+        t1 = time()
         ctx_split = split_into_different_variables_along_dim(
             ctx_norm, dim="level"
         )
         ctx_stacked = stack_dataset_variable_and_levels(
             ctx_split, vars_to_drop=["time"]
         )
+        t1a = time()
 
         # Standardise context dims (batch, lat, lon, time_idx, var_and_level)
         # and order variable and level dim alphabetically.
-        ctx_stacked = _standardise_data_array_dimensions(ctx_stacked)
+        ctx_stacked = _standardise_data_array_dimensions(ctx_stacked).compute()
+        t2a = time()
         ctx_stacked = ctx_stacked.sel(
             variable_and_level=self.ctx_variables_and_levels,
         )
+        t2b = time()
 
         # Create context tensor.
         ctx = torch.tensor(ctx_stacked.values).float().to(device)
+        t3 = time()
 
-        return self.rollout(
+        result = self.rollout(
             ctx=ctx,
             trg_timedelta_hours=trg_timedelta_hours,
             num_rollout_steps=num_rollout_steps,
             skip_model=skip_model,
         )
+        t4 = time()
+        print(f"ctx_norm: {t1-t0:.2f}")
+        print(f"split: {t1a-t1:.2f}")
+        print(f"standardise: {t2a-t1a:.2f}")
+        print(f"sel: {t2b-t2a:.2f}")
+        print(f"to_tensor: {t3-t2b:.2f}")
+        print(f"rollout: {t4-t3:.2f}")
+        return result
 
     def rollout(
         self,
@@ -269,6 +289,8 @@ class DeterministicModel(torch.nn.Module):
         mean_over_time_dimension: bool,
     ) -> Tuple[torch.Tensor, Dict[str, npt.NDArray[np.float32]]]:
 
+        from time import time
+
         def _apply_square_root_and_averaging(
             squared_error: torch.Tensor,
             mean_over_time_dimension: bool,
@@ -279,11 +301,14 @@ class DeterministicModel(torch.nn.Module):
             else:
                 return torch.mean(rmse, dim=[0])  # (time_idx, var_and_level)
 
+        t0 = time()
         # Get the target timedelta hours.
         trg_timedelta_hours = _get_target_timedelta_hours(ctx=ctx, trg=trg)
+        t1 = time()
 
         # Get the predictions from the model.
         predictions = self.forward(ctx, trg_timedelta_hours, device=device)
+        t2 = time()
 
         # Prepare the target tensor from the target dataset.
         trg_tensor = _prepare_target_tensor(
@@ -291,23 +316,27 @@ class DeterministicModel(torch.nn.Module):
             trg_variables_and_levels=self.trg_variables_and_levels,
             device=device,
         )
+        t3 = time()
 
         # Calculate the loss.
         squared_error = (
             predictions - trg_tensor
         ) ** 2  # (batch, lat, lon, time_idx, var_and_level)
         squared_error = apply_latitude_weighting(squared_error)
+        t4 = time()
 
         lwrmse_per_variable = _apply_square_root_and_averaging(
             squared_error,
             mean_over_time_dimension=mean_over_time_dimension,
         )
+        t5 = time()
 
         if self.apply_pressure_weighting_loss:
             squared_error = apply_pressure_weighting(
                 squared_error,
                 self.trg_variables_and_levels,
             )
+        t6 = time()
 
         if self.surface_variable_weights:
             squared_error = apply_surface_variable_weighting(
@@ -315,34 +344,59 @@ class DeterministicModel(torch.nn.Module):
                 self.trg_variables_and_levels,
                 self.surface_variable_weights,
             )
+        t7 = time()
 
         if self.apply_difference_weighting:
             squared_error = apply_difference_weighting(
                 squared_error,
                 self.trg_variables_and_levels,
+                self.std_ratio_weights,
             )
+        t8 = time()
 
         # Compute mean across (lat, lon) dimensions and take square root.
         rmse_loss = torch.mean(squared_error, dim=[1, 2]) ** 0.5
+        t9 = time()
 
         if mean_over_time_dimension:
             per_variable_loss = torch.mean(rmse_loss, dim=[0, 1])
 
         else:
             per_variable_loss = torch.mean(rmse_loss, dim=[0])
+        t10 = time()
 
         # Total loss is the sum of the per-variable losses.
         loss = torch.sum(per_variable_loss, dim=-1)
+        t11 = time()
 
         # Per-variable losses as numpy arrays in a dictionary.
         training_loss_info = {
             var: per_variable_loss[..., i].cpu().detach().numpy()
             for i, var in enumerate(self.trg_variables_and_levels)
         }
+        t12 = time()
 
         auxiliary_loss_info = {
             f"lwrmse/{var}": lwrmse_per_variable[..., i].cpu().detach().numpy()
             for i, var in enumerate(self.trg_variables_and_levels)
         }
+        t13 = time()
+
+        print("In loss " + "-" * 50)
+        print(f"get_target_timedelta: {t1-t0:.2f}")
+        print(f"forward: {t2-t1:.2f}")
+        print(f"prepare_target: {t3-t2:.2f}")
+        print(f"apply_lat: {t4-t3:.2f}")
+        print(f"apply_lat_weighting: {t5-t4:.2f}")
+        print(f"apply_pressure_weighting: {t6-t5:.2f}")
+        print(f"apply_surface_weighting: {t7-t6:.2f}")
+        print(f"apply_diff_weighting: {t8-t7:.2f}")
+        print(f"rmse_loss: {t9-t8:.2f}")
+        print(f"per_var_loss: {t10-t9:.2f}")
+        print(f"total_loss: {t11-t10:.2f}")
+        print(f"training_loss_info: {t12-t11:.2f}")
+        print(f"auxiliary_loss_info: {t13-t12:.2f}")
+        print(f"Total time: {t13-t0:.2f}")
+        print("-" * 58)
 
         return loss, dict(**training_loss_info, **auxiliary_loss_info)

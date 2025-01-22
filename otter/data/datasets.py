@@ -43,7 +43,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
     def __init__(
         self,
-        zarr_name: str,
+        dataset_name: str,
         start_date: str,
         end_date: str,
         num_context_frames: int,
@@ -98,8 +98,11 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         # Specify data source zarr and select the time range that will be
         # used to form tasks.
+        # data_zarr = open_memmap_and_wrap_as_xarray_dataset(
+        #     os.path.join(base_path, dataset_name)
+        # )
         data_zarr = xr.open_zarr(
-            os.path.join(base_path, zarr_name), chunks=None
+            os.path.join(base_path, f"{dataset_name}.zarr")
         )
         self.data_zarr = data_zarr.sel(time=slice(start_date, end_date))
 
