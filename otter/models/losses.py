@@ -6,6 +6,12 @@ from typing import (
 import numpy as np
 import torch
 
+from otter.data.normalisation.utils import load_statistic
+from otter.data.utils import (
+    split_into_different_variables_along_dim,
+    stack_dataset_variable_and_levels,
+)
+
 DEFAULT_SURFACE_VARIABLE_WEIGHTS = {
     "2m_temperature": 1e0,
     "10m_u_component_of_wind": 1e-1,
@@ -32,7 +38,7 @@ def apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
 
     # We use the cosine of the latitude as the weight.
     lat_weight = torch.tensor(np.cos(lat_rad)).float().to(tensor.device)
-    lat_weight = lat_weight[None, :, None, None, None] / np.mean(lat_weight)
+    lat_weight = lat_weight[None, :, None, None, None] / torch.mean(lat_weight)
 
     return tensor * lat_weight
 
@@ -102,6 +108,36 @@ def apply_pressure_weighting(
         else:
             weights.append(1.0)
 
+    weight_tensor = torch.tensor(weights).float().to(tensor.device)
+    weight_tensor = weight_tensor[None, None, None, None, :]
+
+    return tensor * weight_tensor
+
+
+def apply_difference_weighting(
+    tensor: torch.Tensor,
+    variable_and_level: Sequence[str],
+    repo_base_path: str = ".",
+    zarr_name: str = "era5_240x121",
+    epsilon: float = 1e-12,
+) -> torch.Tensor:
+
+    # Load std and diff_std datasets, split and stack.
+    std = load_statistic("std", repo_base_path, zarr_name)
+    std_split = split_into_different_variables_along_dim(std, "level")
+    std_stacked = stack_dataset_variable_and_levels(std_split)
+
+    std_diff = load_statistic("diff_std", repo_base_path, zarr_name)
+    std_diff_split = split_into_different_variables_along_dim(
+        std_diff, "level"
+    )
+    std_diff_stacked = stack_dataset_variable_and_levels(std_diff_split)
+
+    # Take ratio of std and diff_std.
+    std_diff_ratio = std_stacked / (std_diff_stacked + epsilon)
+
+    # Create weights tensor.
+    weights = std_diff_ratio.sel(variable_and_level=variable_and_level).values
     weight_tensor = torch.tensor(weights).float().to(tensor.device)
     weight_tensor = weight_tensor[None, None, None, None, :]
 
