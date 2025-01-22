@@ -5,7 +5,7 @@ from torch import nn
 
 TEMPORAL_EMBEDDING_DEFAULT_MIN_HOUR_SCALE = 3.0
 TEMPORAL_EMBEDDING_DEFAULT_MAX_HOUR_SCALE = 8760.0
-REFERENCE_DATETIME = np.datetime64("0000-01-01T00:00:00")
+REFERENCE_DATETIME = np.datetime64("1979-01-01T00:00:00")
 
 
 class PositionEmbedding(nn.Module):
@@ -50,13 +50,12 @@ class FourierExpansionEmbedding(nn.Module):
         # max_scale = torch.tensor(np.array(max_scale))
 
         # Set up scales in log space.
-        self.scales = torch.exp(
-            torch.logspace(
-                torch.log(torch.tensor(np.array(min_scale))),
-                torch.log(torch.tensor(np.array(max_scale))),
-                num_scales,
-            )
+        log_scales = torch.linspace(
+            torch.log(torch.tensor(np.array(min_scale))),
+            torch.log(torch.tensor(np.array(max_scale))),
+            num_scales,
         )
+        self.scales = torch.exp(log_scales)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Create Fourier embeddings from input tensor x.
