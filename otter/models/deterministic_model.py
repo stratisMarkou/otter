@@ -213,9 +213,14 @@ class DeterministicModel(torch.nn.Module):
         # Create context tensor.
         ctx = torch.tensor(ctx_stacked.values).float().to(device)
 
+        # Zero time is the most recent context time, which comes last in the
+        # way we load the data, so we select the zero time (0 last index) of
+        # each bach (ellipsis).
+        zero_time = ctx_ds.time.values[:, 0]
+
         return self.rollout(
             ctx=ctx,
-            zero_time=ctx_ds.time.values[0],
+            zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
             num_rollout_steps=num_rollout_steps,
             skip_model=skip_model,
@@ -259,10 +264,13 @@ class DeterministicModel(torch.nn.Module):
                 )  # (embedding_dim,)
 
                 # Repeat-tile the time embedding to match the dimensions of
-                # ctx_reshaped except the last one.
+                # ctx_reshaped except the batch dimension (first) and the
+                # feature dimension (last).
+                time_embedding = time_embedding[:, None, None, :]
                 time_embedding = time_embedding.repeat(
-                    *ctx_reshaped.shape[:-1], 1
+                    1, *ctx_reshaped.shape[1:-1], 1
                 )  # (batch, lat, lon, time_idx * embedding_dim)
+                time_embedding = time_embedding.to(ctx_reshaped.device)
 
                 # Concatenate the time embedding with the reshaped context.
                 ctx_with_time_embedding = torch.cat(
