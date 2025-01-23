@@ -16,6 +16,7 @@ from otter.data.utils import (
     split_into_different_variables_along_dim,
     stack_dataset_variable_and_levels,
 )
+from otter.models.architectures.embeddings import TimeEmbedding
 from otter.models.losses import (
     DEFAULT_SURFACE_VARIABLE_WEIGHTS,
     apply_difference_weighting,
@@ -103,6 +104,7 @@ class DeterministicModel(torch.nn.Module):
     def __init__(
         self,
         backbone_network: torch.nn.Module,
+        time_embedding: TimeEmbedding,
         temporal_resolution_hours: int,
         ctx_surface_variables: Sequence[str],
         ctx_multilevel_variables: Sequence[str],
@@ -121,6 +123,7 @@ class DeterministicModel(torch.nn.Module):
         super().__init__()
 
         self.backbone_network = backbone_network
+        self.time_embedding = time_embedding
         self.temporal_resolution_hours = temporal_resolution_hours
 
         # Ensure ctx surface vars are subset of trg surface vars
@@ -210,8 +213,14 @@ class DeterministicModel(torch.nn.Module):
         # Create context tensor.
         ctx = torch.tensor(ctx_stacked.values).float().to(device)
 
+        # Zero time is the most recent context time, which comes last in the
+        # way we load the data, so we select the zero time (0 last index) of
+        # each bach (ellipsis).
+        zero_time = ctx_ds.time.values[:, 0]
+
         return self.rollout(
             ctx=ctx,
+            zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
             num_rollout_steps=num_rollout_steps,
             skip_model=skip_model,
@@ -220,6 +229,7 @@ class DeterministicModel(torch.nn.Module):
     def rollout(
         self,
         ctx: torch.Tensor,
+        zero_time: np.datetime64,
         trg_timedelta_hours: npt.NDArray[np.int32],
         num_rollout_steps: int,
         skip_model: bool = False,
@@ -246,8 +256,29 @@ class DeterministicModel(torch.nn.Module):
                 prediction = residual
 
             else:
+                ctx_reshaped = ctx.reshape(
+                    *ctx.shape[:-2], -1
+                )  # (batch, lat, lon, time_idx * var_and_level)
+                time_embedding: torch.Tensor = self.time_embedding(
+                    zero_time + i * self.temporal_resolution_hours
+                )  # (embedding_dim,)
+
+                # Repeat-tile the time embedding to match the dimensions of
+                # ctx_reshaped except the batch dimension (first) and the
+                # feature dimension (last).
+                time_embedding = time_embedding[:, None, None, :]
+                time_embedding = time_embedding.repeat(
+                    1, *ctx_reshaped.shape[1:-1], 1
+                )  # (batch, lat, lon, time_idx * embedding_dim)
+                time_embedding = time_embedding.to(ctx_reshaped.device)
+
+                # Concatenate the time embedding with the reshaped context.
+                ctx_with_time_embedding = torch.cat(
+                    [ctx_reshaped, time_embedding], dim=-1
+                )
+
                 prediction = residual + self.backbone_network(
-                    ctx.reshape(*ctx.shape[:-2], -1)
+                    ctx_with_time_embedding
                 )  # (batch, lat, lon, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
