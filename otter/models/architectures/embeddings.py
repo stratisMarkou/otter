@@ -46,9 +46,6 @@ class FourierExpansionEmbedding(nn.Module):
     ) -> None:
         super().__init__()
 
-        # min_scale = torch.tensor(np.array(min_scale))
-        # max_scale = torch.tensor(np.array(max_scale))
-
         # Set up scales in log space.
         log_scales = torch.linspace(
             torch.log(torch.tensor(np.array(min_scale))),
