@@ -172,9 +172,8 @@ class DeterministicModel(torch.nn.Module):
         ]
 
         self.idx_ctx_for_update = [
-            i
-            for i, var in enumerate(self.trg_variables_and_levels)
-            if var in self.ctx_variables_and_levels
+            self.ctx_variables_and_levels.index(var)
+            for var in self.trg_variables_and_levels
         ]
 
     def forward(
