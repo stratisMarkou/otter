@@ -38,12 +38,12 @@ def test_extract_and_combine_windows(
 # number of heads, batch dimensions, and sequence lengths.
 @pytest.mark.parametrize(
     "token_dim, mlp_num_hidden, mlp_num_layers, "
-    + "num_heads, batch_dim, token_proj_dim_factor, sequence_length",
+    + "num_heads, batch_dim, sequence_length",
     [
-        (32, 64, 2, 8, 64, 1, 128),
-        (32, 64, 2, 8, 64, 2, 128),
-        (64, 128, 4, 16, 128, 1, 256),
-        (64, 128, 4, 16, 128, 2, 256),
+        (32, 64, 2, 8, 64, 128),
+        (32, 64, 2, 8, 64, 128),
+        (64, 128, 4, 16, 128, 256),
+        (64, 128, 4, 16, 128, 256),
     ],
 )
 def test_transformer_block(
@@ -53,14 +53,16 @@ def test_transformer_block(
     num_heads: int,
     batch_dim: int,
     sequence_length: int,
-    token_proj_dim_factor: int,
 ) -> None:
     transformer_block = TransformerBlock(
         token_dim=token_dim,
         mlp_num_hidden=mlp_num_hidden,
         mlp_num_layers=mlp_num_layers,
         num_heads=num_heads,
-        token_proj_dim_factor=token_proj_dim_factor,
+        # Seting use_efficient attention to False uses nn.MultiheadAttention
+        # instead of xformers.ops.memory_efficient_attention, which is not
+        # runnable in the test environment when we don't have a GPU.
+        use_efficient_attention=False,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y = transformer_block(x)
