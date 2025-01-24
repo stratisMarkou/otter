@@ -216,7 +216,8 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        x = x + self.mhsa(self.ln1(x))
+        z = self.ln1(x)
+        x = x + self.mhsa(z, z, z)
         x = x + self.mlp(self.ln2(x))
 
         return x
