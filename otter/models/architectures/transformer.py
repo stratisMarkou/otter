@@ -27,6 +27,7 @@ class SwinTransformer(nn.Module):
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
+        use_efficient_attention: bool = True,
     ):
         super().__init__()
 
@@ -65,6 +66,7 @@ class SwinTransformer(nn.Module):
                     num_heads=num_heads,
                     num_block_pairs=num_blocks,
                     window_size=window_size,
+                    use_efficient_attention=use_efficient_attention,
                 )
             )
 
@@ -80,6 +82,7 @@ class SwinTransformer(nn.Module):
                     num_heads=num_heads,
                     num_block_pairs=num_blocks,
                     window_size=window_size,
+                    use_efficient_attention=use_efficient_attention,
                 )
             )
             patch_upsampling_layers.append(

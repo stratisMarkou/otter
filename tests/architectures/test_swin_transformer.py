@@ -45,6 +45,10 @@ def test_swin_transformer(
         mlp_num_layers=num_mlp_layers,
         num_heads=num_heads,
         num_blocks_per_stage=num_blocks_per_stage,
+        # Seting use_efficient attention to False uses nn.MultiheadAttention
+        # instead of xformers.ops.memory_efficient_attention, which is not
+        # runnable in the test environment when we don't have a GPU.
+        use_efficient_attention=False,
     )
 
     # Create a random input tensor

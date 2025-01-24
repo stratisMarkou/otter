@@ -3,7 +3,7 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from otter.models.architectures.attention import MultiHeadSelfAttention
+from otter.models.architectures.attention import EfficientMultiHeadAttention
 from otter.models.architectures.mlp import MLP
 
 
@@ -179,15 +179,24 @@ class TransformerBlock(nn.Module):
         mlp_num_hidden: int,
         mlp_num_layers: int,
         num_heads: int,
-        token_proj_dim_factor: int,
+        use_efficient_attention: bool = True,
     ):
         super().__init__()
 
-        self.mhsa = MultiHeadSelfAttention(
-            token_dim=token_dim,
-            num_heads=num_heads,
-            divide_projection_dim_by_factor=token_proj_dim_factor,
-        )
+        if use_efficient_attention:
+            self.mhsa = EfficientMultiHeadAttention(
+                num_heads=num_heads,
+                token_dim=token_dim,
+            )
+
+        else:
+            self.mhsa_layer = nn.MultiheadAttention(
+                embed_dim=token_dim,
+                num_heads=num_heads,
+            )
+            self.mhsa = lambda k, q, v: (  # type: ignore
+                self.mhsa_layer(q, k, v)[0]
+            )
 
         self.mlp = MLP(
             in_features=token_dim,
@@ -209,7 +218,8 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        x = x + self.mhsa(self.ln1(x))
+        z = self.ln1(x)
+        x = x + self.mhsa(z, z, z)
         x = x + self.mlp(self.ln2(x))
 
         return x
@@ -224,7 +234,7 @@ class SwinTransformerBlock(torch.nn.Module):
         num_heads: int,
         num_block_pairs: int,
         window_size: int,
-        token_proj_dim_factor: int = 1,
+        use_efficient_attention: bool = True,
     ):
 
         super().__init__()
@@ -237,7 +247,7 @@ class SwinTransformerBlock(torch.nn.Module):
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
-                    token_proj_dim_factor=token_proj_dim_factor,
+                    use_efficient_attention=use_efficient_attention,
                 )
                 for _ in range(num_block_pairs)
             ]
@@ -250,7 +260,7 @@ class SwinTransformerBlock(torch.nn.Module):
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
-                    token_proj_dim_factor=token_proj_dim_factor,
+                    use_efficient_attention=use_efficient_attention,
                 )
                 for _ in range(num_block_pairs)
             ]
