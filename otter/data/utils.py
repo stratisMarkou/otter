@@ -173,11 +173,11 @@ def open_memmap_and_wrap_as_xarray_data_array(
 ) -> xr.DataArray:
 
     # Get dimensions.
-    with open(os.path.join(path, "dims"), "rb") as file:
+    with open(os.path.join(path, "dims.pkl"), "rb") as file:
         dims = pickle.load(file)
 
     # Get coordinates.
-    with open(os.path.join(path, "coords"), "rb") as file:
+    with open(os.path.join(path, "coords.pkl"), "rb") as file:
         coords = pickle.load(file)
 
     for dim in dims:
@@ -185,7 +185,7 @@ def open_memmap_and_wrap_as_xarray_data_array(
             raise ValueError(f"Coordinate for {dim=} not found.")
 
     # Get shape of data array.
-    with open(os.path.join(path, "shape"), "rb") as file:
+    with open(os.path.join(path, "shape.pkl"), "rb") as file:
         shape = pickle.load(file)
 
     # Get data type.

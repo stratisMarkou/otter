@@ -194,7 +194,7 @@ class TransformerBlock(nn.Module):
                 embed_dim=token_dim,
                 num_heads=num_heads,
             )
-            self.mhsa = lambda k, q, v: (  # type: ignore
+            self.mhsa = lambda q, k, v: (  # type: ignore
                 self.mhsa_layer(q, k, v)[0]
             )
 

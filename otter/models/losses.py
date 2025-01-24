@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import (
     Dict,
     Sequence,
@@ -5,6 +6,7 @@ from typing import (
 
 import numpy as np
 import torch
+import xarray as xr
 
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -114,15 +116,12 @@ def apply_pressure_weighting(
     return tensor * weight_tensor
 
 
-def apply_difference_weighting(
-    tensor: torch.Tensor,
-    variable_and_level: Sequence[str],
+@lru_cache
+def _load_difference_weighting(
     repo_base_path: str = ".",
     zarr_name: str = "era5_240x121",
-    epsilon: float = 1e-12,
-) -> torch.Tensor:
+) -> xr.DataArray:
 
-    # Load std and diff_std datasets, split and stack.
     std = load_statistic("std", repo_base_path, zarr_name)
     std_split = split_into_different_variables_along_dim(std, "level")
     std_stacked = stack_dataset_variable_and_levels(std_split)
@@ -133,8 +132,17 @@ def apply_difference_weighting(
     )
     std_diff_stacked = stack_dataset_variable_and_levels(std_diff_split)
 
-    # Take ratio of std and diff_std.
-    std_diff_ratio = std_stacked / (std_diff_stacked + epsilon)
+    return std_stacked / (std_diff_stacked + 1e-12)
+
+
+def apply_difference_weighting(
+    tensor: torch.Tensor,
+    variable_and_level: Sequence[str],
+    repo_base_path: str = ".",
+    zarr_name: str = "era5_240x121",
+) -> torch.Tensor:
+
+    std_diff_ratio = _load_difference_weighting(repo_base_path, zarr_name)
 
     # Create weights tensor.
     weights = std_diff_ratio.sel(variable_and_level=variable_and_level).values
