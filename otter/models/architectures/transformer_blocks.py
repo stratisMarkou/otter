@@ -194,7 +194,9 @@ class TransformerBlock(nn.Module):
                 embed_dim=token_dim,
                 num_heads=num_heads,
             )
-            self.mhsa = lambda x: (self.mhsa_layer(x, x, x)[0])  # type: ignore
+            self.mhsa = lambda q, k, v: (  # type: ignore
+                self.mhsa_layer(q, k, v)[0]
+            )
 
         self.mlp = MLP(
             in_features=token_dim,
