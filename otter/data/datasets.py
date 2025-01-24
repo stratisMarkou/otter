@@ -13,7 +13,9 @@ from otter.data.source.utils import (
     ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+    ALL_GRID_VARIABLE_LEVELS,
 )
+from otter.data.utils import open_memmap_and_wrap_as_xarray_data_array
 
 ALL_CTX_VARIABLES = (
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES
@@ -39,6 +41,13 @@ def collate_batch_wise(batch: List[ContextTargetData]) -> ContextTargetData:
     )
 
 
+def _combine_variables_and_levels(
+    variables: Sequence[str],
+    levels: Sequence[int],
+) -> List[str]:
+    return [f"{var}/level_{level}" for var in variables for level in levels]
+
+
 class GriddedWeatherTask(Dataset[ContextTargetData]):
 
     def __init__(
@@ -49,8 +58,20 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         num_context_frames: int,
         num_target_frames: int,
         temporal_resolution_hours: int,
-        ctx_variables: Sequence[str] | None = None,
-        trg_variables: Sequence[str] | None = None,
+        ctx_surface_dynamic_variables: List[
+            str
+        ] = ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        ctx_multilevel_dynamic_variables: List[
+            str
+        ] = ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        ctx_static_variables: List[str] = ALL_GRID_STATIC_VARIABLES,
+        trg_surface_dynamic_variables: List[
+            str
+        ] = ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        trg_multilevel_dynamic_variables: List[
+            str
+        ] = ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        levels: List[int] = ALL_GRID_VARIABLE_LEVELS,
         base_path: str = "_data",
         task_sub_sampling_factor: int = 1,
     ):
@@ -98,14 +119,31 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         # Specify data source zarr and select the time range that will be
         # used to form tasks.
-        data_zarr = xr.open_zarr(
-            os.path.join(base_path, zarr_name), chunks=None
-        )
-        self.data_zarr = data_zarr.sel(time=slice(start_date, end_date))
+        # data_zarr = xr.open_zarr(
+        #     os.path.join(base_path, zarr_name), chunks=None
+        # )
+        dataset = open_memmap_and_wrap_as_xarray_data_array(
+            os.path.join(base_path, zarr_name)
+        ).to_dataset(name="data")
+        self.dataset = dataset.sel(time=slice(start_date, end_date))
 
         # Context and target variable names
-        self.ctx_variables = ctx_variables or ALL_CTX_VARIABLES
-        self.trg_variables = trg_variables or ALL_TRG_VARIABLES
+        ctx_multilevel_dynamic_variables = _combine_variables_and_levels(
+            ctx_multilevel_dynamic_variables, levels
+        )
+        trg_multilevel_dynamic_variables = _combine_variables_and_levels(
+            trg_multilevel_dynamic_variables, levels
+        )
+
+        self.ctx_variables_and_levels = sorted(
+            ctx_surface_dynamic_variables
+            + ctx_multilevel_dynamic_variables
+            + ctx_static_variables
+        )
+
+        self.trg_variables_and_levels = sorted(
+            trg_surface_dynamic_variables + trg_multilevel_dynamic_variables
+        )
 
         self.task_sub_sampling_factor = task_sub_sampling_factor
 
@@ -134,9 +172,13 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
-        ctx = self.data_zarr.sel(time=context_times)[self.ctx_variables]
+        ctx = self.dataset.sel(time=context_times).sel(
+            variable_and_level=self.ctx_variables_and_levels
+        )
         ctx_time = ctx.time.values
-        trg = self.data_zarr.sel(time=target_times)[self.trg_variables]
+        trg = self.dataset.sel(time=target_times).sel(
+            variable_and_level=self.trg_variables_and_levels
+        )
         trg_time = trg.time.values
 
         # Remove time dimension from coordinates, but keep it as a variable
