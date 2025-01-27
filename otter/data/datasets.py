@@ -15,7 +15,6 @@ from otter.data.source.utils import (
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
 )
-from otter.data.utils import open_memmap_and_wrap_as_xarray_data_array
 
 ALL_CTX_VARIABLES = (
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES
@@ -119,12 +118,10 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         # Specify data source zarr and select the time range that will be
         # used to form tasks.
-        # data_zarr = xr.open_zarr(
-        #     os.path.join(base_path, zarr_name), chunks=None
-        # )
-        dataset = open_memmap_and_wrap_as_xarray_data_array(
-            os.path.join(base_path, zarr_name)
-        ).to_dataset(name="data")
+        dataset = xr.open_zarr(os.path.join(base_path, zarr_name), chunks=None)
+        # dataset = open_memmap_and_wrap_as_xarray_data_array(
+        #     os.path.join(base_path, zarr_name)
+        # ).to_dataset(name="data")
         self.dataset = dataset.sel(time=slice(start_date, end_date))
 
         # Context and target variable names

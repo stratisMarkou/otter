@@ -5,7 +5,11 @@ import os
 import xarray as xr
 
 from otter.data.source.utils import DATASETS
-from otter.data.utils import save_xarray_dataset_in_memmap_format
+from otter.data.utils import (
+    save_xarray_data_array_as_memmap,
+    split_into_different_variables_along_dim,
+    stack_dataset_variable_and_levels,
+)
 
 
 def main() -> None:
@@ -24,13 +28,21 @@ def main() -> None:
 
     for dataset in datasets:
         zarr_path = os.path.join(args.output_dir, f"{dataset}.zarr")
-        xarray_dataset = xr.open_zarr(zarr_path)
+        save_path = os.path.join(args.output_dir, f"{dataset}_single_array")
 
-        save_path = os.path.join(args.output_dir, dataset)
-        save_xarray_dataset_in_memmap_format(
-            dataset=xarray_dataset,
+        # Split the dataset into different variables along the
+        # variable_and_level dimension.
+        split_dataset = split_into_different_variables_along_dim(
+            xr.open_zarr(zarr_path),
+            dim="level",
+        )
+        stacked_array = stack_dataset_variable_and_levels(split_dataset)
+
+        save_xarray_data_array_as_memmap(
+            data=stacked_array,
             path=save_path,
             iteration_dimension="time",
+            sorted_dims=["time", "lat", "lon", "variable_and_level"],
         )
 
 

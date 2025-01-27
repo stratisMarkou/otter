@@ -1,12 +1,17 @@
+import bisect
 import os
 import pickle
+from dataclasses import dataclass
 from typing import (
+    Any,
     Dict,
     List,
     Optional,
+    Tuple,
 )
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 from tqdm import trange
 
@@ -168,72 +173,44 @@ def unstack_data_array_variable_and_levels(
     return data_array.to_dataset(dim="variable_and_level")
 
 
-def open_memmap_and_wrap_as_xarray_data_array(
-    path: str,
-) -> xr.DataArray:
-
-    # Get dimensions.
-    with open(os.path.join(path, "dims.pkl"), "rb") as file:
-        dims = pickle.load(file)
-
-    # Get coordinates.
-    with open(os.path.join(path, "coords.pkl"), "rb") as file:
-        coords = pickle.load(file)
-
-    for dim in dims:
-        if dim not in coords:
-            raise ValueError(f"Coordinate for {dim=} not found.")
-
-    # Get shape of data array.
-    with open(os.path.join(path, "shape.pkl"), "rb") as file:
-        shape = pickle.load(file)
-
-    # Get data type.
-    with open(os.path.join(path, "dtype"), "r") as file:
-        dtype = str(file.read())
-
-    # Open memmap.
-    data = np.memmap(
-        os.path.join(path, "data.memmap"),
-        dtype=dtype,
-        mode="r",
-        shape=shape,
-    )
-
-    return xr.DataArray(data, dims=dims, coords=coords)
-
-
-def _slice_axis_n_at_index_i(
-    n: int, i: int, num_axes: int
-) -> tuple[slice | int, ...]:
-    if not (0 <= n <= num_axes):
-        raise ValueError(f"Axis {n=} must be in the range [0, {num_axes=}].")
-    return (slice(None),) * n + (i,) + (slice(None),) * (num_axes - n - 1)
-
-
 def save_xarray_data_array_as_memmap(
     data: xr.DataArray,
     path: str,
     iteration_dimension: str | None,
+    sorted_dims: Optional[List[str]] = None,
 ) -> None:
+
+    def _slice_axis_n_at_index_i(
+        n: int, i: int, num_axes: int
+    ) -> tuple[slice | int, ...]:
+        if not (0 <= n <= num_axes):
+            raise ValueError(
+                f"Axis {n=} must be in the range [0, {num_axes=}]."
+            )
+        return (slice(None),) * n + (i,) + (slice(None),) * (num_axes - n - 1)
 
     os.makedirs(path)
 
     # Save dimensions.
-    with open(os.path.join(path, "dims"), "wb") as file:
+    with open(os.path.join(path, "dim_names.pkl"), "wb") as file:
         pickle.dump(data.dims, file)
 
-    # Save coordinates.
-    with open(os.path.join(path, "coords"), "wb") as file:
-        pickle.dump(data.coords, file)
+    os.makedirs(os.path.join(path, "dims"))
+    for dim in data.dims:
+        dim_path = os.path.join(path, "dims", f"{dim}.npy")
+        np.save(dim_path, data[dim].values)
+
+    # Save sorted dimensions.
+    with open(os.path.join(path, "sorted.pkl"), "wb") as file:
+        pickle.dump(sorted_dims, file)
 
     # Save shape of data array.
-    with open(os.path.join(path, "shape"), "wb") as file:
+    with open(os.path.join(path, "shape.pkl"), "wb") as file:
         pickle.dump(data.shape, file)
 
     # Save data type.
-    with open(os.path.join(path, "dtype"), "w") as file:
-        file.write(str(data.dtype))
+    with open(os.path.join(path, "dtype"), "w") as file:  # type: ignore
+        file.write(str(data.dtype))  # type: ignore
 
     # Open memmap to save data.
     data_memmap = np.memmap(
@@ -259,36 +236,116 @@ def save_xarray_data_array_as_memmap(
             data_memmap[slice_i] = data.isel({iteration_dimension: i}).values
 
 
-def save_xarray_dataset_in_memmap_format(
-    dataset: xr.Dataset,
+@dataclass
+class Coordinate:
+    name: str
+    values: npt.NDArray[np.float32]
+    is_sorted: bool
+
+
+class LabelledArray:
+
+    def __init__(
+        self,
+        data: npt.NDArray[Any],
+        coords: List[Coordinate],
+    ) -> None:
+
+        self.data = data
+        self.coords = coords
+
+        if len(coords) != data.ndim:
+            raise ValueError(
+                "Number of coordinates must match number of dimensions in data"
+            )
+
+        for i, coord in enumerate(coords):
+            if len(coord.values) != data.shape[i]:
+                raise ValueError(
+                    f"Length of coordinate `{coord.name}` must match the "
+                    f"length of the data along dimension {i}, found "
+                    f"{len(coord.values)} and {data.shape[i]} respectively."
+                )
+
+    def sel(self, **index_coords: Any) -> npt.NDArray[np.float32]:
+
+        # Get indices along each coordinate.
+        indices: List[List[int] | None] = []
+        for coord in self.coords:
+
+            if coord.name not in index_coords:
+                indices.append(None)
+
+            else:
+                coord_indices: List[int] = []
+                # Search for the index of the value in the coordinate.
+                for value in index_coords[coord.name]:
+                    if coord.is_sorted:
+                        index = bisect.bisect_left(coord.values, value)
+                        assert coord.values[index] == value, (
+                            f"Value {value} not found in sorted coordinate "
+                            f"{coord.name}"
+                        )
+                        coord_indices.append(index)
+
+                    else:
+                        index = int(np.where(coord.values == value)[0][0])
+                        coord_indices.append(index)
+
+                indices.append(coord_indices)
+
+        # Select the data.
+        result = self.data
+        for i, idx in enumerate(indices):
+            if idx is not None:
+                result = np.take(result, idx, axis=i)
+
+        return result
+
+
+def open_memmap_and_dims(
     path: str,
-    iteration_dimension: str,
-) -> None:
+) -> Tuple[Tuple[str, ...], npt.NDArray[np.float32]]:
 
-    os.mkdir(path)
+    # Get dimensions.
+    with open(os.path.join(path, "dim_names.pkl"), "rb") as file:
+        dims = pickle.load(file)
 
-    for variable in dataset.data_vars:
-        variable_data_array = dataset[variable]
-        iter_dim = (
-            iteration_dimension
-            if iteration_dimension in variable_data_array.dims
-            else None
-        )
-        save_xarray_data_array_as_memmap(
-            variable_data_array,
-            os.path.join(path, str(variable)),
-            iter_dim,
-        )
+    # Get shape of data array.
+    with open(os.path.join(path, "shape.pkl"), "rb") as file:
+        shape = pickle.load(file)
+
+    # Get data type.
+    with open(os.path.join(path, "dtype"), "r") as file:
+        dtype = str(file.read())
+
+    # Open memmap.
+    data = np.memmap(
+        os.path.join(path, "data.memmap"),
+        dtype=dtype,
+        mode="r",
+        shape=shape,
+    )
+
+    return dims, data
 
 
-def open_memmap_and_wrap_as_xarray_dataset(
-    path: str,
-) -> xr.Dataset:
+def open_memmap_as_labelled_array(path: str) -> LabelledArray:
 
-    data_vars = {}
-    for variable in os.listdir(path):
-        data_vars[variable] = open_memmap_and_wrap_as_xarray_data_array(
-            os.path.join(path, variable),
-        )
+    # Get dimensions and data.
+    dims, data = open_memmap_and_dims(path)
 
-    return xr.Dataset(data_vars)
+    # Get coordinates.
+    coords = []
+    for dim in dims:
+        dim_path = os.path.join(path, "dims", f"{dim}.npy")
+        values = np.load(dim_path, allow_pickle=True)
+        is_sorted = False
+        if os.path.exists(os.path.join(path, "sorted.pkl")):
+            with open(os.path.join(path, "sorted.pkl"), "rb") as file:
+                sorted_dims = pickle.load(file)
+                if dim in sorted_dims:
+                    is_sorted = True
+        coords.append(Coordinate(dim, values, is_sorted))
+
+    return LabelledArray(data=data, coords=coords)
