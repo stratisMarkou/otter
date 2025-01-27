@@ -173,8 +173,8 @@ def unstack_data_array_variable_and_levels(
     return data_array.to_dataset(dim="variable_and_level")
 
 
-def save_xarray_data_array_as_memmap(
-    data: xr.DataArray,
+def save_xarray_dataset_as_memmap(
+    dataset: xr.Dataset,
     path: str,
     iteration_dimension: str | None,
     sorted_dims: Optional[List[str]] = None,
@@ -191,14 +191,22 @@ def save_xarray_data_array_as_memmap(
 
     os.makedirs(path)
 
+    # Split the dataset into different variables along the
+    # variable_and_level dimension.
+    split_dataset = split_into_different_variables_along_dim(
+        dataset,
+        dim="level",
+    )
+    data_array_template = stack_dataset_variable_and_levels(split_dataset)
+
     # Save dimensions.
     with open(os.path.join(path, "dim_names.pkl"), "wb") as file:
-        pickle.dump(data.dims, file)
+        pickle.dump(data_array_template.dims, file)
 
     os.makedirs(os.path.join(path, "dims"))
-    for dim in data.dims:
+    for dim in data_array_template.dims:
         dim_path = os.path.join(path, "dims", f"{dim}.npy")
-        np.save(dim_path, data[dim].values)
+        np.save(dim_path, data_array_template[dim].values)
 
     # Save sorted dimensions.
     with open(os.path.join(path, "sorted.pkl"), "wb") as file:
@@ -206,34 +214,45 @@ def save_xarray_data_array_as_memmap(
 
     # Save shape of data array.
     with open(os.path.join(path, "shape.pkl"), "wb") as file:
-        pickle.dump(data.shape, file)
+        pickle.dump(data_array_template.shape, file)
 
     # Save data type.
     with open(os.path.join(path, "dtype"), "w") as file:  # type: ignore
-        file.write(str(data.dtype))  # type: ignore
+        file.write(str(data_array_template.dtype))  # type: ignore
 
     # Open memmap to save data.
     data_memmap = np.memmap(
         os.path.join(path, "data.memmap"),
-        dtype=data.dtype,
+        dtype=data_array_template.dtype,
         mode="w+",
-        shape=data.shape,
+        shape=data_array_template.shape,
     )
 
     if iteration_dimension is None:
-        data_memmap[...] = data.values
+        data_memmap[...] = data_array_template.values
 
     else:
-        iteration_index = list(data.dims).index(iteration_dimension)
+        iteration_index = list(data_array_template.dims).index(
+            iteration_dimension
+        )
 
         # Iterate over the data array and save the data.
-        for i in trange(data[iteration_dimension].shape[0]):
+        for i in trange(data_array_template[iteration_dimension].shape[0]):
 
             # Save data to memmap at index i along the iteration dim.
-            slice_i = _slice_axis_n_at_index_i(iteration_index, i, data.ndim)
+            slice_i = _slice_axis_n_at_index_i(
+                iteration_index, i, data_array_template.ndim
+            )
+
+            split_dataset_slice_i = split_into_different_variables_along_dim(
+                dataset.isel({iteration_dimension: i}), dim="level"
+            )
+            stacked_array_slice_i = stack_dataset_variable_and_levels(
+                split_dataset_slice_i
+            )
 
             # Save data to memmap.
-            data_memmap[slice_i] = data.isel({iteration_dimension: i}).values
+            data_memmap[slice_i] = stacked_array_slice_i.values
 
 
 @dataclass
