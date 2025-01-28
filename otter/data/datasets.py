@@ -119,9 +119,6 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         # Specify data source zarr and select the time range that will be
         # used to form tasks.
         dataset = xr.open_zarr(os.path.join(base_path, zarr_name), chunks=None)
-        # dataset = open_memmap_and_wrap_as_xarray_data_array(
-        #     os.path.join(base_path, zarr_name)
-        # ).to_dataset(name="data")
         self.dataset = dataset.sel(time=slice(start_date, end_date))
 
         # Context and target variable names
