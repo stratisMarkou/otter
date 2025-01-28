@@ -132,7 +132,7 @@ def join_into_single_variable_along_dim(
         len(resulting_joined_variables) > 0
     ), f"No variables to join for {dim=}"
 
-    # We will join the variables in sorted order
+    # We will join the variables in sorted order.
     dim_values_sorted = sorted(list(dim_values_as_list[0]))
 
     for variable in resulting_joined_variables:
@@ -198,6 +198,7 @@ def save_xarray_dataset_as_memmap(
         dim="level",
     )
     data_array_template = stack_dataset_variable_and_levels(split_dataset)
+    data_array_template = data_array_template.sortby("variable_and_level")
 
     # Save dimensions.
     with open(os.path.join(path, "dim_names.pkl"), "wb") as file:
@@ -249,6 +250,9 @@ def save_xarray_dataset_as_memmap(
             )
             stacked_array_slice_i = stack_dataset_variable_and_levels(
                 split_dataset_slice_i
+            )
+            stacked_array_slice_i = stacked_array_slice_i.sortby(
+                "variable_and_level"
             )
 
             # Save data to memmap.
