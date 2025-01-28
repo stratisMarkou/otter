@@ -26,19 +26,6 @@ from otter.models.losses import (
 )
 
 
-def _standardise_data_array_dimensions(
-    data_array: xr.DataArray,
-) -> xr.DataArray:
-    # Ensure that the dimensions are in the standard order
-    return data_array.transpose(
-        "batch",
-        "latitude",
-        "longitude",
-        "time_index",
-        "variable_and_level",
-    )
-
-
 def _get_variable_and_level_list(
     levels: Sequence[int],
     surface_variables: Sequence[str],
