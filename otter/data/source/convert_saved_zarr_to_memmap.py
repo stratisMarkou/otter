@@ -5,13 +5,14 @@ import os
 import xarray as xr
 
 from otter.data.source.utils import DATASETS
-from otter.data.utils import save_xarray_dataset_in_memmap_format
+from otter.data.utils import save_xarray_dataset_as_memmap
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--datasets", type=str, nargs="+", default=[])
-    parser.add_argument("--output_dir", type=str, default="_data")
+    parser.add_argument("--zarr_dir", type=str, default="_data")
+    parser.add_argument("--save_dir", type=str, default="_data")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -23,14 +24,21 @@ def main() -> None:
     datasets = args.datasets if args.datasets else list(DATASETS.keys())
 
     for dataset in datasets:
-        zarr_path = os.path.join(args.output_dir, f"{dataset}.zarr")
-        xarray_dataset = xr.open_zarr(zarr_path)
+        zarr_path = os.path.join(args.zarr_dir, f"{dataset}.zarr")
+        save_path = os.path.join(args.save_dir, f"{dataset}_single_array")
 
-        save_path = os.path.join(args.output_dir, dataset)
-        save_xarray_dataset_in_memmap_format(
-            dataset=xarray_dataset,
+        save_xarray_dataset_as_memmap(
+            dataset=xr.open_zarr(zarr_path).sel(
+                time=slice("1979-01-01 00:00:00", None)
+            ),
             path=save_path,
             iteration_dimension="time",
+            sorted_dims=[
+                "time",
+                "latitude",
+                "longitude",
+                "variable_and_level",
+            ],
         )
 
 

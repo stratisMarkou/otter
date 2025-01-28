@@ -55,10 +55,10 @@ ALL_GRID_VARIABLE_LEVELS = [
 BASE_ERA5_PATH = "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h"
 
 DATASETS = {
-    "era5_64x32": (f"{BASE_ERA5_PATH}-64x32_equiangular_conservative.zarr"),
     "era5_240x121": (
         f"{BASE_ERA5_PATH}-240x121_equiangular_with_poles_conservative.zarr"
     ),
+    "era5_64x32": (f"{BASE_ERA5_PATH}-64x32_equiangular_conservative.zarr"),
 }
 
 NUM_TIMES_TEST = 12
