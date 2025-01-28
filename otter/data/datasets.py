@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from typing import (
     List,
@@ -6,7 +5,6 @@ from typing import (
 )
 
 import numpy as np
-import xarray as xr
 from torch.utils.data import Dataset
 
 from otter.data.source.utils import (
@@ -14,6 +12,10 @@ from otter.data.source.utils import (
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
+)
+from otter.data.utils import (
+    LabelledArray,
+    open_memmap_as_labelled_array,
 )
 
 ALL_CTX_VARIABLES = (
@@ -29,15 +31,14 @@ ALL_TRG_VARIABLES = (
 
 @dataclass
 class ContextTargetData:
-    ctx: xr.Dataset
-    trg: xr.Dataset
+    ctx: LabelledArray
+    trg: LabelledArray
 
 
-def collate_batch_wise(batch: List[ContextTargetData]) -> ContextTargetData:
-    return ContextTargetData(
-        ctx=xr.concat([example.ctx for example in batch], dim="batch").load(),
-        trg=xr.concat([example.trg for example in batch], dim="batch").load(),
-    )
+def collate_batch_wise(
+    batch: List[ContextTargetData],
+) -> List[ContextTargetData]:
+    return batch
 
 
 def _combine_variables_and_levels(
@@ -51,7 +52,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
     def __init__(
         self,
-        zarr_name: str,
+        path_to_labelled_array: str,
         start_date: str,
         end_date: str,
         num_context_frames: int,
@@ -71,7 +72,6 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
             str
         ] = ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
         levels: List[int] = ALL_GRID_VARIABLE_LEVELS,
-        base_path: str = "_data",
         task_sub_sampling_factor: int = 1,
     ):
         super().__init__()
@@ -118,8 +118,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         # Specify data source zarr and select the time range that will be
         # used to form tasks.
-        dataset = xr.open_zarr(os.path.join(base_path, zarr_name), chunks=None)
-        self.dataset = dataset.sel(time=slice(start_date, end_date))
+        self.dataset = open_memmap_as_labelled_array(path_to_labelled_array)
 
         # Context and target variable names
         ctx_multilevel_dynamic_variables = _combine_variables_and_levels(
@@ -166,22 +165,14 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
+        assert all(ctx_time >= self.start_date for ctx_time in context_times)
+        assert all(trg_time <= self.end_date for trg_time in target_times)
+
         ctx = self.dataset.sel(time=context_times).sel(
             variable_and_level=self.ctx_variables_and_levels
         )
-        ctx_time = ctx.time.values
         trg = self.dataset.sel(time=target_times).sel(
             variable_and_level=self.trg_variables_and_levels
         )
-        trg_time = trg.time.values
-
-        # Remove time dimension from coordinates, but keep it as a variable
-        ctx = ctx.reset_index(["time"]).reset_coords("time", drop=True)
-        ctx = ctx.rename({"time": "time_index"})
-        ctx = ctx.assign(time=(("time_index",), ctx_time))
-
-        trg = trg.reset_index(["time"]).reset_coords("time", drop=True)
-        trg = trg.rename({"time": "time_index"})
-        trg = trg.assign(time=(("time_index",), trg_time))
 
         return ContextTargetData(ctx=ctx, trg=trg)

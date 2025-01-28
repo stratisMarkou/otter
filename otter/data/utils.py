@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import bisect
 import os
 import pickle
@@ -290,7 +292,7 @@ class LabelledArray:
                     f"{len(coord.values)} and {data.shape[i]} respectively."
                 )
 
-    def sel(self, **index_coords: Any) -> npt.NDArray[np.float32]:
+    def sel(self, **index_coords: Any) -> LabelledArray:
 
         # Get indices along each coordinate.
         indices: List[List[int] | None] = []
@@ -318,12 +320,27 @@ class LabelledArray:
                 indices.append(coord_indices)
 
         # Select the data.
-        result = self.data
+        sliced_data = self.data
+        sliced_coords = []
         for i, idx in enumerate(indices):
             if idx is not None:
-                result = np.take(result, idx, axis=i)
+                sliced_data = np.take(sliced_data, idx, axis=i)
+                sliced_coord = Coordinate(
+                    name=self.coords[i].name,
+                    values=np.take(self.coords[i].values, idx),
+                    is_sorted=self.coords[i].is_sorted,
+                )
 
-        return result
+            else:
+                sliced_coord = Coordinate(
+                    name=self.coords[i].name,
+                    values=self.coords[i].values,
+                    is_sorted=self.coords[i].is_sorted,
+                )
+
+            sliced_coords.append(sliced_coord)
+
+        return LabelledArray(data=sliced_data, coords=sliced_coords)
 
 
 def open_memmap_and_dims(
