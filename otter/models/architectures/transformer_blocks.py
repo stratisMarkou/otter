@@ -1,4 +1,7 @@
-from typing import Tuple
+from typing import (
+    Callable,
+    Tuple,
+)
 
 import torch
 from torch import nn
@@ -183,20 +186,21 @@ class TransformerBlock(nn.Module):
     ):
         super().__init__()
 
+        self.mhsa: Callable[[torch.Tensor], torch.Tensor]
+
         if use_efficient_attention:
-            self.mhsa = EfficientMultiHeadAttention(
+            self.efficient_mha_layer = EfficientMultiHeadAttention(
                 num_heads=num_heads,
                 token_dim=token_dim,
             )
+            self.mhsa = lambda x: (self.efficient_mha_layer(x, x, x))
 
         else:
-            self.mhsa_layer = nn.MultiheadAttention(
+            self.mha_layer = nn.MultiheadAttention(
                 embed_dim=token_dim,
                 num_heads=num_heads,
             )
-            self.mhsa = lambda q, k, v: (  # type: ignore
-                self.mhsa_layer(q, k, v)[0]
-            )
+            self.mhsa = lambda x: (self.mha_layer(x, x, x)[0])
 
         self.mlp = MLP(
             in_features=token_dim,
