@@ -1,7 +1,7 @@
 # Otter
 
 __Priorities:__
-- [ ] Finalise faster training optimisations.
+- [x] Finalise faster training optimisations.
 - [ ] Add spatial Fourier embeddings to model.
 - [ ] Add model checkpointing.
 

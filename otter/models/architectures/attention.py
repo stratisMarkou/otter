@@ -1,9 +1,6 @@
 import torch
 from torch import nn
-from xformers.ops import (  # type: ignore
-    memory_efficient_attention,
-    unbind,
-)
+from xformers.ops import memory_efficient_attention  # type: ignore
 
 
 class EfficientMultiHeadAttention(nn.Module):
@@ -21,20 +18,23 @@ class EfficientMultiHeadAttention(nn.Module):
         head_dim = token_dim // num_heads
 
         self.scale = head_dim**-0.5
-        self.qkv = nn.Linear(token_dim, token_dim * 3, bias=qkv_bias)
+        self.Uq = nn.Linear(token_dim, token_dim, bias=qkv_bias)
+        self.Uk = nn.Linear(token_dim, token_dim, bias=qkv_bias)
+        self.Uv = nn.Linear(token_dim, token_dim, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(token_dim, token_dim, bias=proj_bias)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+    ) -> torch.Tensor:
 
-        B, N, C = x.shape
-
-        qkv: torch.Tensor = self.qkv(x)
-        qkv = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
-        q, k, v = unbind(qkv, 2)
-
-        x = memory_efficient_attention(q, k, v).reshape(B, N, C)
+        x: torch.Tensor = memory_efficient_attention(
+            self.Uq(q), self.Uk(k), self.Uv(v)
+        )
         x = self.proj_drop(self.proj(x))
 
         return x

@@ -11,6 +11,7 @@ import numpy.typing as npt
 import torch
 import xarray as xr
 
+from otter.data.datasets import ContextTargetData
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
     split_into_different_variables_along_dim,
@@ -172,7 +173,8 @@ class DeterministicModel(torch.nn.Module):
 
     def forward(
         self,
-        ctx_ds: xr.Dataset,
+        ctx: torch.Tensor,
+        zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         device: str,
         skip_model: bool = False,
@@ -188,7 +190,6 @@ class DeterministicModel(torch.nn.Module):
         )
 
         # First, normalise the ctx data and split into variables and levels
-        ctx = torch.tensor(ctx_ds["data"].values).float().to(device)
         mean = torch.tensor(self.ctx_mean.values).float().to(device)
         std = torch.tensor(self.ctx_std.values).float().to(device)
 
@@ -198,11 +199,6 @@ class DeterministicModel(torch.nn.Module):
         ctx = ctx.permute(
             0, 2, 3, 1, 4
         )  # (batch, lat, lon, time_idx, var_and_level)
-
-        # Zero time is the most recent context time, which comes last in the
-        # way we load the data, so we select the zero time (0 last index) of
-        # each bach (ellipsis).
-        zero_time = ctx_ds.time.values[:, 0]
 
         return self.rollout(
             ctx=ctx,
@@ -215,7 +211,7 @@ class DeterministicModel(torch.nn.Module):
     def rollout(
         self,
         ctx: torch.Tensor,
-        zero_time: np.datetime64,
+        zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         num_rollout_steps: int,
         skip_model: bool = False,
@@ -280,8 +276,7 @@ class DeterministicModel(torch.nn.Module):
 
     def loss(
         self,
-        ctx_ds: xr.Dataset,
-        trg_ds: xr.Dataset,
+        batch: List[ContextTargetData],
         device: str,
         mean_over_time_dimension: bool,
     ) -> Tuple[torch.Tensor, Dict[str, npt.NDArray[np.float32]]]:
@@ -296,16 +291,37 @@ class DeterministicModel(torch.nn.Module):
             else:
                 return torch.mean(rmse, dim=[0])  # (time_idx, var_and_level)
 
-        # Get the target timedelta hours.
-        trg_timedelta_hours = _get_target_timedelta_hours(
-            ctx=ctx_ds, trg=trg_ds
+        ctx_tensor = torch.stack(
+            [torch.tensor(example.ctx.data).to(device) for example in batch],
+            dim=0,
+        )
+        ctx_times = np.stack(
+            [example.ctx.coords[0].values for example in batch], axis=0
+        )
+        trg_tensor = torch.stack(
+            [torch.tensor(example.trg.data).to(device) for example in batch],
+            dim=0,
+        )
+        trg_times = np.stack(
+            [example.trg.coords[0].values for example in batch], axis=0
+        )
+
+        zero_time = np.max(ctx_times, axis=-1)  # (batch,)
+        trg_timedelta = trg_times - zero_time[:, None]
+        trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(
+            int
         )
 
         # Get the predictions from the model.
-        predictions = self.forward(ctx_ds, trg_timedelta_hours, device=device)
+        predictions = self.forward(
+            ctx_tensor.float().to(device),
+            zero_time,
+            trg_timedelta_hours,
+            device=device,
+        )
 
         # Prepare the target tensor from the target dataset.
-        trg = torch.tensor(trg_ds["data"].values).float().to(device)
+        trg = trg_tensor.float().to(device)
         mean = torch.tensor(self.trg_mean.values).float().to(device)
         std = torch.tensor(self.trg_std.values).float().to(device)
         trg = (trg - mean[None, None, None, None, :]) / std[
