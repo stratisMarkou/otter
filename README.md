@@ -13,7 +13,7 @@ Then clone the repo, go to its root and create a conda environment.
 ```
 git clone git@github.com:stratisMarkou/otter.git
 cd otter
-conda env create -f env.yaml
+conda env create -n otter -f env.yaml
 ```
 The environment is built each time from scratch to run tests, so the environment yaml is always up to date.
 Last, if you want to commit code you probably want to install pre-commit hooks, to run pre-commit checks before each commit.
