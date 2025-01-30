@@ -5,7 +5,7 @@ from torch import nn
 
 from otter.models.architectures.embeddings import PositionEmbedding
 from otter.models.architectures.tokeniser import ImageTokeniser
-from otter.models.architectures.transformer_blocks import SwinTransformerBlock
+from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     conv_channel_last,
     interpolate_bilinear_channel_last,
@@ -59,12 +59,12 @@ class SwinTransformer(nn.Module):
             )
 
             down_swin_stages.append(
-                SwinTransformerBlock(
+                make_swin_stage(
                     token_dim=t2,
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
-                    num_block_pairs=num_blocks,
+                    num_swin_blocks=num_blocks,
                     window_size=window_size,
                     use_efficient_attention=use_efficient_attention,
                 )
@@ -75,12 +75,12 @@ class SwinTransformer(nn.Module):
             token_in_out_dims[::-1],
         ):
             up_swin_stages.append(
-                SwinTransformerBlock(
+                make_swin_stage(
                     token_dim=t1,
                     mlp_num_hidden=mlp_num_hidden,
                     mlp_num_layers=mlp_num_layers,
                     num_heads=num_heads,
-                    num_block_pairs=num_blocks,
+                    num_swin_blocks=num_blocks,
                     window_size=window_size,
                     use_efficient_attention=use_efficient_attention,
                 )
