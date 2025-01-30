@@ -51,6 +51,12 @@ ALL_GRID_VARIABLE_LEVELS = [
     1000,
 ]
 
+VARIABLES_WITH_SCALING_FACTORS = {
+    "geopotential": 1e3,
+    "geopotential_at_surface": 1e3,
+    "mean_sea_level_pressure": 1e3,
+}
+
 
 BASE_ERA5_PATH = "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h"
 
