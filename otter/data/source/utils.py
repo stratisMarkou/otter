@@ -52,9 +52,9 @@ ALL_GRID_VARIABLE_LEVELS = [
 ]
 
 VARIABLES_WITH_SCALING_FACTORS = {
-    "geopotential": 1e3,
-    "geopotential_at_surface": 1e3,
-    "mean_sea_level_pressure": 1e3,
+    "geopotential": 1e-3,
+    "geopotential_at_surface": 1e-3,
+    "mean_sea_level_pressure": 1e-3,
 }
 
 

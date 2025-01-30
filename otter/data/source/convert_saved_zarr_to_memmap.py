@@ -40,7 +40,7 @@ def main() -> None:
         )
         for variable, factor in VARIABLES_WITH_SCALING_FACTORS.items():
             if variable in dataset:
-                dataset[variable] = dataset[variable] / factor
+                dataset[variable] = dataset[variable] * factor
 
         dtype = np.float16 if args.float16 else np.float32
         save_xarray_dataset_as_memmap(
