@@ -24,6 +24,8 @@ pre-commit install
 
 __Priorities:__
 - [x] Finalise faster training optimisations.
+- [ ] Re-process data at float32 with normalised pressure variables (at kPa) instead of Pa.
+- [ ] Re-generate normalisation constants.
 - [ ] Add spatial Fourier embeddings to model.
 - [ ] Add model checkpointing.
 
