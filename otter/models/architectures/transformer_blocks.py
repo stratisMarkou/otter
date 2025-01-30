@@ -237,9 +237,7 @@ class SwinTransformerBlock(torch.nn.Module):
         window_size: int,
         use_efficient_attention: bool = True,
     ):
-
         super().__init__()
-        self.token_dim = token_dim
 
         # Transformer block applied before the shift operation.
         self.first_block = TransformerBlock(
@@ -295,9 +293,7 @@ class SwinTransformerBlock(torch.nn.Module):
         x = unfold_from_batch_dim_and_combine_subimages(
             x, original_shape, S
         )  # (B, H, W, D)
-        x = shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
-
-        return x
+        return shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
 
 
 def make_swin_stage(
