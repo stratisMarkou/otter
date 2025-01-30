@@ -25,13 +25,11 @@ def main() -> None:
 
     for dataset in datasets:
         zarr_path = os.path.join(args.zarr_dir, f"{dataset}.zarr")
-        save_path = os.path.join(
-            args.save_dir, f"{dataset}_single_array_example"
-        )
+        save_path = os.path.join(args.save_dir, f"{dataset}_single_array")
 
         save_xarray_dataset_as_memmap(
             dataset=xr.open_zarr(zarr_path).sel(
-                time=slice("1979-01-01 00:00:00", "1979-01-31 18:00:00")
+                time=slice("1979-01-01 00:00:00", None)
             ),
             path=save_path,
             iteration_dimension="time",
