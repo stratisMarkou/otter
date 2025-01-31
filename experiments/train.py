@@ -105,7 +105,7 @@ def main():
             step = step + 1
 
             if step % experiment.constants.training.save_checkpoint_every == 0:
-                checkpoint_path = f"{experiment.path_results}/checkpoints"
+                checkpoint_path = f"{experiment.results_path}/checkpoints"
                 os.makedirs(checkpoint_path, exist_ok=True)
                 torch.save(
                     experiment.model.state_dict(),
