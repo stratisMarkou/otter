@@ -85,7 +85,7 @@ constants:
     num_context_frames: 2
     num_target_frames: 1
     batch_size: 4
-    num_workers: 0
+    num_workers: 2
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
