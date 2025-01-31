@@ -66,16 +66,10 @@ model:
   apply_latitude_weighting_loss: true
   apply_difference_weighting: true
 
-optimizer:
-  _target_: torch.optim.AdamW
-  params:
-    _target_: utils.get_model_parameters
-    model: ${model}
+optimizer_kwargs:
   lr: ${constants.training.initial_learning_rate}
 
-lr_scheduler:
-  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-  optimizer: ${optimizer}
+lr_scheduler_kwargs:
   T_max: ${constants.training.num_training_steps}
   eta_min: 1e-6
 
@@ -105,7 +99,7 @@ constants:
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
     validate_every_num_steps: 1000
-    save_checkpoint_every_num_steps: 10_000
+    save_checkpoint_every: 10_000
 
 
 info:

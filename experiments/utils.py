@@ -3,7 +3,6 @@ import logging
 import os
 import re
 from datetime import datetime
-from functools import cache
 from typing import (
     Any,
     Callable,
@@ -240,7 +239,6 @@ def log_code_to_wandb() -> None:
     wandb.log_artifact(code_artifact)
 
 
-@cache
 def load_std_dataset() -> xr.Dataset:
 
     from otter.data.normalisation.utils import load_statistic
@@ -277,3 +275,19 @@ def log_per_variable_losses_to_wandb(
             },
             commit=False,
         )
+
+
+def create_optimizer_and_lr_scheduler(
+    module: torch.nn.Module,
+    optimizer_kwargs: Dict[str, Any],
+    lr_scheduler_kwargs: Dict[str, Any],
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
+
+    optimizer = torch.optim.AdamW(
+        params=module.parameters(), **optimizer_kwargs
+    )
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer=optimizer, **lr_scheduler_kwargs
+    )
+
+    return optimizer, lr_scheduler

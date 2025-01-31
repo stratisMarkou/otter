@@ -1,9 +1,11 @@
+import os
 from typing import Iterable
 
 import torch
 import xarray as xr
 from tqdm import tqdm
 from utils import (
+    create_optimizer_and_lr_scheduler,
     initialize_experiment,
     load_std_dataset,
     log_code_to_wandb,
@@ -43,13 +45,10 @@ def train_step(
         mean_over_time_dimension=True,
     )
 
-    loss.backward()
-    optimizer.step()
-    optimizer.zero_grad()
-    # run_and_log_time_to_wandb("loss.backward", loss.backward)
-    # run_and_log_time_to_wandb("optimizer.step", optimizer.step)
-    # run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
-    # run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
+    run_and_log_time_to_wandb("loss.backward", loss.backward)
+    run_and_log_time_to_wandb("optimizer.step", optimizer.step)
+    run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
+    run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
 
     log_per_variable_losses_to_wandb(
         trg_variables_and_levels=model.trg_variables_and_levels,
@@ -57,9 +56,8 @@ def train_step(
         std_dataset=std_dataset,
     )
 
-    wandb.log(
-        {"misc/leanring_rate": lr_scheduler.get_last_lr()[0]}, commit=False
-    )
+    current_lr = lr_scheduler.get_last_lr()[0]
+    wandb.log({"misc/learning_rate": current_lr}, commit=False)
     wandb.log({"misc/gradient_step": step_number}, commit=True)
 
     return step_number + 1
@@ -79,9 +77,12 @@ def main():
     log_code_to_wandb()
 
     std_dataset = load_std_dataset()
+    optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
+        module=experiment.model,
+        optimizer_kwargs=experiment.optimizer_kwargs,
+        lr_scheduler_kwargs=experiment.lr_scheduler_kwargs,
+    )
 
-    # wandb log gradients
-    wandb.watch(experiment.model, log="all", log_freq=20)
     step = 0
     for _ in range(experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
@@ -93,8 +94,8 @@ def main():
                     train_step,
                     model=experiment.model,
                     train_loader=train_loader,
-                    optimizer=experiment.optimizer,
-                    lr_scheduler=experiment.lr_scheduler,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
                     step_number=step,
                     std_dataset=std_dataset,
                     device=device,
@@ -102,6 +103,14 @@ def main():
             except StopIteration:
                 break
             step = step + 1
+
+            if step % experiment.constants.training.save_checkpoint_every == 0:
+                checkpoint_path = f"{experiment.results_path}/checkpoints"
+                os.makedirs(checkpoint_path, exist_ok=True)
+                torch.save(
+                    experiment.model.state_dict(),
+                    f"{checkpoint_path}/step={step:07d}",
+                )
 
     wandb.finish()
 
