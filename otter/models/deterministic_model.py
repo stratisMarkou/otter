@@ -204,7 +204,7 @@ class DeterministicModel(torch.nn.Module):
             None, None, None, None, :
         ]
         ctx = ctx.permute(
-            0, 2, 3, 1, 4
+            0, 3, 2, 1, 4
         )  # (batch, lat, lon, time_idx, var_and_level)
 
         return self.rollout(
@@ -335,7 +335,7 @@ class DeterministicModel(torch.nn.Module):
             None, None, None, None, :
         ]
         trg = trg.permute(
-            0, 2, 3, 1, 4
+            0, 3, 2, 1, 4
         )  # (batch, lat, lon, time_idx, var_and_level)
 
         # Calculate the loss.
