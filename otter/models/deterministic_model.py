@@ -102,6 +102,8 @@ class DeterministicModel(torch.nn.Module):
         apply_pressure_weighting_loss: bool,
         apply_latitude_weighting_loss: bool,
         apply_difference_weighting: bool,
+        data_grid_num_lat: int,
+        data_grid_num_lon: int,
         surface_variable_weights: Dict[
             str, float
         ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
@@ -151,6 +153,9 @@ class DeterministicModel(torch.nn.Module):
         self.surface_variable_weights = surface_variable_weights
         self.apply_difference_weighting = apply_difference_weighting
 
+        self.data_grid_num_lat = data_grid_num_lat
+        self.data_grid_num_lon = data_grid_num_lon
+
         self.idx_residual = [
             i
             for i, var in enumerate(self.ctx_variables_and_levels)
@@ -185,12 +190,6 @@ class DeterministicModel(torch.nn.Module):
                 "All target times must be multiples of the temporal resolution"
             )
 
-        expected_shape = (240, 121)
-        assert ctx.shape[2:4] == torch.Size(expected_shape), (
-            f"Expected lon-lat shapes: {expected_shape}, but got "
-            f"{tuple(ctx.shape[2:4])}"
-        )
-
         num_rollout_steps = np.max(
             (trg_timedelta_hours // self.temporal_resolution_hours)
         )
@@ -203,8 +202,17 @@ class DeterministicModel(torch.nn.Module):
             None, None, None, None, :
         ]
         ctx = ctx.permute(
-            0, 2, 3, 1, 4
-        )  # (batch, lon, lat, time_idx, var_and_level)
+            0, 3, 2, 1, 4
+        )  # (batch, lat, lon, time_idx, var_and_level)
+
+        expected_shape = tuple(
+            (self.data_grid_num_lat, self.data_grid_num_lon)
+        )
+        assert ctx.shape[1:3] == torch.Size(expected_shape), (
+            f"Expected lat-lon shapes: {expected_shape}, but got "
+            f"{tuple(ctx.shape[1:3])}"
+        )
+
         return self.rollout(
             ctx=ctx,
             zero_time=zero_time,
@@ -236,7 +244,7 @@ class DeterministicModel(torch.nn.Module):
             # future update.
             residual = ctx[
                 ..., 0, self.idx_residual
-            ]  # (batch, lon, lat, time_idx, res_var_and_level)
+            ]  # (batch, lat, lon, time_idx, res_var_and_level)
 
             # Prediction is residual plus backbone network output.
             if skip_model:
@@ -245,7 +253,7 @@ class DeterministicModel(torch.nn.Module):
             else:
                 ctx_reshaped = ctx.reshape(
                     *ctx.shape[:-2], -1
-                )  # (batch, lon, lat, time_idx * var_and_level)
+                )  # (batch, lat, lon, time_idx * var_and_level)
                 time_embedding: torch.Tensor = self.time_embedding(
                     zero_time + i * self.temporal_resolution_hours
                 )  # (batch, embedding_dim)
@@ -256,7 +264,7 @@ class DeterministicModel(torch.nn.Module):
                 time_embedding = time_embedding[:, None, None, :]
                 time_embedding = time_embedding.repeat(
                     1, *ctx_reshaped.shape[1:-1], 1
-                )  # (batch, lon, lat, embedding_dim)
+                )  # (batch, lat, lon, embedding_dim)
                 time_embedding = time_embedding.to(ctx_reshaped.device)
 
                 # Concatenate the time embedding with the reshaped context.
@@ -266,7 +274,7 @@ class DeterministicModel(torch.nn.Module):
 
                 prediction = residual + self.backbone_network(
                     ctx_with_time_embedding
-                )  # (batch, lon, lat, trg_var_and_level)
+                )  # (batch, lat, lon, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prediction)
@@ -333,13 +341,13 @@ class DeterministicModel(torch.nn.Module):
             None, None, None, None, :
         ]
         trg = trg.permute(
-            0, 2, 3, 1, 4
-        )  # (batch, lon, lat, time_idx, var_and_level)
+            0, 3, 2, 1, 4
+        )  # (batch, lat, lon, time_idx, var_and_level)
 
         # Calculate the loss.
         squared_error = (
             predictions - trg
-        ) ** 2  # (batch, lon, lat, time_idx, var_and_level)
+        ) ** 2  # (batch, lat, lon, time_idx, var_and_level)
         squared_error = apply_latitude_weighting(squared_error)
 
         lwrmse_per_variable = _apply_square_root_and_averaging(
@@ -366,7 +374,7 @@ class DeterministicModel(torch.nn.Module):
                 self.trg_variables_and_levels,
             )
 
-        # Compute mean across (lon, lat) dimensions and take square root.
+        # Compute mean across (lat, lon) dimensions and take square root.
         rmse_loss = torch.mean(squared_error, dim=[1, 2]) ** 0.5
 
         if mean_over_time_dimension:

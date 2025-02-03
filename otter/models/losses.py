@@ -26,21 +26,21 @@ def apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
     """Apply latitude weighting to a tensor.
 
     Args:
-        tensor: tensor of shape (batch, lon, lat, time_idx, var_and_level)
+        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
 
     Returns:
-        tensor: tensor of shape (batch, lon, lat, time_idx, var_and_level)
+        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
             with latitude weighting applied.
     """
 
     # Create latitude weights. This assumes that the latitude dimension is
     # the third dimension of the tensor, and that the poles are included.
-    lat_deg = np.linspace(-90, 90, tensor.shape[2])
+    lat_deg = np.linspace(-90, 90, tensor.shape[1])
     lat_rad = np.deg2rad(lat_deg)
 
     # We use the cosine of the latitude as the weight.
     lat_weight = torch.tensor(np.cos(lat_rad)).float().to(tensor.device)
-    lat_weight = lat_weight[None, None, :, None, None] / torch.mean(lat_weight)
+    lat_weight = lat_weight[None, :, None, None, None] / torch.mean(lat_weight)
 
     return tensor * lat_weight
 
@@ -53,12 +53,12 @@ def apply_surface_variable_weighting(
     """Apply surface variable weighting to a tensor.
 
     Args:
-        tensor: tensor of shape (batch, lon, lat, time_idx, var_and_level)
+        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
         variable_and_level: list of variable names and levels
         variable_to_weight: dictionary of surface variable name to weights
 
     Returns:
-        tensor: tensor of shape (batch, lon, lat, time_idx, var_and_level)
+        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
             with surface variable weighting applied.
     """
 
@@ -82,10 +82,10 @@ def apply_pressure_weighting(
     """Apply pressure weighting to a tensor.
 
     Args:
-        tensor: tensor of shape (batch, lon, lat, time_idx, var_and_level)
+        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
 
     Returns:
-        tensor: tensor of shape (batch, lon, lat, time_idx, var_and_level)
+        tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
             with pressure weighting applied.
     """
 
