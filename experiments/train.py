@@ -1,6 +1,7 @@
 import os
 from typing import Iterable
 
+import numpy as np
 import torch
 import xarray as xr
 from tqdm import tqdm
@@ -10,6 +11,7 @@ from utils import (
     load_std_dataset,
     log_code_to_wandb,
     log_per_variable_losses_to_wandb,
+    log_per_variable_per_lead_time_losses_to_wandb,
     run_and_log_time_to_wandb,
 )
 
@@ -57,10 +59,57 @@ def train_step(
     )
 
     current_lr = lr_scheduler.get_last_lr()[0]
+    wandb.log({"train/loss": loss.detach().cpu().numpy()}, commit=False)
     wandb.log({"misc/learning_rate": current_lr}, commit=False)
     wandb.log({"misc/gradient_step": step_number}, commit=True)
 
     return step_number + 1
+
+
+def validation_epoch(
+    model: torch.nn.Module,
+    device: str,
+    dataloader: Iterable,
+    std_dataset: xr.Dataset,
+) -> None:
+
+    # Ensure model is in evaluation mode.
+    model = model.to(device)
+    model = model.eval()
+
+    with torch.no_grad():
+        losses = []
+        loss_infos = []
+        for batch in tqdm(dataloader):
+            # Loss and loss info contain a time index dimension
+            # as the first dimension.
+            loss, loss_info = model.loss(
+                batch=batch,
+                device=device,
+                mean_over_time_dimension=False,
+            )
+            losses.append(loss.detach().cpu().numpy())
+            loss_infos.append(loss_info)
+
+    # For each lead time index collect the mean loss and loss info,
+    # averaged over the batch dimension.
+    mean_loss = np.mean(np.stack(losses, axis=0), axis=0)
+    mean_loss_info = {
+        key: np.mean(
+            np.stack([info[key] for info in loss_infos], axis=0),
+            axis=0,
+        )
+        for key in loss_infos[0].keys()
+    }
+
+    log_per_variable_per_lead_time_losses_to_wandb(
+        mean_loss=mean_loss,
+        mean_loss_info=mean_loss_info,
+        std_dataset=std_dataset,
+    )
+
+    # Ensure model is back in training mode.
+    model.train()
 
 
 def main():
@@ -88,6 +137,15 @@ def main():
         train_loader = iter(tqdm(experiment.train_dataloader))
 
         while True:
+
+            if step % experiment.constants.training.validate_every == 0:
+                validation_epoch(
+                    model=experiment.model,
+                    device=device,
+                    dataloader=experiment.valid_dataloader,
+                    std_dataset=std_dataset,
+                )
+
             try:
                 step = run_and_log_time_to_wandb(
                     "train_step",

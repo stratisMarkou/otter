@@ -98,7 +98,7 @@ constants:
       _target_: utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
-    validate_every_num_steps: 1000
+    validate_every: 1000
     save_checkpoint_every: 10_000
 
 

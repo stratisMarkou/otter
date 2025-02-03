@@ -263,7 +263,8 @@ def log_per_variable_losses_to_wandb(
     for var in trg_variables_and_levels:
         # Get the lwrmse from the loss info and log it.
         wandb.log(
-            {f"train_loss_component/{var}": loss_info[var]}, commit=False
+            {f"train_loss_component/{var}": loss_info[var]},
+            commit=False,
         )
 
         # Get each individual loss component and log it.
@@ -275,6 +276,30 @@ def log_per_variable_losses_to_wandb(
             },
             commit=False,
         )
+
+
+def log_per_variable_per_lead_time_losses_to_wandb(
+    mean_loss: Dict[str, torch.Tensor],
+    mean_loss_info: Dict[str, torch.Tensor],
+    std_dataset: xr.Dataset,
+) -> None:
+
+    # Log the mean loss for each time index.
+    for i, loss in enumerate(mean_loss):
+        # Log and add leading 0s to index i
+        wandb.log({f"val/loss_time_{i:03}": loss}, commit=False)
+
+    # Log the lwrmse loss info for each time index.
+    for key, info in mean_loss_info.items():
+        variable_and_level = key.replace("lwrmse/", "")
+        std = std_dataset.sel(variable_and_level=variable_and_level).values
+
+        # Loop over times and log the lwrmse loss info.
+        for i in range(info.shape[0]):
+            wandb.log(
+                {f"val/{key}_time_{i:03}": info[i] * std},
+                commit=False,
+            )
 
 
 def create_optimizer_and_lr_scheduler(
