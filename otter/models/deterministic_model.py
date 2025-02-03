@@ -11,9 +11,16 @@ import numpy.typing as npt
 import torch
 import xarray as xr
 
-from otter.data.datasets import ContextTargetData
+from otter.data.datasets import (  # type: ignore
+    ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+    ALL_GRID_STATIC_VARIABLES,
+    ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+    ALL_GRID_VARIABLE_LEVELS,
+    ContextTargetData,
+)
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
+    filter_variables,
     split_into_different_variables_along_dim,
     stack_dataset_variable_and_levels,
 )
@@ -283,7 +290,7 @@ class DeterministicModel(torch.nn.Module):
             ctx_next_time_frame = ctx[..., :1, :].clone()
             ctx_next_time_frame[..., 0, self.idx_ctx_for_update] = prediction
 
-            ctx = torch.cat([ctx_next_time_frame, ctx[..., 1:, :]], dim=3)
+            ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
         return torch.stack(predictions, dim=-2)
 
@@ -398,3 +405,54 @@ class DeterministicModel(torch.nn.Module):
         }
 
         return loss, dict(**training_loss_info, **auxiliary_loss_info)
+
+
+def make_deterministic_model(
+    backbone_network: torch.nn.Module,
+    time_embedding: TimeEmbedding,
+    temporal_resolution_hours: int,
+    ctx_variables_to_remove: Sequence[str],
+    trg_variables_to_remove: Sequence[str],
+    apply_pressure_weighting_loss: bool,
+    apply_latitude_weighting_loss: bool,
+    apply_difference_weighting: bool,
+    data_grid_num_lat: int,
+    data_grid_num_lon: int,
+    surface_variable_weights: Dict[
+        str, float
+    ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
+) -> DeterministicModel:
+
+    return DeterministicModel(
+        backbone_network=backbone_network,
+        time_embedding=time_embedding,
+        temporal_resolution_hours=temporal_resolution_hours,
+        ctx_surface_variables=filter_variables(
+            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+            ctx_variables_to_remove,
+        ),
+        ctx_multilevel_variables=filter_variables(
+            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+            ctx_variables_to_remove,
+        ),
+        ctx_static_variables=filter_variables(
+            ALL_GRID_STATIC_VARIABLES,
+            ctx_variables_to_remove,
+        ),
+        trg_surface_variables=filter_variables(
+            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+            trg_variables_to_remove,
+        ),
+        trg_multilevel_variables=filter_variables(
+            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+            trg_variables_to_remove,
+        ),
+        ctx_levels=ALL_GRID_VARIABLE_LEVELS,
+        trg_levels=ALL_GRID_VARIABLE_LEVELS,
+        apply_pressure_weighting_loss=apply_pressure_weighting_loss,
+        apply_latitude_weighting_loss=apply_latitude_weighting_loss,
+        apply_difference_weighting=apply_difference_weighting,
+        surface_variable_weights=surface_variable_weights,
+        data_grid_num_lat=data_grid_num_lat,
+        data_grid_num_lon=data_grid_num_lon,
+    )

@@ -9,6 +9,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Sequence,
     Tuple,
 )
 
@@ -394,3 +395,9 @@ def open_memmap_as_labelled_array(path: str) -> LabelledArray:
         coords.append(Coordinate(dim, values, is_sorted))
 
     return LabelledArray(data=data, coords=coords)
+
+
+def filter_variables(
+    variables: Sequence[str], exclude: Sequence[str]
+) -> List[str]:
+    return [var for var in variables if var not in exclude]
