@@ -34,7 +34,7 @@ def apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
     """
 
     # Create latitude weights. This assumes that the latitude dimension is
-    # the third dimension of the tensor, and that the poles are included.
+    # the second dimension of the tensor, and that the poles are included.
     lat_deg = np.linspace(-90, 90, tensor.shape[1])
     lat_rad = np.deg2rad(lat_deg)
 
