@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from typing import (
+    Any,
+    Callable,
     List,
     Sequence,
 )
@@ -15,6 +17,7 @@ from otter.data.source.utils import (
 )
 from otter.data.utils import (
     LabelledArray,
+    filter_variables,
     open_memmap_as_labelled_array,
 )
 
@@ -35,10 +38,12 @@ class ContextTargetData:
     trg: LabelledArray
 
 
-def collate_batch_wise(
-    batch: List[ContextTargetData],
-) -> List[ContextTargetData]:
+def collate_fn(batch: List[ContextTargetData]) -> List[ContextTargetData]:
     return batch
+
+
+def get_collate_fn() -> Callable[..., Any]:
+    return collate_fn
 
 
 def _combine_variables_and_levels(
@@ -176,3 +181,32 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
         )
 
         return ContextTargetData(ctx=ctx, trg=trg)
+
+
+def make_gridded_weather_task(
+    ctx_variables_to_exclude: List[str],
+    trg_variables_to_exclude: List[str],
+    **kwargs: Any,
+) -> GriddedWeatherTask:
+    return GriddedWeatherTask(
+        ctx_static_variables=filter_variables(
+            ALL_GRID_STATIC_VARIABLES, ctx_variables_to_exclude
+        ),
+        ctx_surface_dynamic_variables=filter_variables(
+            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+            ctx_variables_to_exclude,
+        ),
+        ctx_multilevel_dynamic_variables=filter_variables(
+            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+            ctx_variables_to_exclude,
+        ),
+        trg_surface_dynamic_variables=filter_variables(
+            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+            trg_variables_to_exclude,
+        ),
+        trg_multilevel_dynamic_variables=filter_variables(
+            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+            trg_variables_to_exclude,
+        ),
+        **kwargs,
+    )
