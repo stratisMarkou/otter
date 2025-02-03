@@ -18,7 +18,7 @@ def extract_subimages(x: torch.Tensor, subimage_size: int) -> torch.Tensor:
         subimage_size: size of the extracted subimages
 
     Returns:
-        output tensor of shape (B*(H//2)*(W//2), 4, D)
+        output tensor of shape (B, H//S, S, W//S, S, D)
     """
     B, H, W, D = x.shape
     S = subimage_size

@@ -277,7 +277,7 @@ class DeterministicModel(torch.nn.Module):
             ctx_next_time_frame = ctx[..., :1, :].clone()
             ctx_next_time_frame[..., 0, self.idx_ctx_for_update] = prediction
 
-            ctx = torch.cat([ctx_next_time_frame, ctx[..., 1:, :]], dim=3)
+            ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
         return torch.stack(predictions, dim=-2)
 
