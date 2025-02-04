@@ -14,7 +14,10 @@ import numpy as np
 import xarray as xr
 from tqdm import trange
 
-from otter.data.source.utils import DATASETS
+from otter.data.source.utils import (
+    DATASETS,
+    VARIABLES_WITH_SCALING_FACTORS,
+)
 
 # We use a seed for subsampling the dataset when computing
 # the normalisation statistics, to ensure reproducibility.
@@ -181,6 +184,10 @@ def compute_normalisation_stats_from_zarr(
         example = dataset.isel(time=time_index).compute()
         next_example = dataset.isel(time=time_index + 1).compute()
 
+        for variable, factor in VARIABLES_WITH_SCALING_FACTORS.items():
+            example[variable] = example[variable] * factor
+            next_example[variable] = next_example[variable] * factor
+
         for stat in ALL_NORMALISATION_STATISTICS:
             if stat in stats:
                 stats[stat] = stats[stat].update(example)
@@ -225,7 +232,7 @@ def main() -> None:
     parser.add_argument("--num_time_frames", type=int, default=2048)
     parser.add_argument("--repo_dir", type=str)
     parser.add_argument("--start_date", type=str, default="1979-01-01")
-    parser.add_argument("--end_date", type=str, default="2022-12-31")
+    parser.add_argument("--end_date", type=str, default="2015-12-31")
     args = parser.parse_args()
 
     for zarr_name in DATASETS:
