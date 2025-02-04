@@ -1,6 +1,6 @@
 train_dataset:
   _target_: otter.data.datasets.make_gridded_weather_task
-  path_to_labelled_array: "/scratch2/em626/_data/era5_240x121_single_array"
+  path_to_labelled_array: ${constants.data.path_to_labelled_array}
   start_date: "1979-01-01"
   end_date: "2019-12-31"
   num_context_frames: ${constants.data.num_context_frames}
@@ -11,7 +11,7 @@ train_dataset:
 
 valid_dataset:
   _target_: otter.data.datasets.make_gridded_weather_task
-  path_to_labelled_array: "/scratch2/em626/_data/era5_240x121_single_array"
+  path_to_labelled_array: ${constants.data.path_to_labelled_array}
   start_date: "2020-01-01"
   end_date: "2020-12-31"
   num_context_frames: ${constants.data.num_context_frames}
@@ -86,6 +86,7 @@ constants:
     num_target_frames: 1
     batch_size: 4
     num_workers: 2
+    path_to_labelled_array: "./_data/era5_240x121_single_array"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
