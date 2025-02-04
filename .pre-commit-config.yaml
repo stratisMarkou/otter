@@ -25,7 +25,7 @@ repos:
     rev: v1.10.0
     hooks:
     -   id: mypy
-        entry: bash -c "mypy otter experiments tests --disallow-untyped-defs --strict"
+        entry: bash -c "mypy otter tests --disallow-untyped-defs --strict"
         language: system
 -   repo: https://github.com/asottile/blacken-docs
     rev: 1.16.0
