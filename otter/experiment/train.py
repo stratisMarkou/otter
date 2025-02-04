@@ -6,10 +6,10 @@ from typing import (
 
 import numpy as np
 import torch
+import wandb
 import xarray as xr
 from tqdm import tqdm
 
-import wandb
 from otter.experiment.utils import (
     create_optimizer_and_lr_scheduler,
     initialize_experiment,

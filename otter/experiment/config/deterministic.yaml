@@ -65,6 +65,8 @@ model:
   apply_pressure_weighting_loss: true
   apply_latitude_weighting_loss: true
   apply_difference_weighting: true
+  data_grid_num_lat: 121
+  data_grid_num_lon: 240
 
 optimizer_kwargs:
   lr: ${constants.training.initial_learning_rate}

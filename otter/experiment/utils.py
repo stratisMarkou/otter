@@ -15,6 +15,7 @@ from typing import (
 
 import git
 import torch
+import wandb
 import xarray as xr
 import yaml
 from hydra.utils import instantiate
@@ -22,8 +23,6 @@ from omegaconf import (
     DictConfig,
     OmegaConf,
 )
-
-import wandb
 
 Experiment = DictConfig
 

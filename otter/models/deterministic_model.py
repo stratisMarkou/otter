@@ -109,6 +109,8 @@ class DeterministicModel(torch.nn.Module):
         apply_pressure_weighting_loss: bool,
         apply_latitude_weighting_loss: bool,
         apply_difference_weighting: bool,
+        data_grid_num_lat: int,
+        data_grid_num_lon: int,
         surface_variable_weights: Dict[
             str, float
         ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
@@ -158,6 +160,9 @@ class DeterministicModel(torch.nn.Module):
         self.surface_variable_weights = surface_variable_weights
         self.apply_difference_weighting = apply_difference_weighting
 
+        self.data_grid_num_lat = data_grid_num_lat
+        self.data_grid_num_lon = data_grid_num_lon
+
         self.idx_residual = [
             i
             for i, var in enumerate(self.ctx_variables_and_levels)
@@ -204,8 +209,16 @@ class DeterministicModel(torch.nn.Module):
             None, None, None, None, :
         ]
         ctx = ctx.permute(
-            0, 2, 3, 1, 4
+            0, 3, 2, 1, 4
         )  # (batch, lat, lon, time_idx, var_and_level)
+
+        expected_shape = tuple(
+            (self.data_grid_num_lat, self.data_grid_num_lon)
+        )
+        assert ctx.shape[1:3] == torch.Size(expected_shape), (
+            f"Expected lat-lon shapes: {expected_shape}, but got "
+            f"{tuple(ctx.shape[1:3])}"
+        )
 
         return self.rollout(
             ctx=ctx,
@@ -250,7 +263,7 @@ class DeterministicModel(torch.nn.Module):
                 )  # (batch, lat, lon, time_idx * var_and_level)
                 time_embedding: torch.Tensor = self.time_embedding(
                     zero_time + i * self.temporal_resolution_hours
-                )  # (embedding_dim,)
+                )  # (batch, embedding_dim)
 
                 # Repeat-tile the time embedding to match the dimensions of
                 # ctx_reshaped except the batch dimension (first) and the
@@ -258,7 +271,7 @@ class DeterministicModel(torch.nn.Module):
                 time_embedding = time_embedding[:, None, None, :]
                 time_embedding = time_embedding.repeat(
                     1, *ctx_reshaped.shape[1:-1], 1
-                )  # (batch, lat, lon, time_idx * embedding_dim)
+                )  # (batch, lat, lon, embedding_dim)
                 time_embedding = time_embedding.to(ctx_reshaped.device)
 
                 # Concatenate the time embedding with the reshaped context.
@@ -335,7 +348,7 @@ class DeterministicModel(torch.nn.Module):
             None, None, None, None, :
         ]
         trg = trg.permute(
-            0, 2, 3, 1, 4
+            0, 3, 2, 1, 4
         )  # (batch, lat, lon, time_idx, var_and_level)
 
         # Calculate the loss.
@@ -403,6 +416,8 @@ def make_deterministic_model(
     apply_pressure_weighting_loss: bool,
     apply_latitude_weighting_loss: bool,
     apply_difference_weighting: bool,
+    data_grid_num_lat: int,
+    data_grid_num_lon: int,
     surface_variable_weights: Dict[
         str, float
     ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
@@ -438,4 +453,6 @@ def make_deterministic_model(
         apply_latitude_weighting_loss=apply_latitude_weighting_loss,
         apply_difference_weighting=apply_difference_weighting,
         surface_variable_weights=surface_variable_weights,
+        data_grid_num_lat=data_grid_num_lat,
+        data_grid_num_lon=data_grid_num_lon,
     )
