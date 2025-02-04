@@ -7,6 +7,9 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterator,
+    Optional,
+    Sequence,
     Tuple,
 )
 
@@ -25,12 +28,14 @@ import wandb
 Experiment = DictConfig
 
 
-def get_model_parameters(model: torch.nn.Module) -> torch.nn.Parameter:
+def get_model_parameters(
+    model: torch.nn.Module,
+) -> Iterator[torch.nn.Parameter]:
     return model.parameters()
 
 
 def get_num_training_steps(
-    num_epochs: int, dataloader: torch.utils.data.DataLoader
+    num_epochs: int, dataloader: torch.utils.data.DataLoader[Any]
 ) -> int:
     return num_epochs * len(dataloader)
 
@@ -45,10 +50,15 @@ def create_module_summary(experiment: Experiment) -> str:
     return module_summary + f"\nTotal # parameters: {num_params / 1e6:.1f}M."
 
 
-def initialize_experiment() -> Experiment:
+def initialize_experiment(
+    args_list: Optional[Sequence[str]] = None,
+) -> Experiment:
     """Initialize experiment by parsing the config file, checking that the
     repo is clean, creating a path for the experiment, and creating a
     writer for tensorboard.
+
+    Arguments:
+        args_list: list of arguments to parse.
 
     Returns:
         experiment: experiment config object.
@@ -60,7 +70,7 @@ def initialize_experiment() -> Experiment:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str)
     parser.add_argument("--debug", action="store_true")
-    args, extra_args = parser.parse_known_args()
+    args, extra_args = parser.parse_known_args(args=args_list)
 
     # Create a repo object and check if local repo is clean
     repo = git.Repo(search_parent_directories=True)
@@ -82,7 +92,7 @@ def initialize_experiment() -> Experiment:
     assert type(config) is DictConfig  # Check this to silence mypy.
     path = make_experiment_path(config)
     config.info.path_results = path
-    experiment = instantiate(config)
+    experiment: DictConfig = instantiate(config)
 
     # Write config to file together with commit hash
     with open(f"{path}/config.yml", "w") as file:
@@ -239,7 +249,7 @@ def log_code_to_wandb() -> None:
     wandb.log_artifact(code_artifact)
 
 
-def load_std_dataset() -> xr.Dataset:
+def load_std_dataset() -> xr.DataArray:
 
     from otter.data.normalisation.utils import load_statistic
     from otter.data.utils import (
@@ -257,7 +267,7 @@ def load_std_dataset() -> xr.Dataset:
 def log_per_variable_losses_to_wandb(
     trg_variables_and_levels: Tuple[str],
     loss_info: Dict[str, torch.Tensor],
-    std_dataset=xr.DataArray,
+    std_dataset: xr.DataArray,
 ) -> None:
 
     for var in trg_variables_and_levels:
@@ -281,7 +291,7 @@ def log_per_variable_losses_to_wandb(
 def log_per_variable_per_lead_time_losses_to_wandb(
     mean_loss: Dict[str, torch.Tensor],
     mean_loss_info: Dict[str, torch.Tensor],
-    std_dataset: xr.Dataset,
+    std_dataset: xr.DataArray,
 ) -> None:
 
     # Log the mean loss for each time index.

@@ -1,11 +1,16 @@
 import os
-from typing import Iterable
+from typing import (
+    Any,
+    Iterable,
+)
 
 import numpy as np
 import torch
 import xarray as xr
 from tqdm import tqdm
-from utils import (
+
+import wandb
+from otter.experiment.utils import (
     create_optimizer_and_lr_scheduler,
     initialize_experiment,
     load_std_dataset,
@@ -15,10 +20,8 @@ from utils import (
     run_and_log_time_to_wandb,
 )
 
-import wandb
 
-
-def assert_single_device():
+def assert_single_device() -> None:
     if torch.cuda.device_count() != 1:
         raise Exception(
             "Single-device mode only is currently supported. Ensure exactly "
@@ -29,11 +32,11 @@ def assert_single_device():
 
 def train_step(
     model: torch.nn.Module,
-    train_loader: Iterable,
+    train_loader: Iterable[Any],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     step_number: int,
-    std_dataset: xr.Dataset,
+    std_dataset: xr.DataArray,
     device: str = "cuda",
 ) -> int:
 
@@ -69,8 +72,8 @@ def train_step(
 def validation_epoch(
     model: torch.nn.Module,
     device: str,
-    dataloader: Iterable,
-    std_dataset: xr.Dataset,
+    dataloader: Iterable[Any],
+    std_dataset: xr.DataArray,
 ) -> None:
 
     # Ensure model is in evaluation mode.
@@ -112,7 +115,7 @@ def validation_epoch(
     model.train()
 
 
-def main():
+def main() -> None:
 
     # Ensure that only one device is available.
     assert_single_device()

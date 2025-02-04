@@ -193,7 +193,7 @@ def save_xarray_dataset_as_memmap(
             )
         return (slice(None),) * n + (i,) + (slice(None),) * (num_axes - n - 1)
 
-    os.makedirs(path)
+    os.makedirs(path, exist_ok=True)
 
     # Split the dataset into different variables along the
     # variable_and_level dimension.
