@@ -37,24 +37,27 @@ class CachedQueueDataLoader:
         self,
         min_cache_size: int,
         max_cache_size: int,
-        prob_use_chache: float,
+        prob_use_cache: float,
         dataloader: DataLoader[Any],
+        reset_cache_on_iter: bool = False,
     ) -> None:
 
         self.min_cache_size = min_cache_size
         self.max_cache_size = max_cache_size
-        self.prob_use_chache = prob_use_chache
+        self.prob_use_cache = prob_use_cache
         self.dataloader = dataloader
 
         self.iter_dataloader: Optional[Iterator[Any]] = None
         self.cached_queue: List[Tuple[int, int, Any]] = []
         self.counter = count()
+        self.reset_cache_on_iter = reset_cache_on_iter
 
     def __len__(self) -> int:
         return len(self.dataloader)
 
     def __iter__(self) -> CachedQueueDataLoader:
-        self.cached_queue = []
+        if self.reset_cache_on_iter:
+            self.cached_queue = []
         self.iter_dataloader = iter(self.dataloader)
         return self
 
@@ -63,8 +66,8 @@ class CachedQueueDataLoader:
 
         # If the cache is large enough and we decide to use it, return a batch.
         if (
-            len(self.cached_queue) > self.min_cache_size
-            and random.random() < self.prob_use_chache
+            len(self.cached_queue) >= self.min_cache_size
+            and random.random() < self.prob_use_cache
         ):
             # Pop the least used batch from the queue, increase its usage
             # count, and push it back to the queue, then return the batch.
