@@ -57,25 +57,6 @@ def _get_variable_and_level_list(
     return sorted(vars_without_levels + vars_with_levels)
 
 
-def _get_target_timedelta_hours(
-    ctx: xr.Dataset,
-    trg: xr.Dataset,
-) -> npt.NDArray[np.int32]:
-
-    # First, get the number of frames to predict with the rollout
-    ctx_zero_time = np.max(ctx.time.values, axis=-1)  # (batch,)
-    trg_time = trg.time.values  # (batch, trg_time_idx)
-
-    trg_timedelta = trg_time - ctx_zero_time[:, None]
-    trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(int)
-
-    # Check that entries of trg_timedelta_hours are the same in each column
-    if np.any(trg_timedelta_hours != trg_timedelta_hours[:1, :]):
-        raise ValueError("All target times must be the same for each batch")
-
-    return trg_timedelta_hours[0]  # type: ignore
-
-
 def _get_normalisation_mean_and_std(
     variables_and_levels: Sequence[str],
 ) -> Tuple[xr.DataArray, xr.DataArray]:
