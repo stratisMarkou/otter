@@ -4,7 +4,7 @@ train_dataset:
   start_date: "1979-01-01"
   end_date: "2019-12-31"
   num_context_frames: ${constants.data.num_context_frames}
-  num_target_frames: ${constants.data.num_target_frames}
+  num_target_frames: ${constants.data.train_num_target_frames}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
   ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
   trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
@@ -15,7 +15,7 @@ valid_dataset:
   start_date: "2020-01-01"
   end_date: "2020-12-31"
   num_context_frames: ${constants.data.num_context_frames}
-  num_target_frames: ${constants.data.num_target_frames}
+  num_target_frames: ${constants.data.valid_num_target_frames}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
   ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
   trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
@@ -85,7 +85,8 @@ constants:
     ctx_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
     trg_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
     num_context_frames: 2
-    num_target_frames: 1
+    train_num_target_frames: 1
+    valid_num_target_frames: 4
     batch_size: 4
     num_workers: 2
     path_to_labelled_array: "./_data/era5_240x121_single_array"
