@@ -152,8 +152,8 @@ class DeterministicModel(torch.nn.Module):
 
         self.idx_ctx_for_update = [
             i
-            for i, var in enumerate(self.trg_variables_and_levels)
-            if var in self.ctx_variables_and_levels
+            for i, var in enumerate(self.ctx_variables_and_levels)
+            if var in self.trg_variables_and_levels
         ]
 
         self.ctx_mean, self.ctx_std = _get_normalisation_mean_and_std(
@@ -173,7 +173,7 @@ class DeterministicModel(torch.nn.Module):
         skip_model: bool = False,
     ) -> torch.Tensor:
 
-        if any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
+        if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
                 "All target times must be multiples of the temporal resolution"
             )
