@@ -23,8 +23,8 @@ valid_dataset:
 
 train_dataloader:
   _target_: otter.data.loaders.cached_queue_dataloader.CachedQueueDataLoader
-  min_cache_size: 1000
-  max_cache_size: 1000
+  min_cache_size: 100
+  max_cache_size: 3000
   prob_use_cache: 0.80
   dataloader:
     _target_: torch.utils.data.DataLoader
@@ -93,7 +93,7 @@ constants:
     num_target_frames: 1
     batch_size: 4
     num_workers: 2
-    path_to_labelled_array: "./_data/era5_240x121_single_array"
+    path_to_labelled_array: "./_data/era5_240x121_single_array_float16"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
