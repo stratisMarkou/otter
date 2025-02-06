@@ -85,11 +85,11 @@ constants:
     ctx_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
     trg_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
     num_context_frames: 2
-    train_num_target_frames: 4
+    train_num_target_frames: 1
     valid_num_target_frames: 4
     batch_size: 4
     num_workers: 2
-    path_to_labelled_array: "./_data/era5_240x121_single_array_float16"
+    path_to_labelled_array: "./_data/era5_240x121_single_array_float32"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
