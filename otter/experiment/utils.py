@@ -15,7 +15,6 @@ from typing import (
 
 import git
 import torch
-import wandb
 import xarray as xr
 import yaml
 from hydra.utils import instantiate
@@ -23,6 +22,8 @@ from omegaconf import (
     DictConfig,
     OmegaConf,
 )
+
+import wandb
 
 Experiment = DictConfig
 
@@ -50,6 +51,7 @@ def create_module_summary(experiment: Experiment) -> str:
 
 
 def initialize_experiment(
+    experiment_name: Optional[str] = None,
     args_list: Optional[Sequence[str]] = None,
 ) -> Experiment:
     """Initialize experiment by parsing the config file, checking that the
@@ -57,6 +59,9 @@ def initialize_experiment(
     writer for tensorboard.
 
     Arguments:
+        experiment_name: name of the experiment, results such as logs and
+            checkpoints will be saved in a directory with this name. If None,
+            the current date and time will be used.
         args_list: list of arguments to parse.
 
     Returns:
@@ -89,7 +94,7 @@ def initialize_experiment(
 
     config = OmegaConf.merge(config, config_changes)
     assert type(config) is DictConfig  # Check this to silence mypy.
-    path = make_experiment_path(config)
+    path = make_experiment_path(experiment_name, config)
     config.info.path_results = path
     experiment: DictConfig = instantiate(config)
 
@@ -142,22 +147,23 @@ def get_current_commit_hash(repo: git.Repo) -> str:
         return repo.head.commit.hexsha
 
 
-def make_experiment_path(experiment: DictConfig) -> str:
+def make_experiment_path(
+    experiment_name: Optional[str], experiment: DictConfig
+) -> str:
     """Parse initialized experiment config and make up a path
     for the experiment, and create it if it doesn't exist,
     otherwise raise an error. Finally return the path.
 
     Arguments:
+        experiment_name: name of the experiment.
         config: config object.
 
     Returns:
         experiment_path: path to the experiment.
     """
 
-    experiment_name = getattr(
-        experiment.info,
-        "experiment_name",
-        datetime.now().strftime("%Y-%m-%d_%H:%M:%S"),
+    experiment_name = experiment_name or datetime.now().strftime(
+        "%Y-%m-%d_%H:%M:%S"
     )
     path = os.path.join(
         experiment.info.root_results,
