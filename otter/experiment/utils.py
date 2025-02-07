@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import logging
 import os
 import re
@@ -15,7 +16,6 @@ from typing import (
 
 import git
 import torch
-import wandb
 import xarray as xr
 import yaml
 from hydra.utils import instantiate
@@ -23,6 +23,8 @@ from omegaconf import (
     DictConfig,
     OmegaConf,
 )
+
+import wandb
 
 Experiment = DictConfig
 
@@ -47,6 +49,12 @@ def create_module_summary(experiment: Experiment) -> str:
     module_summary = get_module_summary(experiment.model)
     num_params = get_num_parameters(experiment.model)
     return module_summary + f"\nTotal # parameters: {num_params / 1e6:.1f}M."
+
+
+def get_module_attr(string: str) -> Any:
+    module_name, class_name = string.rsplit(".", 1)
+    module = importlib.import_module(module_name)
+    return getattr(module, class_name)
 
 
 def initialize_experiment(
@@ -84,6 +92,7 @@ def initialize_experiment(
 
     # Initialize experiment, make path and writer
     OmegaConf.register_new_resolver("eval", eval)
+    OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
     config = OmegaConf.load(args.config)
     config_changes = OmegaConf.from_cli(extra_args)
 
@@ -263,28 +272,12 @@ def load_std_dataset() -> xr.DataArray:
     return stack_dataset_variable_and_levels(mean_dataset_split)
 
 
-def log_per_variable_losses_to_wandb(
-    trg_variables_and_levels: Tuple[str],
+def log_loss_info_to_wandb(
     loss_info: Dict[str, torch.Tensor],
-    std_dataset: xr.DataArray,
+    prefix: str,
 ) -> None:
-
-    for var in trg_variables_and_levels:
-        # Get the lwrmse from the loss info and log it.
-        wandb.log(
-            {f"train_loss_component/{var}": loss_info[var]},
-            commit=False,
-        )
-
-        # Get each individual loss component and log it.
-        variable_scale = std_dataset.sel(variable_and_level=var).values
-        wandb.log(
-            {
-                f"train_lwrmse/{var}": loss_info[f"lwrmse/{var}"]
-                * variable_scale
-            },
-            commit=False,
-        )
+    for k, v in loss_info.items():
+        wandb.log({f"{prefix}/{k}": v}, commit=False)
 
 
 def log_per_variable_per_lead_time_losses_to_wandb(
