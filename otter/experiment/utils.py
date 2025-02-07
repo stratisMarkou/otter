@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import logging
 import os
 import re
@@ -15,16 +16,11 @@ from typing import (
 
 import git
 import torch
-import wandb
 import xarray as xr
-import yaml
-from hydra.utils import instantiate
-from omegaconf import (
-    DictConfig,
-    OmegaConf,
-)
 
-Experiment = DictConfig
+import wandb
+
+Experiment = Any
 
 
 def get_model_parameters(
@@ -83,24 +79,21 @@ def initialize_experiment(
         raise AssertionError("Repo has commits ahead, please push changes.")
 
     # Initialize experiment, make path and writer
-    OmegaConf.register_new_resolver("eval", eval)
-    config = OmegaConf.load(args.config)
-    config_changes = OmegaConf.from_cli(extra_args)
+    config_module = importlib.import_module(args.config)
+    experiment = getattr(config_module, "get_experiment")()
+    breakpoint()
 
-    config = OmegaConf.merge(config, config_changes)
-    assert type(config) is DictConfig  # Check this to silence mypy.
-    path = make_experiment_path(config)
-    config.info.path_results = path
-    experiment: DictConfig = instantiate(config)
+    path = make_experiment_path(experiment)
+    experiment.info.path_results = path
 
-    # Write config to file together with commit hash
-    with open(f"{path}/config.yml", "w") as file:
-        hash = get_current_commit_hash(repo) if not args.debug else None
-        config_to_save: DictConfig = OmegaConf.to_container(
-            config
-        )  # type: ignore
-        config_to_save.update({"commit": hash})
-        yaml.dump(config_to_save, file, indent=4, sort_keys=False)
+    # # Write config to file together with commit hash
+    # with open(f"{path}/config.yml", "w") as file:
+    #     hash = get_current_commit_hash(repo) if not args.debug else None
+    #     config_to_save: DictConfig = OmegaConf.to_container(
+    #         config
+    #     )  # type: ignore
+    #     config_to_save.update({"commit": hash})
+    #     yaml.dump(config_to_save, file, indent=4, sort_keys=False)
 
     return experiment
 
@@ -142,7 +135,7 @@ def get_current_commit_hash(repo: git.Repo) -> str:
         return repo.head.commit.hexsha
 
 
-def make_experiment_path(experiment: DictConfig) -> str:
+def make_experiment_path(experiment: Experiment) -> str:
     """Parse initialized experiment config and make up a path
     for the experiment, and create it if it doesn't exist,
     otherwise raise an error. Finally return the path.
@@ -154,13 +147,10 @@ def make_experiment_path(experiment: DictConfig) -> str:
         experiment_path: path to the experiment.
     """
 
-    experiment_name = getattr(
-        experiment.info,
-        "experiment_name",
-        datetime.now().strftime("%Y-%m-%d_%H:%M:%S"),
-    )
+    experiment_name = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    breakpoint()
     path = os.path.join(
-        experiment.info.root_results,
+        experiment.root_results,
         experiment_name,
     )
 
@@ -309,19 +299,3 @@ def log_per_variable_per_lead_time_losses_to_wandb(
                 {f"val/{key}_time_{i:03}": info[i] * std},
                 commit=False,
             )
-
-
-def create_optimizer_and_lr_scheduler(
-    module: torch.nn.Module,
-    optimizer_kwargs: Dict[str, Any],
-    lr_scheduler_kwargs: Dict[str, Any],
-) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
-
-    optimizer = torch.optim.AdamW(
-        params=module.parameters(), **optimizer_kwargs
-    )
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optimizer, **lr_scheduler_kwargs
-    )
-
-    return optimizer, lr_scheduler

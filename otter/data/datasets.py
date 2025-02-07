@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import (
     Any,
-    Callable,
     List,
     Sequence,
 )
@@ -40,10 +39,6 @@ class ContextTargetData:
 
 def collate_fn(batch: List[ContextTargetData]) -> List[ContextTargetData]:
     return batch
-
-
-def get_collate_fn() -> Callable[..., Any]:
-    return collate_fn
 
 
 def _combine_variables_and_levels(

@@ -16,7 +16,6 @@ from otter.data.datasets import (  # type: ignore
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
-    ContextTargetData,
 )
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -25,13 +24,6 @@ from otter.data.utils import (
     stack_dataset_variable_and_levels,
 )
 from otter.models.architectures.embeddings import TimeEmbedding
-from otter.models.losses import (
-    DEFAULT_SURFACE_VARIABLE_WEIGHTS,
-    apply_difference_weighting,
-    apply_latitude_weighting,
-    apply_pressure_weighting,
-    apply_surface_variable_weighting,
-)
 
 
 def _get_variable_and_level_list(
@@ -87,14 +79,8 @@ class DeterministicModel(torch.nn.Module):
         trg_multilevel_variables: Sequence[str],
         ctx_levels: Sequence[int],
         trg_levels: Sequence[int],
-        apply_pressure_weighting_loss: bool,
-        apply_latitude_weighting_loss: bool,
-        apply_difference_weighting: bool,
         data_grid_num_lat: int,
         data_grid_num_lon: int,
-        surface_variable_weights: Dict[
-            str, float
-        ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
     ) -> None:
         super().__init__()
 
@@ -136,11 +122,6 @@ class DeterministicModel(torch.nn.Module):
             multilevel_variables=trg_multilevel_variables,
         )
 
-        self.apply_pressure_weighting_loss = apply_pressure_weighting_loss
-        self.apply_latitude_weighting_loss = apply_latitude_weighting_loss
-        self.surface_variable_weights = surface_variable_weights
-        self.apply_difference_weighting = apply_difference_weighting
-
         self.data_grid_num_lat = data_grid_num_lat
         self.data_grid_num_lon = data_grid_num_lon
 
@@ -171,7 +152,7 @@ class DeterministicModel(torch.nn.Module):
         trg_timedelta_hours: npt.NDArray[np.int32],
         device: str,
         skip_model: bool = False,
-    ) -> torch.Tensor:
+    ) -> Dict[str, torch.Tensor]:
 
         if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
@@ -183,12 +164,14 @@ class DeterministicModel(torch.nn.Module):
         )
 
         # First, normalise the ctx data and split into variables and levels
-        mean = torch.tensor(self.ctx_mean.values).float().to(device)
-        std = torch.tensor(self.ctx_std.values).float().to(device)
+        ctx_mean = torch.tensor(self.ctx_mean.values).float().to(device)
+        ctx_std = torch.tensor(self.ctx_std.values).float().to(device)
 
-        ctx = (ctx - mean[None, None, None, None, :]) / std[
-            None, None, None, None, :
-        ]
+        trg_mean = torch.tensor(self.trg_mean.values).float().to(device)
+        trg_std = torch.tensor(self.trg_std.values).float().to(device)
+
+        ctx = ctx - ctx_mean[None, None, None, None, :]
+        ctx = ctx / ctx_std[None, None, None, None, :]
         ctx = ctx.permute(
             0, 3, 2, 1, 4
         )  # (batch, lat, lon, time_idx, var_and_level)
@@ -201,13 +184,19 @@ class DeterministicModel(torch.nn.Module):
             f"{tuple(ctx.shape[1:3])}"
         )
 
-        return self.rollout(
+        prd = self.rollout(
             ctx=ctx,
             zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
             num_rollout_steps=num_rollout_steps,
             skip_model=skip_model,
-        )
+        )  # (batch, lat, lon, time_idx, trg_var_and_level)
+
+        prd = prd * trg_std[None, None, None, None, :]
+        prd = prd + trg_mean[None, None, None, None, :]
+        assert isinstance(prd, torch.Tensor)  # Assert to silence mypy
+
+        return dict(mean=prd)
 
     def rollout(
         self,
@@ -275,118 +264,6 @@ class DeterministicModel(torch.nn.Module):
 
         return torch.stack(predictions, dim=-2)
 
-    def loss(
-        self,
-        batch: List[ContextTargetData],
-        device: str,
-        mean_over_time_dimension: bool,
-    ) -> Tuple[torch.Tensor, Dict[str, npt.NDArray[np.float32]]]:
-
-        def _apply_square_root_and_averaging(
-            squared_error: torch.Tensor,
-            mean_over_time_dimension: bool,
-        ) -> torch.Tensor:
-            rmse = torch.mean(squared_error, dim=[1, 2]) ** 0.5
-            if mean_over_time_dimension:
-                return torch.mean(rmse, dim=[0, 1])  # (var_and_level,)
-            else:
-                return torch.mean(rmse, dim=[0])  # (time_idx, var_and_level)
-
-        ctx_tensor = torch.stack(
-            [torch.tensor(example.ctx.data).to(device) for example in batch],
-            dim=0,
-        )
-        ctx_times = np.stack(
-            [example.ctx.coords[0].values for example in batch], axis=0
-        )
-        trg_tensor = torch.stack(
-            [torch.tensor(example.trg.data).to(device) for example in batch],
-            dim=0,
-        )
-        trg_times = np.stack(
-            [example.trg.coords[0].values for example in batch], axis=0
-        )
-
-        zero_time = np.max(ctx_times, axis=-1)  # (batch,)
-        trg_timedelta = trg_times - zero_time[:, None]
-        trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(
-            int
-        )
-
-        # Get the predictions from the model.
-        predictions = self.forward(
-            ctx_tensor.float().to(device),
-            zero_time,
-            trg_timedelta_hours,
-            device=device,
-        )
-
-        # Prepare the target tensor from the target dataset.
-        trg = trg_tensor.float().to(device)
-        mean = torch.tensor(self.trg_mean.values).float().to(device)
-        std = torch.tensor(self.trg_std.values).float().to(device)
-        trg = (trg - mean[None, None, None, None, :]) / std[
-            None, None, None, None, :
-        ]
-        trg = trg.permute(
-            0, 3, 2, 1, 4
-        )  # (batch, lat, lon, time_idx, var_and_level)
-
-        # Calculate the loss.
-        squared_error = (
-            predictions - trg
-        ) ** 2  # (batch, lat, lon, time_idx, var_and_level)
-        squared_error = apply_latitude_weighting(squared_error)
-
-        lwrmse_per_variable = _apply_square_root_and_averaging(
-            squared_error,
-            mean_over_time_dimension=mean_over_time_dimension,
-        )
-
-        if self.apply_pressure_weighting_loss:
-            squared_error = apply_pressure_weighting(
-                squared_error,
-                self.trg_variables_and_levels,
-            )
-
-        if self.surface_variable_weights:
-            squared_error = apply_surface_variable_weighting(
-                squared_error,
-                self.trg_variables_and_levels,
-                self.surface_variable_weights,
-            )
-
-        if self.apply_difference_weighting:
-            squared_error = apply_difference_weighting(
-                squared_error,
-                self.trg_variables_and_levels,
-            )
-
-        # Compute mean across (lat, lon) dimensions and take square root.
-        rmse_loss = torch.mean(squared_error, dim=[1, 2]) ** 0.5
-
-        if mean_over_time_dimension:
-            per_variable_loss = torch.mean(rmse_loss, dim=[0, 1])
-
-        else:
-            per_variable_loss = torch.mean(rmse_loss, dim=[0])
-
-        # Total loss is the sum of the per-variable losses.
-        loss = torch.sum(per_variable_loss, dim=-1)
-
-        # Per-variable losses as numpy arrays in a dictionary.
-        training_loss_info = {
-            var: per_variable_loss[..., i].cpu().detach().numpy()
-            for i, var in enumerate(self.trg_variables_and_levels)
-        }
-
-        auxiliary_loss_info = {
-            f"lwrmse/{var}": lwrmse_per_variable[..., i].cpu().detach().numpy()
-            for i, var in enumerate(self.trg_variables_and_levels)
-        }
-
-        return loss, dict(**training_loss_info, **auxiliary_loss_info)
-
 
 def make_deterministic_model(
     backbone_network: torch.nn.Module,
@@ -394,14 +271,8 @@ def make_deterministic_model(
     temporal_resolution_hours: int,
     ctx_variables_to_remove: Sequence[str],
     trg_variables_to_remove: Sequence[str],
-    apply_pressure_weighting_loss: bool,
-    apply_latitude_weighting_loss: bool,
-    apply_difference_weighting: bool,
     data_grid_num_lat: int,
     data_grid_num_lon: int,
-    surface_variable_weights: Dict[
-        str, float
-    ] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
 ) -> DeterministicModel:
 
     return DeterministicModel(
@@ -430,10 +301,6 @@ def make_deterministic_model(
         ),
         ctx_levels=ALL_GRID_VARIABLE_LEVELS,
         trg_levels=ALL_GRID_VARIABLE_LEVELS,
-        apply_pressure_weighting_loss=apply_pressure_weighting_loss,
-        apply_latitude_weighting_loss=apply_latitude_weighting_loss,
-        apply_difference_weighting=apply_difference_weighting,
-        surface_variable_weights=surface_variable_weights,
         data_grid_num_lat=data_grid_num_lat,
         data_grid_num_lon=data_grid_num_lon,
     )
