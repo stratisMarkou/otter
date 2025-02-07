@@ -87,7 +87,7 @@ constants:
     num_context_frames: 2
     train_num_target_frames: 1
     valid_num_target_frames: 4
-    batch_size: 4
+    batch_size: 8
     num_workers: 2
     path_to_labelled_array: "/scratch2/otter_data/era5_240x121_single_array_float32"
     collate_fn:
@@ -97,7 +97,7 @@ constants:
     val_task_subsampling_factor: 5
   training:
     initial_learning_rate: 1e-4
-    epochs: 10
+    epochs: 40
     num_training_steps:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}
