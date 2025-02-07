@@ -178,6 +178,7 @@ def make_experiment_path(
         logging.info(
             f"Path for experiment results:\n{path}\nalready exists! Exiting."
         )
+        print(path)
         quit()
 
     return path

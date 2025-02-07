@@ -89,7 +89,7 @@ constants:
     valid_num_target_frames: 4
     batch_size: 4
     num_workers: 2
-    path_to_labelled_array: "./_data/era5_240x121_single_array_float32"
+    path_to_labelled_array: "/scratch2/otter_data/era5_240x121_single_array_float32"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
