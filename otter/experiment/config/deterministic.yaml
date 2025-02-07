@@ -53,7 +53,7 @@ backbone_network:
   mlp_num_hidden: 256
   mlp_num_layers: 2
   num_heads: 8
-  num_blocks_per_stage: [8, 8, 8]
+  num_blocks_per_stage: [6, 6, 6]
 
 model:
   _target_: otter.models.deterministic_model.make_deterministic_model
