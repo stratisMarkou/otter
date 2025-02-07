@@ -5,6 +5,7 @@ from typing import (
 )
 
 import torch
+import xarray as xr
 
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -21,6 +22,44 @@ DEFAULT_SURFACE_VARIABLE_WEIGHTS = {
     "10m_v_component_of_wind": 1e-1,
     "mean_sea_level_pressure": 1e-1,
 }
+
+
+def load_stacked_std_data_array(diff: bool) -> xr.DataArray:
+    std = load_statistic("diff_std" if diff else "std")
+    std_split = split_into_different_variables_along_dim(std, "level")
+    return stack_dataset_variable_and_levels(std_split)
+
+
+VAR_STD_DATA_ARRAY = load_stacked_std_data_array(diff=False)
+VAR_DIFF_STD_DATA_ARRAY = load_stacked_std_data_array(diff=True)
+
+
+def apply_division_by_variable_diff_std(
+    tensor: torch.Tensor,
+    variable_and_level: Sequence[str],
+) -> torch.Tensor:
+
+    std_array = VAR_STD_DATA_ARRAY.sel(
+        variable_and_level=variable_and_level
+    ).values
+    std_tensor = torch.tensor(std_array).float().to(tensor.device)
+    std_tensor = std_tensor[None, None, :]
+
+    return tensor / (std_tensor + 1e-12).to(tensor.device)
+
+
+def apply_division_by_variable_std(
+    tensor: torch.Tensor,
+    variable_and_level: Sequence[str],
+) -> torch.Tensor:
+
+    std_array = VAR_DIFF_STD_DATA_ARRAY.sel(
+        variable_and_level=variable_and_level
+    ).values
+    std_tensor = torch.tensor(std_array).float().to(tensor.device)
+    std_tensor = std_tensor[None, None, :]
+
+    return tensor / (std_tensor + 1e-12).to(tensor.device)
 
 
 def apply_surface_weighting(
@@ -85,35 +124,3 @@ def apply_pressure_weighting(
     weight_tensor = weight_tensor[None, None, :]
 
     return tensor * weight_tensor.to(tensor.device)
-
-
-def apply_division_by_variable_std(
-    tensor: torch.Tensor,
-    variable_and_level: Sequence[str],
-) -> torch.Tensor:
-
-    std = load_statistic("std")
-    std_split = split_into_different_variables_along_dim(std, "level")
-    std_stacked = stack_dataset_variable_and_levels(std_split)
-
-    std_array = std_stacked[variable_and_level].values
-    std_tensor = torch.tensor(std_array).float()
-    std_tensor = std_tensor[None, None, :]
-
-    return tensor / (std_tensor + 1e-12).to(tensor.device)
-
-
-def apply_division_by_diff_variable_std(
-    tensor: torch.Tensor,
-    variable_and_level: Sequence[str],
-) -> torch.Tensor:
-
-    std = load_statistic("diff_std")
-    std_split = split_into_different_variables_along_dim(std, "level")
-    std_stacked = stack_dataset_variable_and_levels(std_split)
-
-    std_array = std_stacked[variable_and_level].values
-    std_tensor = torch.tensor(std_array).float()
-    std_tensor = std_tensor[None, None, :]
-
-    return tensor / (std_tensor + 1e-12).to(tensor.device)
