@@ -41,6 +41,12 @@ time_embedding:
   _target_: otter.models.architectures.embeddings.TimeEmbedding
   num_scales: 16
 
+pos_embedding:
+  _target_: otter.models.architectures.embeddings.PositionEmbedding
+  token_dimension: ${backbone_network.token_dimensions[0]}
+  height: ${eval:'${backbone_network.height} // ${backbone_network.patch_size}'}
+  width: ${eval:'${backbone_network.width} // ${backbone_network.patch_size}'}
+
 backbone_network:
   _target_: otter.models.architectures.transformer.SwinTransformer
   in_channels: ${eval:'148 + 2 * ${time_embedding.num_scales}'}
@@ -54,6 +60,7 @@ backbone_network:
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
+  pos_embedding: ${pos_embedding}
 
 model:
   _target_: otter.models.deterministic_model.make_deterministic_model
@@ -89,7 +96,7 @@ constants:
     valid_num_target_frames: 4
     batch_size: 4
     num_workers: 2
-    path_to_labelled_array: "./_data/era5_240x121_single_array"
+    path_to_labelled_array: "/scratch2/otter_data/era5_240x121_single_array_float32"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste

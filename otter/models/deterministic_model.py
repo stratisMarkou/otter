@@ -170,6 +170,8 @@ class DeterministicModel(torch.nn.Module):
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         device: str,
+        lat: torch.Tensor,
+        lon: torch.Tensor,
         skip_model: bool = False,
     ) -> torch.Tensor:
 
@@ -207,6 +209,8 @@ class DeterministicModel(torch.nn.Module):
             trg_timedelta_hours=trg_timedelta_hours,
             num_rollout_steps=num_rollout_steps,
             skip_model=skip_model,
+            lat=lat,
+            lon=lon,
         )
 
     def rollout(
@@ -215,6 +219,8 @@ class DeterministicModel(torch.nn.Module):
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         num_rollout_steps: int,
+        lat: torch.Tensor,
+        lon: torch.Tensor,
         skip_model: bool = False,
     ) -> torch.Tensor:
 
@@ -261,7 +267,9 @@ class DeterministicModel(torch.nn.Module):
                 )
 
                 prediction = residual + self.backbone_network(
-                    ctx_with_time_embedding
+                    ctx_with_time_embedding,
+                    lat=lat,
+                    lon=lon,
                 )  # (batch, lat, lon, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
@@ -313,12 +321,21 @@ class DeterministicModel(torch.nn.Module):
             int
         )
 
+        lon = (
+            torch.from_numpy(batch[0].ctx.coords[1].values).float().to(device)
+        )
+        lat = (
+            torch.from_numpy(batch[0].ctx.coords[2].values).float().to(device)
+        )
+
         # Get the predictions from the model.
         predictions = self.forward(
             ctx_tensor.float().to(device),
             zero_time,
             trg_timedelta_hours,
             device=device,
+            lat=lat,
+            lon=lon,
         )
 
         # Prepare the target tensor from the target dataset.

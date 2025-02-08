@@ -3,7 +3,10 @@ from typing import Sequence
 import torch
 from torch import nn
 
-from otter.models.architectures.embeddings import PositionEmbedding
+from otter.models.architectures.embeddings import (
+    PositionEmbedding,
+    SpatialEmbedding,
+)
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
@@ -27,6 +30,7 @@ class SwinTransformer(nn.Module):
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
+        pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -109,11 +113,7 @@ class SwinTransformer(nn.Module):
             patch_size=patch_size,
         )
 
-        self.embedding = PositionEmbedding(
-            token_dimension=token_dimensions[0],
-            height=height // patch_size,
-            width=width // patch_size,
-        )
+        self.embedding = pos_embedding
 
         self.final_conv = nn.ConvTranspose2d(
             in_channels=token_dimensions[0],
@@ -125,7 +125,9 @@ class SwinTransformer(nn.Module):
         self.width = width
         self.height = height
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, lat: torch.Tensor, lon: torch.Tensor
+    ) -> torch.Tensor:
         """Apply vision transformer to batch of images.
 
         Arguments:
@@ -142,7 +144,16 @@ class SwinTransformer(nn.Module):
         )
 
         x = self.tokeniser(x)
-        x = self.embedding(x)
+        if isinstance(self.embedding, PositionEmbedding):
+            x = self.embedding(x)
+        elif isinstance(self.embedding, SpatialEmbedding):
+            x = self.embedding(x, lat, lon)
+        else:
+            raise ValueError(
+                f"Unsupported embedding type for positional"
+                f" embedding: {type(self.embedding)}"
+            )
+
         skips = []
 
         for downsampling_conv, down_swin_stage in zip(
