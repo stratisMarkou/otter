@@ -124,6 +124,7 @@ constants:
       dataloader: ${train_dataloader}
     validate_every: 5000
     save_checkpoint_every: 10_000
+  load_weights_from_experiment: null
 
 
 info:
