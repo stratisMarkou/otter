@@ -1,24 +1,32 @@
 import os
 from typing import (
     Any,
+    Callable,
+    Dict,
     Iterable,
+    List,
+    Tuple,
 )
 
 import numpy as np
+import numpy.typing as npt
 import torch
-import wandb
-import xarray as xr
 from tqdm import tqdm
 
+import wandb
 from otter.experiment.utils import (
     create_optimizer_and_lr_scheduler,
     initialize_experiment,
-    load_std_dataset,
     log_code_to_wandb,
-    log_per_variable_losses_to_wandb,
-    log_per_variable_per_lead_time_losses_to_wandb,
+    log_loss_info_to_wandb,
     run_and_log_time_to_wandb,
 )
+from otter.models.losses.loss_fn import (
+    LossInfo,
+    PredictionStatistics,
+)
+
+LossFunction = Callable[[PredictionStatistics], Tuple[torch.Tensor, LossInfo]]
 
 
 def assert_single_device() -> None:
@@ -30,24 +38,72 @@ def assert_single_device() -> None:
         )
 
 
+def prepare_tensors_zero_time_and_trg_timedelta_hours(
+    batch: Any,
+    device: str,
+) -> Tuple[
+    torch.Tensor,
+    npt.NDArray[np.float64],
+    npt.NDArray[np.int32],
+    torch.Tensor,
+]:
+    ctx_tensor = torch.stack(
+        [torch.tensor(example.ctx.data).to(device) for example in batch],
+        dim=0,
+    )
+    ctx_times = np.stack(
+        [example.ctx.coords[0].values for example in batch], axis=0
+    )
+    trg_tensor = torch.stack(
+        [torch.tensor(example.trg.data).to(device) for example in batch],
+        dim=0,
+    )
+    trg_times = np.stack(
+        [example.trg.coords[0].values for example in batch], axis=0
+    )
+    ctx_tensor = ctx_tensor.permute(
+        0, 3, 2, 1, 4
+    )  # (batch, lat, lon, time, var_and_level)
+    trg_tensor = trg_tensor.permute(
+        0, 3, 2, 1, 4
+    )  # (batch, lat, lon, time, var_and_level)
+
+    zero_time = np.max(ctx_times, axis=-1)  # (batch,)
+    trg_timedelta = trg_times - zero_time[:, None]
+    trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(int)
+
+    return ctx_tensor, zero_time, trg_timedelta_hours, trg_tensor
+
+
 def train_step(
     model: torch.nn.Module,
+    loss_fn: LossFunction,
     train_loader: Iterable[Any],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     step_number: int,
-    std_dataset: xr.DataArray,
     device: str = "cuda",
 ) -> int:
 
     model = model.to(device)
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    loss, loss_info = run_and_log_time_to_wandb(
-        "model.loss",
-        model.loss,
-        batch=batch,
+    ctx, zero_time, trg_timedelta_hours, trg = (
+        prepare_tensors_zero_time_and_trg_timedelta_hours(batch, device)
+    )
+    prd_stats = run_and_log_time_to_wandb(
+        "model.forward",
+        model.forward,
+        ctx=ctx,
+        zero_time=zero_time,
+        trg_timedelta_hours=trg_timedelta_hours,
         device=device,
-        mean_over_time_dimension=True,
+    )
+
+    loss, loss_info = run_and_log_time_to_wandb(
+        "loss_fn",
+        loss_fn,
+        prd_stats=prd_stats,
+        trg=trg,
     )
 
     run_and_log_time_to_wandb("loss.backward", loss.backward)
@@ -55,10 +111,9 @@ def train_step(
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
     run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
 
-    log_per_variable_losses_to_wandb(
-        trg_variables_and_levels=model.trg_variables_and_levels,
+    log_loss_info_to_wandb(
         loss_info=loss_info,
-        std_dataset=std_dataset,
+        prefix="train",
     )
 
     current_lr = lr_scheduler.get_last_lr()[0]
@@ -73,7 +128,7 @@ def validation_epoch(
     model: torch.nn.Module,
     device: str,
     dataloader: Iterable[Any],
-    std_dataset: xr.DataArray,
+    loss_fns: Dict[str, LossFunction],
 ) -> None:
 
     # Ensure model is in evaluation mode.
@@ -81,37 +136,61 @@ def validation_epoch(
     model = model.eval()
 
     with torch.no_grad():
-        losses = []
-        loss_infos = []
-        for batch in tqdm(dataloader):
-            # Loss and loss info contain a time index dimension
-            # as the first dimension.
-            loss, loss_info = model.loss(
-                batch=batch,
-                device=device,
-                mean_over_time_dimension=False,
-            )
-            losses.append(loss.detach().cpu().numpy())
-            loss_infos.append(loss_info)
-
-    # For each lead time index collect the mean loss and loss info,
-    # averaged over the batch dimension.
-    mean_loss = np.mean(np.stack(losses, axis=0), axis=0)
-    mean_loss_info = {
-        key: np.mean(
-            np.stack([info[key] for info in loss_infos], axis=0),
-            axis=0,
+        losses: Dict[str, List[npt.NDArray[np.float32]]] = dict()
+        loss_infos: Dict[str, List[Dict[str, npt.NDArray[np.float32]]]] = (
+            dict()
         )
-        for key in loss_infos[0].keys()
-    }
+        for batch in tqdm(dataloader):
 
-    log_per_variable_per_lead_time_losses_to_wandb(
-        mean_loss=mean_loss,
-        mean_loss_info=mean_loss_info,
-        std_dataset=std_dataset,
-    )
+            # Prepare tensors for the batch.
+            ctx, zero_time, trg_timedelta_hours, trg = (
+                prepare_tensors_zero_time_and_trg_timedelta_hours(
+                    batch,
+                    device,
+                )
+            )
+            prd_stats = model(
+                ctx=ctx,
+                zero_time=zero_time,
+                trg_timedelta_hours=trg_timedelta_hours,
+                device=device,
+            )
 
-    # Ensure model is back in training mode.
+            # Compute the loss for each loss function and store results.
+            for loss_name, loss_fn in loss_fns.items():
+                if loss_name not in losses:
+                    losses[loss_name] = []
+                    loss_infos[loss_name] = []
+
+                loss, loss_info = loss_fn(  # type: ignore
+                    prd_stats=prd_stats,
+                    trg=trg,
+                )
+
+                losses[loss_name].append(loss.cpu().detach().numpy())
+                loss_infos[loss_name].append(loss_info)
+
+    # Average the losses over the validation set.
+    for loss_name, loss_values in losses.items():
+        mean_loss = np.mean(np.stack(loss_values, axis=0), axis=0)
+        wandb.log({f"val/{loss_name}": mean_loss}, commit=False)
+
+    # Average the loss info over the validation set.
+    for loss_name, info in loss_infos.items():
+        for var in info[0].keys():
+            mean_info = np.mean(
+                np.stack(
+                    [info[var] for info in info],
+                    axis=0,
+                ),
+                axis=0,
+            )
+            wandb.log(
+                {f"val/{loss_name}/{var}": mean_info},
+                commit=False,
+            )
+
+    # Ensure model is back in training mode after validation.
     model.train()
 
 
@@ -121,14 +200,14 @@ def main() -> None:
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Initialize experiment, including data loaders, model, and optimizer.
-    experiment = initialize_experiment()
-
     # Initialize wandb.
-    wandb.init(project=experiment.info.wandb_project)
+    wandb.init(project="otter-deterministic", entity="otter-weather")
     log_code_to_wandb()
 
-    std_dataset = load_std_dataset()
+    # Initialize experiment, including data loaders, model, and optimizer.
+    assert wandb.run is not None
+    experiment = initialize_experiment(experiment_name=wandb.run.name)
+
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
         module=experiment.model,
         optimizer_kwargs=experiment.optimizer_kwargs,
@@ -146,19 +225,19 @@ def main() -> None:
                     model=experiment.model,
                     device=device,
                     dataloader=experiment.valid_dataloader,
-                    std_dataset=std_dataset,
+                    loss_fns=experiment.val_loss_fns,
                 )
 
             try:
                 step = run_and_log_time_to_wandb(
                     "train_step",
                     train_step,
+                    loss_fn=experiment.loss_fn,
                     model=experiment.model,
                     train_loader=train_loader,
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     step_number=step,
-                    std_dataset=std_dataset,
                     device=device,
                 )
             except StopIteration:
