@@ -2,6 +2,7 @@ from functools import partial
 from typing import (
     Callable,
     Dict,
+    Optional,
     Sequence,
     Tuple,
 )
@@ -84,7 +85,7 @@ def apply_loss(
     trg: torch.Tensor,
     prd_stats: PredictionStatistics,
     loss_fn: Callable[[torch.Tensor, PredictionStatistics], torch.Tensor],
-    weighting_fns: Sequence[LossWeightingFunction],
+    weighting_fns: Optional[Sequence[LossWeightingFunction]],
     trg_variables_and_levels: Sequence[str],
 ) -> Tuple[torch.Tensor, LossInfo]:
     """Apply a loss function to target tensor using prediction statistics.
@@ -98,10 +99,11 @@ def apply_loss(
     loss = loss_fn(trg, prd_stats)  # (batch, time, var_and_level)
 
     # Apply the specified weightings to the loss tensor.
-    for weighting_fn in weighting_fns:
-        loss = weighting_fn(
-            loss, trg_variables_and_levels
-        )  # (batch, time, var_and_level)
+    if weighting_fns is not None:
+        for weighting_fn in weighting_fns:
+            loss = weighting_fn(
+                loss, trg_variables_and_levels
+            )  # (batch, time, var_and_level)
 
     loss_per_time_per_var = torch.mean(loss, dim=0)  # (time, var_and_level)
 
@@ -121,7 +123,7 @@ def apply_loss(
 def make_loss_fn(
     model: torch.nn.Module,
     loss_fn: Callable[[torch.Tensor, PredictionStatistics], torch.Tensor],
-    weighting_fns: Sequence[LossWeightingFunction],
+    weighting_fns: Optional[Sequence[LossWeightingFunction]] = None,
 ) -> Callable[
     [torch.Tensor, PredictionStatistics], Tuple[torch.Tensor, LossInfo]
 ]:
