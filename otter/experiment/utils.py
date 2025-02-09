@@ -165,11 +165,8 @@ def make_experiment_path(experiment: DictConfig) -> str:
         experiment_path: path to the experiment.
     """
 
-    experiment_name = getattr(
-        experiment.info,
-        "experiment_name",
-        datetime.now().strftime("%Y-%m-%d_%H:%M:%S"),
-    )
+    datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    experiment_name = experiment.info.experiment_name or datetime_str
     path = os.path.join(
         experiment.info.root_results,
         experiment_name,
