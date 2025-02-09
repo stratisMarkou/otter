@@ -76,7 +76,7 @@ loss_fn:
 
 val_loss_fns:
   # Always include the training loss function in the validation loss functions.
-  loss_fn: ${loss_fn}
+  train_loss: ${loss_fn}
   # Additional loss functions reported exclusively during validation.
   raw_rmse:
     _target_: otter.models.losses.loss_fn.make_loss_fn

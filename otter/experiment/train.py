@@ -186,7 +186,7 @@ def validation_epoch(
                 axis=0,
             )
             wandb.log(
-                {f"val/{loss_name}_{var}": mean_info},
+                {f"val/{loss_name}/{var}": mean_info},
                 commit=False,
             )
 
