@@ -170,6 +170,26 @@ def validation_epoch(
                 losses[loss_name].append(loss.cpu().detach().numpy())
                 loss_infos[loss_name].append(loss_info)
 
+    # Average the losses over the validation set.
+    for loss_name, loss_values in losses.items():
+        mean_loss = np.mean(np.stack(loss_values, axis=0), axis=0)
+        wandb.log({f"val/{loss_name}": mean_loss}, commit=False)
+
+    # Average the loss info over the validation set.
+    for loss_name, info in loss_infos.items():
+        for var in info[0].keys():
+            mean_info = np.mean(
+                np.stack(
+                    [info[var] for info in info],
+                    axis=0,
+                ),
+                axis=0,
+            )
+            wandb.log(
+                {f"val/{loss_name}_{var}": mean_info},
+                commit=False,
+            )
+
     # Ensure model is back in training mode after validation.
     model.train()
 
