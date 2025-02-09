@@ -74,6 +74,19 @@ loss_fn:
     - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}
     - ${get_module_attr:otter.models.losses.weighting.apply_division_by_variable_diff_std}
 
+val_loss_fns:
+  # Always include the training loss function in the validation loss functions.
+  loss_fn: ${loss_fn}
+  # Additional loss functions reported exclusively during validation.
+  raw_rmse:
+    _target_: otter.models.losses.loss_fn.make_loss_fn
+    model: ${model}
+    loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+  raw_lwrmse:
+    _target_: otter.models.losses.loss_fn.make_loss_fn
+    model: ${model}
+    loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
+
 
 optimizer_kwargs:
   lr: ${constants.training.initial_learning_rate}

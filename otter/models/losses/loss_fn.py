@@ -11,7 +11,7 @@ import numpy.typing as npt
 import torch
 
 PredictionStatistics = Dict[str, torch.Tensor]
-LossInfo = Dict[str, torch.Tensor | npt.NDArray[np.float32]]
+LossInfo = Dict[str, npt.NDArray[np.float32]]
 LossWeightingFunction = Callable[[torch.Tensor, Sequence[str]], torch.Tensor]
 
 DEFAULT_SURFACE_VARIABLE_WEIGHTS = {
@@ -115,7 +115,7 @@ def apply_loss(
         for t in range(loss_per_time_per_var.shape[0])
     }
 
-    return aggregated_loss, loss_info  # type: ignore
+    return aggregated_loss, loss_info
 
 
 def make_loss_fn(
