@@ -43,7 +43,7 @@ def test_deterministic_config() -> None:
 
         path = os.path.join(temp_dir, f"{TEST_DATASET}_single_array")
         initialize_experiment(
-            [
+            args_list=[
                 "--debug",
                 "--config",
                 "otter/experiment/config/deterministic.yaml",

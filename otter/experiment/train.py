@@ -200,12 +200,13 @@ def main() -> None:
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Initialize experiment, including data loaders, model, and optimizer.
-    experiment = initialize_experiment()
-
     # Initialize wandb.
-    wandb.init(project=experiment.info.wandb_project)
+    wandb.init(project="otter-deterministic", entity="otter-weather")
     log_code_to_wandb()
+
+    # Initialize experiment, including data loaders, model, and optimizer.
+    assert wandb.run is not None
+    experiment = initialize_experiment(experiment_name=wandb.run.name)
 
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
         module=experiment.model,

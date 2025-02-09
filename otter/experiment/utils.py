@@ -58,6 +58,7 @@ def get_module_attr(string: str) -> Any:
 
 
 def initialize_experiment(
+    experiment_name: Optional[str] = None,
     args_list: Optional[Sequence[str]] = None,
 ) -> Experiment:
     """Initialize experiment by parsing the config file, checking that the
@@ -97,6 +98,7 @@ def initialize_experiment(
     config_changes = OmegaConf.from_cli(extra_args)
 
     config = OmegaConf.merge(config, config_changes)
+    config.info.experiment_name = experiment_name
     assert type(config) is DictConfig  # Check this to silence mypy.
     path = make_experiment_path(config)
     config.info.path_results = path
