@@ -87,7 +87,7 @@ class CrossAttentionImageTokeniser(nn.Module):
             requires_grad=True,
         )
         self.gridwise_attention = EfficientMultiHeadCrossAttention(
-            num_heads=num_heads,
+            num_heads=1,
             kq_token_dim=token_dimension,
             v_token_dim=token_dimension,
         )
