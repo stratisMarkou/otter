@@ -7,6 +7,7 @@ from otter.models.architectures.embeddings import PositionEmbedding
 from otter.models.architectures.tokeniser import (
     CrossAttentionImageTokeniser,
     LinearImageTokeniser,
+    MLPImageTokeniser,
 )
 from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
@@ -31,7 +32,7 @@ class SwinTransformer(nn.Module):
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
         use_efficient_attention: bool = True,
-        tokeniser: str = "cross_attention",
+        tokeniser: str = "mlp",
     ):
         super().__init__()
 
@@ -112,6 +113,14 @@ class SwinTransformer(nn.Module):
                 in_channels=in_channels,
                 token_dimension=token_dimensions[0],
                 patch_size=patch_size,
+            )
+        elif tokeniser == "mlp":
+            self.tokeniser = MLPImageTokeniser(  # type: ignore
+                in_channels=in_channels,
+                token_dimension=token_dimensions[0],
+                patch_size=patch_size,
+                mlp_num_units_hidden=mlp_num_hidden,
+                mlp_num_hidden_layers=mlp_num_layers,
             )
         elif tokeniser == "cross_attention":
             self.tokeniser = CrossAttentionImageTokeniser(  # type: ignore

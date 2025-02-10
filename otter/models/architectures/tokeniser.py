@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+from otter.models.architectures.mlp import MLP
 from otter.models.architectures.utils import (
     conv_channel_last,
     extract_subimages_and_fold_into_batch_dim,
@@ -55,6 +56,38 @@ class LinearImageTokeniser(nn.Module):
         )
 
         return conv_channel_last(self.conv, x)
+
+
+class MLPImageTokeniser(nn.Module):
+
+    def __init__(
+        self,
+        in_channels: int,
+        token_dimension: int,
+        patch_size: int,
+        mlp_num_units_hidden: int,
+        mlp_num_hidden_layers: int,
+    ):
+        super().__init__()
+
+        self.linear_tokeniser = LinearImageTokeniser(
+            in_channels=in_channels,
+            token_dimension=token_dimension,
+            patch_size=patch_size,
+        )
+
+        self.patch_size = patch_size
+        self.mlp = MLP(
+            in_features=token_dimension,
+            hidden_features=mlp_num_units_hidden,
+            num_hidden_layers=mlp_num_hidden_layers,
+            output_features=token_dimension,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.linear_tokeniser(x)
+        x = self.mlp(x)
+        return x
 
 
 class CrossAttentionImageTokeniser(nn.Module):
