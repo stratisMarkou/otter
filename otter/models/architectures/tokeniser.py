@@ -65,25 +65,31 @@ class CrossAttentionImageTokeniser(nn.Module):
         token_dimension: int,
         patch_size: int,
         num_heads: int,
+        dim_var_embedding: int = 16,
     ):
         super().__init__()
 
         self.in_channels = in_channels
         self.token_dimension = token_dimension
         self.patch_size = patch_size
+        self.dim_var_embedding = dim_var_embedding or patch_size**2
 
-        self.varwise_q = nn.Parameter(
-            torch.randn(token_dimension, patch_size**2),
-            requires_grad=True,
-        )
         self.var_embedding = nn.Parameter(
-            torch.randn(in_channels, patch_size**2),
+            torch.randn(self.dim_var_embedding, in_channels),
             requires_grad=False,
         )
+
+        self.varwise_q = nn.Parameter(
+            torch.randn(
+                token_dimension, patch_size**2 + self.dim_var_embedding
+            ),
+            requires_grad=True,
+        )
+
         self.varwise_attention = EfficientMultiHeadCrossAttention(
             num_heads=1,
-            kq_token_dim=patch_size**2,
-            v_token_dim=patch_size**2,
+            kq_token_dim=patch_size**2 + self.dim_var_embedding,
+            v_token_dim=patch_size**2 + self.dim_var_embedding,
         )
 
         self.gridwise_q = nn.Parameter(
@@ -108,20 +114,23 @@ class CrossAttentionImageTokeniser(nn.Module):
             x, subimage_size=self.patch_size
         )  # (B * H//S * W//S, S**2, V)
 
-        # Repeat variable-wise query and grid-wise query in the batch dim.
-        Vq = self.varwise_q[None, :, :].expand(x.shape[0], -1, -1)
-        Gq = self.gridwise_q[None, :, :].expand(x.shape[0], -1, -1)
         var_embedding = self.var_embedding[None, :, :].expand(
             x.shape[0], -1, -1
         )
+        x = torch.cat(
+            [x, var_embedding], dim=1
+        )  # (B * H//S * W//S, S**2 + E, V)
 
-        x = x.permute(0, 2, 1)  # (B * H//S * W//S, V, S**2)
-        x = x + var_embedding
+        # Repeat variable-wise query and grid-wise query in the batch dim.
+        Vq = self.varwise_q[None, :, :].expand(x.shape[0], -1, -1)
+        Gq = self.gridwise_q[None, :, :].expand(x.shape[0], -1, -1)
+
+        x = x.permute(0, 2, 1)  # (B * H//S * W//S, V, S**2 + E)
 
         # Apply variable-wise cross attention.
         x = self.varwise_attention(
             q=Vq, k=x, v=x
-        )  # (B * H//S * W//S, D, S**2)
+        )  # (B * H//S * W//S, D, S**2 + E)
         x = x.permute(0, 2, 1)  # (B * H//S * W//S, S**2, D)
 
         # Apply grid-wise cross attention.
