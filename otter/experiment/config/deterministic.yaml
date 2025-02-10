@@ -47,7 +47,7 @@ backbone_network:
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [512, 512, 512, 512]
+  token_dimensions: [1024, 1024, 1024, 1024]
   output_dimension: 69
   window_size: 4
   mlp_num_hidden: 256
