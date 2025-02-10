@@ -5,6 +5,7 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Optional,
     Tuple,
 )
 
@@ -194,6 +195,25 @@ def validation_epoch(
     model.train()
 
 
+def load_checkpointed_weights_from_experiment(
+    model: torch.nn.Module,
+    experiment_name: str,
+    experiments_path: str = "./_results",
+    checkpoint_name: Optional[str] = None,
+) -> None:
+    # Get list of all files in the directory.
+    experiment_path = os.path.join(experiments_path, experiment_name)
+    assert os.path.exists(experiment_path)
+    checkpoints_path = os.path.join(experiment_path, "checkpoints")
+
+    if checkpoint_name is None:
+        # Get latest checkpoint.
+        checkpoint_name = sorted(os.listdir(checkpoints_path))[-1]
+
+    checkpoint_path = os.path.join(checkpoints_path, checkpoint_name)
+    model.load_state_dict(torch.load(checkpoint_path))
+
+
 def main() -> None:
 
     # Ensure that only one device is available.
@@ -213,6 +233,12 @@ def main() -> None:
         optimizer_kwargs=experiment.optimizer_kwargs,
         lr_scheduler_kwargs=experiment.lr_scheduler_kwargs,
     )
+
+    if experiment.constants.load_weights_from_experiment:
+        load_checkpointed_weights_from_experiment(
+            model=experiment.model,
+            experiment_name=experiment.constants.load_weights_from_experiment,
+        )
 
     step = 0
     for _ in range(experiment.constants.training.epochs):
