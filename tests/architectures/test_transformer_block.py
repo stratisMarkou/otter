@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from otter.models.architectures.transformer_blocks import (
-    TransformerBlock,
+from otter.models.architectures.transformer_blocks import TransformerBlock
+from otter.models.architectures.utils import (
     extract_subimages_and_fold_into_batch_dim,
     unfold_from_batch_dim_and_combine_subimages,
 )

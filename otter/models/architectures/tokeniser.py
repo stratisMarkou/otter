@@ -4,7 +4,7 @@ from torch import nn
 from otter.models.architectures.utils import conv_channel_last
 
 
-class ImageTokeniser(nn.Module):
+class LinearImageTokeniser(nn.Module):
 
     def __init__(
         self,
@@ -34,10 +34,10 @@ class ImageTokeniser(nn.Module):
         shared linear projection.
 
         Arguments:
-            x: image input tensor of shape (B, W, H, C)
+            x: image input tensor of shape (B, H, W, C)
 
         Returns:
-            output tensor of shape (B, N, D)
+            output tensor of shape (B, H // S, W // S, D)
         """
         _, H, W, _ = x.shape
         Hk, Wk = self.conv.kernel_size
@@ -48,3 +48,14 @@ class ImageTokeniser(nn.Module):
         )
 
         return conv_channel_last(self.conv, x)
+
+
+# class CrossAttentionImageTokeniser(nn.Module):
+
+#     def __init__(
+#         self,
+#         in_channels: int,
+#         token_dimension: int,
+#         patch_size: int,
+#     ):
+#         super().__init__()

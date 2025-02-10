@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from otter.models.architectures.embeddings import PositionEmbedding
-from otter.models.architectures.tokeniser import ImageTokeniser
+from otter.models.architectures.tokeniser import LinearImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     conv_channel_last,
@@ -103,7 +103,7 @@ class SwinTransformer(nn.Module):
             patch_upsampling_layers
         )
 
-        self.tokeniser = ImageTokeniser(
+        self.tokeniser = LinearImageTokeniser(
             in_channels=in_channels,
             token_dimension=token_dimensions[0],
             patch_size=patch_size,
