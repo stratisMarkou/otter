@@ -31,7 +31,7 @@ class SwinTransformer(nn.Module):
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
         use_efficient_attention: bool = True,
-        tokeniser: str = "linear",
+        tokeniser: str = "cross_attention",
     ):
         super().__init__()
 
