@@ -77,7 +77,7 @@ class CrossAttentionImageTokeniser(nn.Module):
             requires_grad=True,
         )
         self.varwise_attention = EfficientMultiHeadCrossAttention(
-            num_heads=num_heads,
+            num_heads=1,
             kq_token_dim=patch_size**2,
             v_token_dim=patch_size**2,
         )
@@ -87,7 +87,7 @@ class CrossAttentionImageTokeniser(nn.Module):
             requires_grad=True,
         )
         self.gridwise_attention = EfficientMultiHeadCrossAttention(
-            num_heads=1,
+            num_heads=num_heads,
             kq_token_dim=token_dimension,
             v_token_dim=token_dimension,
         )
@@ -99,14 +99,15 @@ class CrossAttentionImageTokeniser(nn.Module):
         D = self.token_dimension
         output_shape = (B, H // S, W // S, D)
 
-        # Repeat variable-wise query and grid-wise query in the batch dim.
-        Vq = self.varwise_q[None, :, :].expand(B, -1, -1)
-        Gq = self.gridwise_q[None, :, :].expand(B, -1, -1)
-
         # First, extract patches and fold into token dimension.
         x = extract_subimages_and_fold_into_batch_dim(
             x, subimage_size=self.patch_size
         )  # (B * H//S * W//S, S**2, V)
+
+        # Repeat variable-wise query and grid-wise query in the batch dim.
+        Vq = self.varwise_q[None, :, :].expand(x.shape[0], -1, -1)
+        Gq = self.gridwise_q[None, :, :].expand(x.shape[0], -1, -1)
+
         x = x.permute(0, 2, 1)  # (B * H//S * W//S, V, S**2)
 
         # Apply variable-wise cross attention.
