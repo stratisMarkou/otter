@@ -15,12 +15,11 @@ class EfficientMultiHeadAttention(nn.Module):
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
-        head_dim = token_dim // num_heads
 
-        self.scale = head_dim**-0.5
         self.Uq = nn.Linear(token_dim, token_dim, bias=qkv_bias)
         self.Uk = nn.Linear(token_dim, token_dim, bias=qkv_bias)
         self.Uv = nn.Linear(token_dim, token_dim, bias=qkv_bias)
+
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(token_dim, token_dim, bias=proj_bias)
         self.proj_drop = nn.Dropout(proj_drop)
@@ -32,9 +31,15 @@ class EfficientMultiHeadAttention(nn.Module):
         v: torch.Tensor,
     ) -> torch.Tensor:
 
-        x: torch.Tensor = memory_efficient_attention(
-            self.Uq(q), self.Uk(k), self.Uv(v)
-        )
+        assert q.shape == k.shape == v.shape
+        B, N, D = q.shape
+
+        q = self.Uq(q).reshape(B, N, self.num_heads, D // self.num_heads)
+        k = self.Uk(k).reshape(B, N, self.num_heads, D // self.num_heads)
+        v = self.Uv(v).reshape(B, N, self.num_heads, D // self.num_heads)
+
+        x: torch.Tensor = memory_efficient_attention(q, k, v)
+        x = x.reshape(B, N, D)
         x = self.proj_drop(self.proj(x))
 
         return x
