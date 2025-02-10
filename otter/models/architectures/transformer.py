@@ -4,7 +4,10 @@ import torch
 from torch import nn
 
 from otter.models.architectures.embeddings import PositionEmbedding
-from otter.models.architectures.tokeniser import LinearImageTokeniser
+from otter.models.architectures.tokeniser import (
+    CrossAttentionImageTokeniser,
+    LinearImageTokeniser,
+)
 from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     conv_channel_last,
@@ -28,6 +31,7 @@ class SwinTransformer(nn.Module):
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
         use_efficient_attention: bool = True,
+        tokeniser: str = "linear",
     ):
         super().__init__()
 
@@ -103,11 +107,21 @@ class SwinTransformer(nn.Module):
             patch_upsampling_layers
         )
 
-        self.tokeniser = LinearImageTokeniser(
-            in_channels=in_channels,
-            token_dimension=token_dimensions[0],
-            patch_size=patch_size,
-        )
+        if tokeniser == "linear":
+            self.tokeniser = LinearImageTokeniser(
+                in_channels=in_channels,
+                token_dimension=token_dimensions[0],
+                patch_size=patch_size,
+            )
+        elif tokeniser == "cross_attention":
+            self.tokeniser = CrossAttentionImageTokeniser(  # type: ignore
+                in_channels=in_channels,
+                token_dimension=token_dimensions[0],
+                patch_size=patch_size,
+                num_heads=num_heads,
+            )
+        else:
+            raise ValueError(f"Unknown tokeniser type: {tokeniser}")
 
         self.embedding = PositionEmbedding(
             token_dimension=token_dimensions[0],
