@@ -50,7 +50,7 @@ backbone_network:
   token_dimensions: [1024, 1024, 1024, 1024]
   output_dimension: 69
   window_size: 4
-  mlp_num_hidden: 256
+  mlp_num_hidden: 1024
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
