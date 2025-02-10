@@ -47,12 +47,12 @@ backbone_network:
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [1024, 1024, 1024, 1024]
+  token_dimensions: [768, 768, 768, 768]
   output_dimension: 69
   window_size: 4
   mlp_num_hidden: 1024
   mlp_num_layers: 2
-  num_heads: 8
+  num_heads: 16
   num_blocks_per_stage: [4, 4, 4]
 
 model:
@@ -114,7 +114,7 @@ constants:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
     # lots of time validating while training.
-    val_task_subsampling_factor: 5
+    val_task_subsampling_factor: 101
   training:
     initial_learning_rate: 1e-4
     epochs: 40
