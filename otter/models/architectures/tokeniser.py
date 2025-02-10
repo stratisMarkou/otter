@@ -76,6 +76,10 @@ class CrossAttentionImageTokeniser(nn.Module):
             torch.randn(token_dimension, patch_size**2),
             requires_grad=True,
         )
+        self.var_embedding = nn.Parameter(
+            torch.randn(in_channels, patch_size**2),
+            requires_grad=False,
+        )
         self.varwise_attention = EfficientMultiHeadCrossAttention(
             num_heads=1,
             kq_token_dim=patch_size**2,
@@ -107,8 +111,12 @@ class CrossAttentionImageTokeniser(nn.Module):
         # Repeat variable-wise query and grid-wise query in the batch dim.
         Vq = self.varwise_q[None, :, :].expand(x.shape[0], -1, -1)
         Gq = self.gridwise_q[None, :, :].expand(x.shape[0], -1, -1)
+        var_embedding = self.var_embedding[None, :, :].expand(
+            x.shape[0], -1, -1
+        )
 
         x = x.permute(0, 2, 1)  # (B * H//S * W//S, V, S**2)
+        x = x + var_embedding
 
         # Apply variable-wise cross attention.
         x = self.varwise_attention(
