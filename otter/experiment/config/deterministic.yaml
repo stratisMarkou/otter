@@ -43,12 +43,12 @@ time_embedding:
 
 backbone_network:
   _target_: otter.models.architectures.transformer.SwinTransformer
-  in_channels: ${eval:'148 + 2 * ${time_embedding.num_scales}'}
+  in_channels: ${eval:'174 + 2 * ${time_embedding.num_scales}'}
   height: 128
   width: 256
   patch_size: 2
   token_dimensions: [768, 768, 768, 768]
-  output_dimension: 69
+  output_dimension: 82
   window_size: 4
   mlp_num_hidden: 1024
   mlp_num_layers: 2
