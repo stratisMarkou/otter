@@ -1,8 +1,8 @@
 train_dataset:
   _target_: otter.data.datasets.make_gridded_weather_task
   path_to_labelled_array: ${constants.data.path_to_labelled_array}
-  start_date: "1979-01-01"
-  end_date: "2019-12-31"
+  start_date: ${constants.data.train_start_date}
+  end_date: ${constants.data.train_end_date}
   num_context_frames: ${constants.data.num_context_frames}
   num_target_frames: ${constants.data.train_num_target_frames}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
@@ -12,8 +12,8 @@ train_dataset:
 valid_dataset:
   _target_: otter.data.datasets.make_gridded_weather_task
   path_to_labelled_array: ${constants.data.path_to_labelled_array}
-  start_date: "2020-01-01"
-  end_date: "2020-12-31"
+  start_date: ${constants.data.valid_start_date}
+  end_date: ${constants.data.valid_end_date}
   num_context_frames: ${constants.data.num_context_frames}
   num_target_frames: ${constants.data.valid_num_target_frames}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
