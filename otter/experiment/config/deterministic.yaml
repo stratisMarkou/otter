@@ -50,7 +50,7 @@ backbone_network:
   token_dimensions: [768, 768, 768, 768]
   output_dimension: 69
   window_size: 4
-  mlp_num_hidden: 1024
+  mlp_num_hidden: 4096
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
@@ -102,8 +102,8 @@ constants:
     valid_start_date: "2020-01-01 00:00:00"
     valid_end_date: "2020-12-31 18:00:00"
     temporal_resolution_hours: 6
-    ctx_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
-    trg_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
+    ctx_variables_to_remove: ["sea_surface_temperature"]
+    trg_variables_to_remove: ["sea_surface_temperature"]
     num_context_frames: 2
     train_num_target_frames: 1
     valid_num_target_frames: 4
