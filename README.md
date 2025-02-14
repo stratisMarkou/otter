@@ -28,7 +28,7 @@ To download and pre-process the ERA5 data:
 python otter/data/source/download_weatherbench_data.py
 
 # This will post-process convert it to pure-numpy format for faster loading.
-python otter/data/source/download_weatherbench_data.py
+python otter/data/source/convert_saved_zarr_to_memmap.py
 
 # Normalisation factors for the ERA5 data are already computed and version controlled
 # in the package, but if you want to re-generate the factors you can use the command
