@@ -174,7 +174,7 @@ class SpatialEmbedding(nn.Module):
 
         self.linear = nn.Linear(2 * num_scales, token_dimension)
 
-    def _get_lat_lon_mebeddings(
+    def _get_lat_lon_embeddings(
         self, grid_h: torch.Tensor, grid_w: torch.Tensor
     ) -> torch.Tensor:
         """Helper function to compute the lat-lon embeddings"""
@@ -217,7 +217,7 @@ class SpatialEmbedding(nn.Module):
         grid_w = F.avg_pool2d(grid[:, 1], self.patch_size)
 
         # Get lat and lon embeddings.
-        spatial_encode = self._get_lat_lon_mebeddings(grid_h, grid_w)
+        spatial_encode = self._get_lat_lon_embeddings(grid_h, grid_w)
 
         # Project to token dimension.
         spatial_encode = self.linear(spatial_encode.to(x.device))[

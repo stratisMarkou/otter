@@ -125,9 +125,7 @@ class SwinTransformer(nn.Module):
         self.width = width
         self.height = height
 
-    def forward(
-        self, x: torch.Tensor, lat: torch.Tensor, lon: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply vision transformer to batch of images.
 
         Arguments:
@@ -146,8 +144,6 @@ class SwinTransformer(nn.Module):
         x = self.tokeniser(x)
         if isinstance(self.embedding, PositionEmbedding):
             x = self.embedding(x)
-        elif isinstance(self.embedding, SpatialEmbedding):
-            x = self.embedding(x, lat, lon)
         else:
             raise ValueError(
                 f"Unsupported embedding type for positional"
