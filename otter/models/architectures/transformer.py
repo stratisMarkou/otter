@@ -37,6 +37,19 @@ class SwinTransformer(nn.Module):
 
         assert len(num_blocks_per_stage) > 0
 
+        if (
+            hasattr(pos_embedding, "embedding_mode")
+            and pos_embedding.embedding_mode == "concat"
+        ):
+            if isinstance(token_dimensions, int):
+                first_token_dim = (
+                    token_dimensions - 2 * pos_embedding.num_scales
+                )
+            else:
+                first_token_dim = (
+                    token_dimensions[0] - 2 * pos_embedding.num_scales
+                )
+
         if isinstance(token_dimensions, int):
             num_stages = len(num_blocks_per_stage)
             token_dimensions = [token_dimensions] * (num_stages + 1)
@@ -109,14 +122,14 @@ class SwinTransformer(nn.Module):
 
         self.tokeniser = ImageTokeniser(
             in_channels=in_channels,
-            token_dimension=token_dimensions[0],
+            token_dimension=first_token_dim,
             patch_size=patch_size,
         )
 
         self.embedding = pos_embedding
 
         self.final_conv = nn.ConvTranspose2d(
-            in_channels=token_dimensions[0],
+            in_channels=token_dimensions[-1],
             out_channels=output_dimension,
             stride=(patch_size, patch_size),
             kernel_size=(patch_size, patch_size),
@@ -142,13 +155,7 @@ class SwinTransformer(nn.Module):
         )
 
         x = self.tokeniser(x)
-        if isinstance(self.embedding, PositionEmbedding):
-            x = self.embedding(x)
-        else:
-            raise ValueError(
-                f"Unsupported embedding type for positional"
-                f" embedding: {type(self.embedding)}"
-            )
+        x = self.embedding(x)
 
         skips = []
 

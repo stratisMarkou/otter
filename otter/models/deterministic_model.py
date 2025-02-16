@@ -151,8 +151,6 @@ class DeterministicModel(torch.nn.Module):
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         device: str,
-        lat: torch.Tensor,
-        lon: torch.Tensor,
         skip_model: bool = False,
     ) -> Dict[str, torch.Tensor]:
 

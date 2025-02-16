@@ -1,11 +1,10 @@
+from typing import Optional
+
 import einops
 import numpy as np
 import numpy.typing as npt
 import torch
-import torch.nn.functional as F
 from torch import nn
-
-from otter.models.architectures.utils import interpolate_bilinear_channel_last
 
 TEMPORAL_EMBEDDING_DEFAULT_MIN_HOUR_SCALE = 3.0
 TEMPORAL_EMBEDDING_DEFAULT_MAX_HOUR_SCALE = 8760.0
@@ -109,124 +108,79 @@ class TimeEmbedding(FourierExpansionEmbedding):
         return super().forward(torch.tensor(hours).float())
 
 
-def lat_lon_meshgrid(lat: torch.Tensor, lon: torch.Tensor) -> torch.Tensor:
-    """Construct a meshgrid of latitude and longitude coordinates.
-
-    `torch.meshgrid(*tensors, indexing="xy")` gives same behavior as calling
-    `numpy.meshgrid(*arrays, indexing="ij")`::
-
-        lat = torch.tensor([1, 2, 3])
-        lon = torch.tensor([4, 5, 6])
-        grid_x, grid_y = torch.meshgrid(lat, lon, indexing='xy')
-        grid_x = tensor([[1, 2, 3], [1, 2, ,3], [1, 2, 3]])
-        grid_y = tensor([[4, 4, 4], [5, 5, ,5], [6, 6, 6]])
-
-    Args:
-        lat (torch.Tensor): Vector of latitudes.
-        lon (torch.Tensor): Vector of longitudes.
-
-    Returns:
-        torch.Tensor: Meshgrid of shape `(2, len(lat), len(lon))`.
-    """
-    assert lat.dim() == 1
-    assert lon.dim() == 1
-
-    grid_x, grid_y = torch.meshgrid(lat, lon, indexing="xy")
-    grid = torch.stack((grid_x, grid_y), dim=0)
-    grid = grid.permute(0, 2, 1)
-
-    return grid
-
-
-class SpatialEmbedding(nn.Module):
-    """Position embedding class for 2-D lat-lon data"""
+class SpatialEmbedding(FourierExpansionEmbedding):
+    """Spatial position embedding based on Fourier Embeddings"""
 
     def __init__(
         self,
-        token_dimension: int,
-        height: int,
-        width: int,
         num_scales: int,
-        patch_size: int | tuple[int, ...],
         min_scale: float = SPATIAL_EMBEDDING_DEFAULT_MIN_SCALE,
         max_scale: float = SPATIAL_EMBEDDING_DEFAULT_MAX_SCALE,
+        embedding_mode: str = "add",
+        token_dimension: Optional[int] = None,
     ) -> None:
-        super().__init__()
+        super().__init__(min_scale, max_scale, num_scales // 2)
+
+        if token_dimension is not None:
+            self.linear = nn.Linear(2 * num_scales, token_dimension)
+
         self.num_scales = num_scales
-        self.height = height
-        self.width = width
-        if isinstance(patch_size, int):
-            self.patch_size = tuple((patch_size, patch_size))
-        else:
-            self.patch_size = patch_size
 
-        self.spatial_emb_h = FourierExpansionEmbedding(
-            min_scale=min_scale,
-            max_scale=max_scale,
-            num_scales=num_scales // 2,
+        assert embedding_mode in ["concat", "add"], (
+            f"Unsupported embedding mode: {embedding_mode}. "
+            "Expected one of ['concat', 'add']."
         )
-
-        self.spatial_emb_w = FourierExpansionEmbedding(
-            min_scale=min_scale,
-            max_scale=max_scale,
-            num_scales=num_scales // 2,
-        )
-
-        self.linear = nn.Linear(2 * num_scales, token_dimension)
-
-    def _get_lat_lon_embeddings(
-        self, grid_h: torch.Tensor, grid_w: torch.Tensor
-    ) -> torch.Tensor:
-        """Helper function to compute the lat-lon embeddings"""
-        B = grid_h.shape[0]
-
-        # Compute Fourier embeddings for latitude and longitude.
-        encode_h = self.spatial_emb_h(grid_h.reshape(B, -1))  # (B, L, D/2)
-        encode_w = self.spatial_emb_w(grid_w.reshape(B, -1))  # (B, L, D/2)
-
-        # Concatenate lat and lon embeddings.
-        spatial_encode = torch.cat((encode_h, encode_w), dim=-1)  # (B, L, D)
-        return spatial_encode
+        if embedding_mode == "add":
+            assert (
+                token_dimension is not None
+            ), "You must specify the token dimension."
+        self.embedding_mode = embedding_mode
 
     def forward(
         self,
         x: torch.Tensor,
-        lat: torch.Tensor,
-        lon: torch.Tensor,
     ) -> torch.Tensor:
+        """
+        Add Fourier-based positional embeddings to the input tensor.
 
-        # Create latitude-longitude grid.
-        grid = lat_lon_meshgrid(lat, lon)
-        grid = grid[None]
+        D_final = D if embedding_mode is 'add'
+        D_final = D + 2 * num_scales if embedding_mode is 'concat'
 
-        # Interpolate grid to target dimensions.
-        grid = interpolate_bilinear_channel_last(
-            grid.permute(0, 2, 3, 1),
-            height=self.height,
-            width=self.width,
-        ).permute(0, 3, 1, 2)
+        Arguments:
+            x (torch.Tensor): Input tensor of shape (B, H, W, D)
 
-        # Ensure embedding dimension is valid.
-        assert (
-            self.num_scales % 4 == 0
-        ), f"Embedding dim {self.num_scales} not divisible by 4"
-        assert grid.dim() == 4  # (1, 2, lat, lon)
+        Returns:
+            torch.Tensor: Output tensor of shape (B, H, W, D_final)
+        """
 
-        # Create a 2D mesh with pooled values.
-        grid_h = F.avg_pool2d(grid[:, 0], self.patch_size)
-        grid_w = F.avg_pool2d(grid[:, 1], self.patch_size)
+        # Get lat-lon dimensions from tensor
+        lat_dim, lon_dim = x.shape[1], x.shape[2]
 
-        # Get lat and lon embeddings.
-        spatial_encode = self._get_lat_lon_embeddings(grid_h, grid_w)
-
-        # Project to token dimension.
-        spatial_encode = self.linear(spatial_encode.to(x.device))[
-            :, None, ...
-        ]  # (B, 1, L, D_emb)
-
-        # Rearrange in grid shape.
-        spatial_encode = einops.rearrange(
-            spatial_encode, "b 1 (h w) d -> b h w d", h=x.shape[1]
+        # Set up lat-lon coordinates
+        lat = torch.linspace(-90, 90, lat_dim, device=x.device)
+        lon = torch.linspace(
+            0, 360 - (360 / lon_dim), lon_dim, device=x.device
         )
 
-        return x + spatial_encode
+        # Get lat and lon embeddings.
+
+        lat = super().forward(lat)  # (B, lat_dim, num_scales//2)
+        lon = super().forward(lon)  # (B, lon_dim, num_scales//2)
+
+        # Broadcast
+        lat = einops.repeat(lat, "l d -> l L d", L=lon_dim)
+        lon = einops.repeat(lon, "L d -> l L d", l=lat_dim)
+        spatial_embedding = torch.cat([lat, lon], dim=-1)
+        spatial_embedding = einops.repeat(
+            spatial_embedding, "h w d -> b h w d", b=x.shape[0]
+        )
+
+        if self.embedding_mode == "concat":
+            return torch.concat([x, spatial_embedding], dim=-1)
+        elif self.embedding_mode == "add":
+            spatial_embedding = self.linear(spatial_embedding)
+            return x + spatial_embedding
+        else:
+            raise ValueError(
+                f"Embedding mode {self.embedding_mode} not supported"
+            )

@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 import wandb
 from otter.experiment.utils import (
+    count_parameters,
     create_optimizer_and_lr_scheduler,
     initialize_experiment,
     log_code_to_wandb,
@@ -227,6 +228,7 @@ def main() -> None:
     # Initialize experiment, including data loaders, model, and optimizer.
     assert wandb.run is not None
     experiment = initialize_experiment(experiment_name=wandb.run.name)
+    print(f"Model has {count_parameters(experiment.model)} parameters")
 
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
         module=experiment.model,
