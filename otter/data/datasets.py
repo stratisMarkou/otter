@@ -45,7 +45,7 @@ class TrainingSample:
     """
 
     ctx: torch.Tensor
-    zero_time: npt.NDArray[np.float64]
+    zero_time: npt.NDArray[np.float64] | np.datetime64
     trg_timedelta_hours: npt.NDArray[np.int32]
     trg: torch.Tensor
 
@@ -191,7 +191,7 @@ class GriddedWeatherTask(Dataset[TrainingSample]):
         )
 
 
-def collate_fn(batch: List[TrainingSample]) -> List[TrainingSample]:
+def collate_fn(batch: List[TrainingSample]) -> TrainingSample:
     zero_time = np.array([example.zero_time for example in batch])
     trg_timedelta_hours = np.array(
         [example.trg_timedelta_hours for example in batch]
