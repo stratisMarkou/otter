@@ -32,7 +32,6 @@ def _get_variable_and_level_list(
     multilevel_variables: Sequence[str],
     static_variables: Optional[Sequence[str]] = None,
 ) -> Sequence[str]:
-
     if static_variables is None:
         static_variables = []
 
@@ -66,7 +65,6 @@ def _get_normalisation_mean_and_std(
 
 
 class DeterministicModel(torch.nn.Module):
-
     def __init__(
         self,
         backbone_network: torch.nn.Module,
@@ -153,7 +151,6 @@ class DeterministicModel(torch.nn.Module):
         device: str,
         skip_model: bool = False,
     ) -> Dict[str, torch.Tensor]:
-
         if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
                 "All target times must be multiples of the temporal resolution"
@@ -203,10 +200,8 @@ class DeterministicModel(torch.nn.Module):
         num_rollout_steps: int,
         skip_model: bool = False,
     ) -> torch.Tensor:
-
         predictions: List[torch.Tensor] = list()
         for i in range(num_rollout_steps):
-
             # Get residual connection from context data. The dimension size
             # res_var_and_level refers to the number of variables that are
             # residual connection, i.e. both in the context and the target.
@@ -216,6 +211,8 @@ class DeterministicModel(torch.nn.Module):
             # the case, for example if we are predicting more variables in the
             # target than we have in the context. This should be handled in a
             # future update.
+            # NOTE: time dimension is indexed in reverse, so that the 0th
+            # timestep is the latest.
             residual = ctx[
                 ..., 0, self.idx_residual
             ]  # (batch, lat, lon, time_idx, res_var_and_level)
@@ -254,6 +251,9 @@ class DeterministicModel(torch.nn.Module):
                 predictions.append(prediction)
 
             # Using this prediction, update the context data for the next step.
+            # NOTE: We can't simply reshape the prediction, because the
+            # prediction may contain fewer variables than the context data
+            # (e.g. static/known data)
             ctx_next_time_frame = ctx[..., :1, :].clone()
             ctx_next_time_frame[..., 0, self.idx_ctx_for_update] = prediction
 
@@ -271,7 +271,6 @@ def make_deterministic_model(
     data_grid_num_lat: int,
     data_grid_num_lon: int,
 ) -> DeterministicModel:
-
     return DeterministicModel(
         backbone_network=backbone_network,
         time_embedding=time_embedding,
