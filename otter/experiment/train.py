@@ -39,43 +39,6 @@ def assert_single_device() -> None:
         )
 
 
-def prepare_tensors_zero_time_and_trg_timedelta_hours(
-    batch: Any,
-    device: str,
-) -> Tuple[
-    torch.Tensor,
-    npt.NDArray[np.float64],
-    npt.NDArray[np.int32],
-    torch.Tensor,
-]:
-    ctx_tensor = torch.stack(
-        [torch.tensor(example.ctx.data).to(device) for example in batch],
-        dim=0,
-    )
-    ctx_times = np.stack(
-        [example.ctx.coords[0].values for example in batch], axis=0
-    )
-    trg_tensor = torch.stack(
-        [torch.tensor(example.trg.data).to(device) for example in batch],
-        dim=0,
-    )
-    trg_times = np.stack(
-        [example.trg.coords[0].values for example in batch], axis=0
-    )
-    ctx_tensor = ctx_tensor.permute(
-        0, 3, 2, 1, 4
-    )  # (batch, lat, lon, time, var_and_level)
-    trg_tensor = trg_tensor.permute(
-        0, 3, 2, 1, 4
-    )  # (batch, lat, lon, time, var_and_level)
-
-    zero_time = np.max(ctx_times, axis=-1)  # (batch,)
-    trg_timedelta = trg_times - zero_time[:, None]
-    trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(int)
-
-    return ctx_tensor, zero_time, trg_timedelta_hours, trg_tensor
-
-
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
@@ -85,18 +48,16 @@ def train_step(
     step_number: int,
     device: str = "cuda",
 ) -> int:
-
     model = model.to(device)
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    ctx, zero_time, trg_timedelta_hours, trg = (
-        prepare_tensors_zero_time_and_trg_timedelta_hours(batch, device)
-    )
+    ctx, trg = batch.ctx.to(device), batch.trg.to(device)
+
     prd_stats = run_and_log_time_to_wandb(
         "model.forward",
         model.forward,
         ctx=ctx,
-        zero_time=zero_time,
-        trg_timedelta_hours=trg_timedelta_hours,
+        zero_time=batch.zero_time,
+        trg_timedelta_hours=batch.trg_timedelta_hours,
         device=device,
     )
 
@@ -131,7 +92,6 @@ def validation_epoch(
     dataloader: Iterable[Any],
     loss_fns: Dict[str, LossFunction],
 ) -> None:
-
     # Ensure model is in evaluation mode.
     model = model.to(device)
     model = model.eval()
@@ -142,18 +102,11 @@ def validation_epoch(
             dict()
         )
         for batch in tqdm(dataloader):
-
-            # Prepare tensors for the batch.
-            ctx, zero_time, trg_timedelta_hours, trg = (
-                prepare_tensors_zero_time_and_trg_timedelta_hours(
-                    batch,
-                    device,
-                )
-            )
+            ctx, trg = batch.ctx.to(device), batch.trg.to(device)
             prd_stats = model(
                 ctx=ctx,
-                zero_time=zero_time,
-                trg_timedelta_hours=trg_timedelta_hours,
+                zero_time=batch.zero_time,
+                trg_timedelta_hours=batch.trg_timedelta_hours,
                 device=device,
             )
 
@@ -215,7 +168,6 @@ def load_checkpointed_weights_from_experiment(
 
 
 def main() -> None:
-
     # Ensure that only one device is available.
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -245,7 +197,6 @@ def main() -> None:
         train_loader = iter(tqdm(experiment.train_dataloader))
 
         while True:
-
             if step % experiment.constants.training.validate_every == 0:
                 validation_epoch(
                     model=experiment.model,
