@@ -48,9 +48,9 @@ def train_step(
     step_number: int,
     device: str = "cuda",
 ) -> int:
-    model = model.to(device)
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    ctx, trg = batch.ctx.to(device), batch.trg.to(device)
+    ctx = run_and_log_time_to_wandb("batch.ctx.to", batch.ctx.to, device)
+    trg = run_and_log_time_to_wandb("batch.trg.to", batch.trg.to, device)
 
     prd_stats = run_and_log_time_to_wandb(
         "model.forward",
@@ -78,8 +78,14 @@ def train_step(
         prefix="train",
     )
 
+    # Loss.item requires all async GPU operations to be completed. This
+    # synchronization takes non-trivial time and corresponds to any of the
+    # above operations that are performed on the GPU. It is profiled here so
+    # that the individual timings sum to the whole training step timing.
+    loss_val = run_and_log_time_to_wandb("synchronise", loss.item)
+    wandb.log({"train/loss": loss_val}, commit=False)
+
     current_lr = lr_scheduler.get_last_lr()[0]
-    wandb.log({"train/loss": loss.detach().cpu().numpy()}, commit=False)
     wandb.log({"misc/learning_rate": current_lr}, commit=False)
     wandb.log({"misc/gradient_step": step_number}, commit=True)
 
@@ -210,7 +216,7 @@ def main() -> None:
                     "train_step",
                     train_step,
                     loss_fn=experiment.loss_fn,
-                    model=experiment.model,
+                    model=experiment.model.to(device),
                     train_loader=train_loader,
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,

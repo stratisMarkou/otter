@@ -49,6 +49,11 @@ class TrainingSample:
     trg_timedelta_hours: npt.NDArray[np.int32]
     trg: torch.Tensor
 
+    def pin_memory(self) -> "TrainingSample":
+        self.ctx = self.ctx.pin_memory()
+        self.trg = self.trg.pin_memory()
+        return self
+
 
 def _combine_variables_and_levels(
     variables: Sequence[str],
