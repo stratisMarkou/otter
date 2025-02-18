@@ -46,21 +46,22 @@ def _apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
     return tensor * lat_weight
 
 
+@torch.compile
 def _rmse(
     trg: torch.Tensor,
     prd_stats: PredictionStatistics,
     apply_latitude_weighting: bool,
 ) -> torch.Tensor:
-    error = (
+    error = torch.square(
         prd_stats["mean"] - trg
-    ) ** 2  # (batch, lat, lon, time_idx, var_and_level)
+    )  # (batch, lat, lon, time_idx, var_and_level)
 
     if apply_latitude_weighting:
         error = _apply_latitude_weighting(error)
 
     # Compute the root mean squared error.
-    error = (
-        torch.mean(error, dim=[1, 2]) ** 0.5
+    error = torch.sqrt(
+        torch.mean(error, dim=[1, 2])
     )  # (batch, time_idx, var_and_level)
     assert isinstance(error, torch.Tensor)
 
@@ -127,7 +128,6 @@ def make_loss_fn(
 ) -> Callable[
     [torch.Tensor, PredictionStatistics], Tuple[torch.Tensor, LossInfo]
 ]:
-
     return partial(
         apply_loss,
         loss_fn=loss_fn,

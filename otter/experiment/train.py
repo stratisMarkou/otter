@@ -49,8 +49,12 @@ def train_step(
     device: str = "cuda",
 ) -> int:
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    ctx = run_and_log_time_to_wandb("batch.ctx.to", batch.ctx.to, device)
-    trg = run_and_log_time_to_wandb("batch.trg.to", batch.trg.to, device)
+    ctx = run_and_log_time_to_wandb(
+        "batch.ctx.to", batch.ctx.to, device, non_blocking=True
+    )
+    trg = run_and_log_time_to_wandb(
+        "batch.trg.to", batch.trg.to, device, non_blocking=True
+    )
 
     prd_stats = run_and_log_time_to_wandb(
         "model.forward",
@@ -58,7 +62,6 @@ def train_step(
         ctx=ctx,
         zero_time=batch.zero_time,
         trg_timedelta_hours=batch.trg_timedelta_hours,
-        device=device,
     )
 
     loss, loss_info = run_and_log_time_to_wandb(
@@ -82,8 +85,8 @@ def train_step(
     # synchronization takes non-trivial time and corresponds to any of the
     # above operations that are performed on the GPU. It is profiled here so
     # that the individual timings sum to the whole training step timing.
-    loss_val = run_and_log_time_to_wandb("synchronise", loss.item)
-    wandb.log({"train/loss": loss_val}, commit=False)
+    loss_value = run_and_log_time_to_wandb("synchronise", loss.item)
+    wandb.log({"train/loss": loss_value}, commit=False)
 
     current_lr = lr_scheduler.get_last_lr()[0]
     wandb.log({"misc/learning_rate": current_lr}, commit=False)
@@ -99,7 +102,6 @@ def validation_epoch(
     loss_fns: Dict[str, LossFunction],
 ) -> None:
     # Ensure model is in evaluation mode.
-    model = model.to(device)
     model = model.eval()
 
     with torch.no_grad():
@@ -113,7 +115,6 @@ def validation_epoch(
                 ctx=ctx,
                 zero_time=batch.zero_time,
                 trg_timedelta_hours=batch.trg_timedelta_hours,
-                device=device,
             )
 
             # Compute the loss for each loss function and store results.
@@ -174,6 +175,7 @@ def load_checkpointed_weights_from_experiment(
 
 
 def main() -> None:
+    torch.set_float32_matmul_precision("high")
     # Ensure that only one device is available.
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -184,7 +186,12 @@ def main() -> None:
 
     # Initialize experiment, including data loaders, model, and optimizer.
     assert wandb.run is not None
-    experiment = initialize_experiment(experiment_name=wandb.run.name)
+    experiment = initialize_experiment(device, experiment_name=wandb.run.name)
+    experiment.model = experiment.model.to(device)
+    # Note: we can't torch.compile everything because the efficient attention
+    # implementation doesn't work without nightly/more modern PyTorch.
+    # See: https://github.com/facebookresearch/xformers/issues/920
+    experiment.model.compile()
 
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
         module=experiment.model,
@@ -216,7 +223,7 @@ def main() -> None:
                     "train_step",
                     train_step,
                     loss_fn=experiment.loss_fn,
-                    model=experiment.model.to(device),
+                    model=experiment.model,
                     train_loader=train_loader,
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,

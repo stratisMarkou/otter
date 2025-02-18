@@ -79,6 +79,7 @@ class DeterministicModel(torch.nn.Module):
         trg_levels: Sequence[int],
         data_grid_num_lat: int,
         data_grid_num_lon: int,
+        device: str,
     ) -> None:
         super().__init__()
 
@@ -135,20 +136,30 @@ class DeterministicModel(torch.nn.Module):
             if var in self.trg_variables_and_levels
         ]
 
-        self.ctx_mean, self.ctx_std = _get_normalisation_mean_and_std(
+        ctx_mean, ctx_std = _get_normalisation_mean_and_std(
             variables_and_levels=self.ctx_variables_and_levels,
         )
 
-        self.trg_mean, self.trg_std = _get_normalisation_mean_and_std(
+        trg_mean, trg_std = _get_normalisation_mean_and_std(
             variables_and_levels=self.trg_variables_and_levels,
         )
+
+        # Precompute normalisation statistics
+        ctx_mean_tensor = torch.tensor(ctx_mean.values).float().to(device)
+        ctx_std_tensor = torch.tensor(ctx_std.values).float().to(device)
+        self.ctx_mean = ctx_mean_tensor[None, None, None, None, :]
+        self.ctx_std = ctx_std_tensor[None, None, None, None, :]
+
+        trg_mean_tensor = torch.tensor(trg_mean.values).float().to(device)
+        trg_std_tensor = torch.tensor(trg_std.values).float().to(device)
+        self.trg_mean = trg_mean_tensor[None, None, None, None, :]
+        self.trg_std = trg_std_tensor[None, None, None, None, :]
 
     def forward(
         self,
         ctx: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
-        device: str,
         skip_model: bool = False,
     ) -> Dict[str, torch.Tensor]:
         if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
@@ -160,15 +171,8 @@ class DeterministicModel(torch.nn.Module):
             (trg_timedelta_hours // self.temporal_resolution_hours)
         )
 
-        # First, normalise the ctx data and split into variables and levels
-        ctx_mean = torch.tensor(self.ctx_mean.values).float().to(device)
-        ctx_std = torch.tensor(self.ctx_std.values).float().to(device)
-
-        trg_mean = torch.tensor(self.trg_mean.values).float().to(device)
-        trg_std = torch.tensor(self.trg_std.values).float().to(device)
-
-        ctx = ctx - ctx_mean[None, None, None, None, :]
-        ctx = ctx / ctx_std[None, None, None, None, :]
+        ctx = ctx - self.ctx_mean
+        ctx = ctx / self.ctx_std
 
         expected_shape = tuple(
             (self.data_grid_num_lat, self.data_grid_num_lon)
@@ -186,8 +190,8 @@ class DeterministicModel(torch.nn.Module):
             skip_model=skip_model,
         )  # (batch, lat, lon, time_idx, trg_var_and_level)
 
-        prd = prd * trg_std[None, None, None, None, :]
-        prd = prd + trg_mean[None, None, None, None, :]
+        prd = prd * self.trg_std
+        prd = prd + self.trg_mean
         assert isinstance(prd, torch.Tensor)  # Assert to silence mypy
 
         return dict(mean=prd)
@@ -251,9 +255,10 @@ class DeterministicModel(torch.nn.Module):
                 predictions.append(prediction)
 
             # Using this prediction, update the context data for the next step.
-            # NOTE: We can't simply reshape the prediction, because the
-            # prediction may contain fewer variables than the context data
-            # (e.g. static/known data)
+            # NOTE: We can't simply assign the prediction e.g. using
+            # ctx[..., 0, :] = prediction.reshape(...)
+            # because the prediction may contain fewer variables than the
+            # context data (e.g. static/known data).
             ctx_next_time_frame = ctx[..., :1, :].clone()
             ctx_next_time_frame[..., 0, self.idx_ctx_for_update] = prediction
 
@@ -270,6 +275,7 @@ def make_deterministic_model(
     trg_variables_to_remove: Sequence[str],
     data_grid_num_lat: int,
     data_grid_num_lon: int,
+    device: str,
 ) -> DeterministicModel:
     return DeterministicModel(
         backbone_network=backbone_network,
@@ -299,4 +305,5 @@ def make_deterministic_model(
         trg_levels=ALL_GRID_VARIABLE_LEVELS,
         data_grid_num_lat=data_grid_num_lat,
         data_grid_num_lon=data_grid_num_lon,
+        device=device,
     )
