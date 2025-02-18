@@ -34,9 +34,9 @@ ALL_TRG_VARIABLES = (
 
 
 @dataclass
-class TrainingSample:
+class ForecastingSample:
     """
-    Holds the data required for training a forecasting model.
+    Holds the data required for training/validating a forecasting model.
 
     ctx: Tensor of shape (batch, lat, lon, time, var_and_level)
     zero_time: Array of shape (batch,)
@@ -49,7 +49,7 @@ class TrainingSample:
     trg_timedelta_hours: npt.NDArray[np.int32]
     trg: torch.Tensor
 
-    def pin_memory(self) -> "TrainingSample":
+    def pin_memory(self) -> "ForecastingSample":
         self.ctx = self.ctx.pin_memory()
         self.trg = self.trg.pin_memory()
         return self
@@ -62,7 +62,7 @@ def _combine_variables_and_levels(
     return [f"{var}/level_{level}" for var in variables for level in levels]
 
 
-class GriddedWeatherTask(Dataset[TrainingSample]):
+class GriddedWeatherTask(Dataset[ForecastingSample]):
     def __init__(
         self,
         path_to_labelled_array: str,
@@ -172,7 +172,7 @@ class GriddedWeatherTask(Dataset[TrainingSample]):
 
         return length // self.task_sub_sampling_factor
 
-    def __getitem__(self, idx: int) -> TrainingSample:
+    def __getitem__(self, idx: int) -> ForecastingSample:
         idx = idx * self.task_sub_sampling_factor
         zero_time = self.first_zero_time + idx * self.temporal_resolution
         context_times = zero_time + self.context_timedeltas
@@ -188,7 +188,7 @@ class GriddedWeatherTask(Dataset[TrainingSample]):
             variable_and_level=self.trg_variables_and_levels
         )
 
-        return TrainingSample(
+        return ForecastingSample(
             ctx=torch.tensor(ctx.data),
             zero_time=zero_time,
             trg_timedelta_hours=self.target_timedeltas.astype(np.int32),
@@ -196,7 +196,7 @@ class GriddedWeatherTask(Dataset[TrainingSample]):
         )
 
 
-def collate_fn(batch: List[TrainingSample]) -> TrainingSample:
+def collate_fn(batch: List[ForecastingSample]) -> ForecastingSample:
     zero_time = np.array([example.zero_time for example in batch])
     trg_timedelta_hours = np.array(
         [example.trg_timedelta_hours for example in batch]
@@ -212,7 +212,7 @@ def collate_fn(batch: List[TrainingSample]) -> TrainingSample:
         0, 3, 2, 1, 4
     )  # (batch, lat, lon, time, var_and_level)
 
-    return TrainingSample(
+    return ForecastingSample(
         ctx_tensor, zero_time, trg_timedelta_hours, trg_tensor
     )
 
