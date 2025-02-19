@@ -46,7 +46,6 @@ def _apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
     return tensor * lat_weight
 
 
-@torch.compile
 def _rmse(
     trg: torch.Tensor,
     prd_stats: PredictionStatistics,
