@@ -1,0 +1,93 @@
+import pytest
+import torch
+
+from otter.models.architectures.moe import (
+    MixtureOfExperts,
+    _softmax_then_top_k,
+    _top_k_then_softmax,
+)
+
+
+@pytest.mark.parametrize(
+    "token_dim, num_experts, num_hidden_layers_per_expert, "
+    "num_hidden_units_per_expert, use_gating_bias, apply_softmax_before_top_k,"
+    " w_importance, w_load, k, token_batch_dim",
+    [
+        (64, 16, 2, 32, False, False, 1.0, 1.0, 8, 16),
+    ],
+)
+def test_moe_forward(
+    token_dim: int,
+    num_experts: int,
+    num_hidden_layers_per_expert: int,
+    num_hidden_units_per_expert: int,
+    use_gating_bias: bool,
+    apply_softmax_before_top_k: bool,
+    w_importance: float,
+    w_load: float,
+    k: int,
+    token_batch_dim: int,
+) -> None:
+    moe = MixtureOfExperts(
+        token_dim=token_dim,
+        num_experts=num_experts,
+        num_hidden_layers_per_expert=num_hidden_layers_per_expert,
+        num_hidden_units_per_expert=num_hidden_units_per_expert,
+        use_gating_bias=use_gating_bias,
+        apply_softmax_before_top_k=apply_softmax_before_top_k,
+        w_importance=w_importance,
+        w_load=w_load,
+    )
+    x = torch.rand((token_batch_dim, token_dim))
+    output_dict = moe(x, k)
+    expected_shape = (token_batch_dim, token_dim)
+    assert output_dict["pred"].shape == expected_shape
+
+
+@pytest.mark.parametrize(
+    "token_dim, num_experts, num_hidden_layers_per_expert, "
+    "num_hidden_units_per_expert, use_gating_bias, apply_softmax_before_top_k,"
+    " w_importance, w_load, k, token_batch_dim",
+    [
+        (64, 16, 2, 32, False, False, 1.0, 1.0, 8, 4),
+    ],
+)
+def test_output_computation(
+    token_dim: int,
+    num_experts: int,
+    num_hidden_layers_per_expert: int,
+    num_hidden_units_per_expert: int,
+    use_gating_bias: bool,
+    apply_softmax_before_top_k: bool,
+    w_importance: float,
+    w_load: float,
+    k: int,
+    token_batch_dim: int,
+) -> None:
+    moe = MixtureOfExperts(
+        token_dim=token_dim,
+        num_experts=num_experts,
+        num_hidden_layers_per_expert=num_hidden_layers_per_expert,
+        num_hidden_units_per_expert=num_hidden_units_per_expert,
+        use_gating_bias=use_gating_bias,
+        apply_softmax_before_top_k=apply_softmax_before_top_k,
+        w_importance=w_importance,
+        w_load=w_load,
+    ).eval()
+    x = torch.rand((token_batch_dim, token_dim))
+    output_moe = moe(x, k)["pred"]
+
+    logits = moe.noisy_gate_logits(x)["logits"]
+
+    gate_probs, gate_indices = (
+        _softmax_then_top_k(logits, k=k, dim=1)
+        if apply_softmax_before_top_k
+        else _top_k_then_softmax(logits, k=k, dim=1)
+    )  # shape (token_batch, k), (token_batch, k)
+
+    output = torch.zeros_like(x)
+    for i in range(token_batch_dim):
+        for prob, idx in zip(gate_probs[i], gate_indices[i]):
+            output[i] += prob * moe.experts[idx](x[i].unsqueeze(0)).squeeze(0)
+
+    assert torch.allclose(output + x, output_moe)
