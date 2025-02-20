@@ -179,7 +179,7 @@ def save_xarray_dataset_as_memmap(
     iteration_dimension: str | None,
     sorted_dims: Optional[List[str]] = None,
     save_data_dtype: Optional[npt.DTypeLike] = None,
-    chunk_size: int = 1000,  # Added parameter for configurable chunk size
+    slice_size: int = 1000,
 ) -> None:
     """Save an xarray Dataset as a memory-mapped array.
 
@@ -197,7 +197,7 @@ def save_xarray_dataset_as_memmap(
 
     # Process dataset in smaller chunks to reduce memory usage
     split_dataset = split_into_different_variables_along_dim(
-        dataset.copy(),  # Copy to avoid modifying original
+        dataset,
         dim="level",
     )
 
@@ -213,7 +213,6 @@ def save_xarray_dataset_as_memmap(
     else:
         dtype = template_array.dtype
 
-    # Save metadata
     dims = template_array.dims
     shape = list(template_array.shape)
     if iteration_dimension:
@@ -255,36 +254,36 @@ def save_xarray_dataset_as_memmap(
 
     if iteration_dimension is None:
         # Process entire dataset at once if no iteration dimension
-        chunk_data = stack_dataset_variable_and_levels(split_dataset)
-        chunk_data = chunk_data.sortby("variable_and_level")
+        slice_data = stack_dataset_variable_and_levels(split_dataset)
+        slice_data = slice_data.sortby("variable_and_level")
         if save_data_dtype is not None:
-            chunk_data = chunk_data.astype(save_data_dtype)
-        data_memmap[...] = chunk_data.values
+            slice_data = slice_data.astype(save_data_dtype)
+        data_memmap[...] = slice_data.values
     else:
-        # Process data in chunks
+        # Process data in slices
         dim_size = shape[list(dims).index(iteration_dimension)]
-        for i in trange(0, dim_size, chunk_size):
-            # Get chunk indices
-            chunk_end = min(i + chunk_size, dim_size)
-            chunk_slice = {iteration_dimension: slice(i, chunk_end)}
+        for slice_start in trange(0, dim_size, slice_size):
+            # Get slices indices
+            slice_end = min(slice_start + slice_size, dim_size)
+            slice_dict = {iteration_dimension: slice(slice_start, slice_end)}
 
             # Process chunk
-            chunk_dataset = split_dataset.isel(chunk_slice)
-            chunk_data = stack_dataset_variable_and_levels(chunk_dataset)
-            chunk_data = chunk_data.sortby("variable_and_level")
+            sliced_dataset = split_dataset.isel(slice_dict)
+            slice_data = stack_dataset_variable_and_levels(sliced_dataset)
+            slice_data = slice_data.sortby("variable_and_level")
             if save_data_dtype is not None:
-                chunk_data = chunk_data.astype(save_data_dtype)
+                slice_data = slice_data.astype(save_data_dtype)
 
             # Write chunk to memmap
-            chunk_slice_tuple = tuple(
+            slice_tuple = tuple(
                 (
-                    slice(i, chunk_end)
+                    slice(slice_start, slice_end)
                     if d == iteration_dimension
                     else slice(None)
                 )
                 for d in dims
             )
-            data_memmap[chunk_slice_tuple] = chunk_data.values
+            data_memmap[slice_tuple] = slice_data.values
 
     # Ensure data is written to disk
     data_memmap.flush()
