@@ -30,7 +30,6 @@ class EfficientMultiHeadAttention(nn.Module):
         k: torch.Tensor,
         v: torch.Tensor,
     ) -> torch.Tensor:
-
         assert q.shape == k.shape == v.shape
         B, N, D = q.shape
 
