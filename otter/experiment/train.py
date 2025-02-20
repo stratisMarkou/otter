@@ -186,7 +186,7 @@ def main() -> None:
 
     # Initialize experiment, including data loaders, model, and optimizer.
     assert wandb.run is not None
-    experiment = initialize_experiment(device, experiment_name=wandb.run.name)
+    experiment = initialize_experiment(device, wandb.run.name)
     experiment.model = experiment.model.to(device)
 
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
