@@ -5,3 +5,8 @@ include_trailing_comma = true
 
 [tool.black]
 line-length = 79
+
+[tool.ruff]
+line-length = 79
+extend-select = ["RUF012", "RUF100", "RUF200"]
+
