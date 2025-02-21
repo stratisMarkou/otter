@@ -74,8 +74,8 @@ def train_step(
             trg=trg,
         )
 
-    run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
-    run_and_log_time_to_wandb("loss.backward", loss.backward)
+    scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
+    run_and_log_time_to_wandb("loss.backward", scaled_loss.backward)
     run_and_log_time_to_wandb("optimizer.step", optimizer.step)
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
     run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
