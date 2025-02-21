@@ -12,6 +12,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import torch
+from torch.cuda.amp import GradScaler
 from tqdm import tqdm
 
 import wandb
@@ -46,6 +47,7 @@ def train_step(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     step_number: int,
+    scaler: GradScaler,
     device: str = "cuda",
 ) -> int:
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
@@ -56,21 +58,23 @@ def train_step(
         "batch.trg.to", batch.trg.to, device, non_blocking=True
     )
 
-    prd_stats = run_and_log_time_to_wandb(
-        "model.forward",
-        model.forward,
-        ctx=ctx,
-        zero_time=batch.zero_time,
-        trg_timedelta_hours=batch.trg_timedelta_hours,
-    )
+    with torch.cuda.amp.autocast(dtype=torch.float16):
+        prd_stats = run_and_log_time_to_wandb(
+            "model.forward",
+            model.forward,
+            ctx=ctx,
+            zero_time=batch.zero_time,
+            trg_timedelta_hours=batch.trg_timedelta_hours,
+        )
 
-    loss, loss_info = run_and_log_time_to_wandb(
-        "loss_fn",
-        loss_fn,
-        prd_stats=prd_stats,
-        trg=trg,
-    )
+        loss, loss_info = run_and_log_time_to_wandb(
+            "loss_fn",
+            loss_fn,
+            prd_stats=prd_stats,
+            trg=trg,
+        )
 
+    run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("loss.backward", loss.backward)
     run_and_log_time_to_wandb("optimizer.step", optimizer.step)
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
@@ -201,6 +205,7 @@ def main() -> None:
             experiment_name=experiment.constants.load_weights_from_experiment,
         )
 
+    scaler = GradScaler()
     step = 0
     for _ in range(experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
@@ -225,6 +230,7 @@ def main() -> None:
                     lr_scheduler=lr_scheduler,
                     step_number=step,
                     device=device,
+                    scaler=scaler,
                 )
             except StopIteration:
                 break
