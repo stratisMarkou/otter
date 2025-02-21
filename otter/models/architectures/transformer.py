@@ -16,7 +16,6 @@ from otter.models.architectures.utils import (
 
 
 class SwinTransformer(nn.Module):
-
     def __init__(
         self,
         token_dimensions: Sequence[int] | int,

@@ -7,6 +7,8 @@ from typing import (
 )
 
 import numpy as np
+import numpy.typing as npt
+import torch
 from torch.utils.data import Dataset
 
 from otter.data.source.utils import (
@@ -16,7 +18,6 @@ from otter.data.source.utils import (
     ALL_GRID_VARIABLE_LEVELS,
 )
 from otter.data.utils import (
-    LabelledArray,
     filter_variables,
     open_memmap_as_labelled_array,
 )
@@ -33,17 +34,25 @@ ALL_TRG_VARIABLES = (
 
 
 @dataclass
-class ContextTargetData:
-    ctx: LabelledArray
-    trg: LabelledArray
+class ForecastingSample:
+    """
+    Holds the data required for training/validating a forecasting model.
 
+    ctx: Tensor of shape (batch, lat, lon, time, var_and_level)
+    zero_time: Array of shape (batch,)
+    trg_timedelta_hours: Array of shape (batch, time)
+    trg: Tensor of shape (batch, lat, lon, time, var_and_level)
+    """
 
-def collate_fn(batch: List[ContextTargetData]) -> List[ContextTargetData]:
-    return batch
+    ctx: torch.Tensor
+    zero_time: npt.NDArray[np.float64] | np.datetime64
+    trg_timedelta_hours: npt.NDArray[np.int32]
+    trg: torch.Tensor
 
-
-def get_collate_fn() -> Callable[..., Any]:
-    return collate_fn
+    def pin_memory(self) -> "ForecastingSample":
+        self.ctx = self.ctx.pin_memory()
+        self.trg = self.trg.pin_memory()
+        return self
 
 
 def _combine_variables_and_levels(
@@ -53,8 +62,7 @@ def _combine_variables_and_levels(
     return [f"{var}/level_{level}" for var in variables for level in levels]
 
 
-class GriddedWeatherTask(Dataset[ContextTargetData]):
-
+class GriddedWeatherTask(Dataset[ForecastingSample]):
     def __init__(
         self,
         path_to_labelled_array: str,
@@ -164,7 +172,7 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
 
         return length // self.task_sub_sampling_factor
 
-    def __getitem__(self, idx: int) -> ContextTargetData:
+    def __getitem__(self, idx: int) -> ForecastingSample:
         idx = idx * self.task_sub_sampling_factor
         zero_time = self.first_zero_time + idx * self.temporal_resolution
         context_times = zero_time + self.context_timedeltas
@@ -180,7 +188,37 @@ class GriddedWeatherTask(Dataset[ContextTargetData]):
             variable_and_level=self.trg_variables_and_levels
         )
 
-        return ContextTargetData(ctx=ctx, trg=trg)
+        return ForecastingSample(
+            ctx=torch.tensor(ctx.data),
+            zero_time=zero_time,
+            trg_timedelta_hours=self.target_timedeltas.astype(np.int32),
+            trg=torch.tensor(trg.data),
+        )
+
+
+def collate_fn(batch: List[ForecastingSample]) -> ForecastingSample:
+    zero_time = np.array([example.zero_time for example in batch])
+    trg_timedelta_hours = np.array(
+        [example.trg_timedelta_hours for example in batch]
+    )
+
+    ctx_tensor = torch.stack([example.ctx for example in batch], dim=0)
+    trg_tensor = torch.stack([example.trg for example in batch], dim=0)
+
+    ctx_tensor = ctx_tensor.permute(
+        0, 3, 2, 1, 4
+    )  # (batch, lat, lon, time, var_and_level)
+    trg_tensor = trg_tensor.permute(
+        0, 3, 2, 1, 4
+    )  # (batch, lat, lon, time, var_and_level)
+
+    return ForecastingSample(
+        ctx_tensor, zero_time, trg_timedelta_hours, trg_tensor
+    )
+
+
+def get_collate_fn() -> Callable[..., Any]:
+    return collate_fn
 
 
 def make_gridded_weather_task(
