@@ -79,6 +79,7 @@ def train_step(
     run_and_log_time_to_wandb("optimizer.step", optimizer.step)
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
     run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
+    run_and_log_time_to_wandb("scaler.step", scaler.step)
 
     log_loss_info_to_wandb(
         loss_info=loss_info,
