@@ -40,7 +40,7 @@ def random_tensor() -> torch.Tensor:
 
 def test_basic_downsampling(constant_tensor: torch.Tensor) -> None:
     """Test basic downsampling with divisor=2 on simple RGB tensor."""
-    result = downsample(constant_tensor, divisor=2)
+    result = downsample(constant_tensor, scale=2)
 
     # Check shape preservation
     assert result.shape == constant_tensor.shape
@@ -133,3 +133,16 @@ def test_batch_independence() -> None:
 
     # Results should be identical
     torch.testing.assert_close(result_separate, result_batched)
+
+
+def test_erasure_case(random_tensor: torch.Tensor) -> None:
+    """Tests that when the downsampling factor matches or exceeds the spatial
+    dimensionality, the output tensor is zero."""
+
+    # Test case where divisor matches spatial dimensions
+    result = downsample(random_tensor, 16)
+    assert torch.all(result == 0), "Output should be all zeros"
+
+    # Test case where divisor exceeds spatial dimensions
+    result = downsample(random_tensor, 32)
+    assert torch.all(result == 0), "Output should be all zeros"

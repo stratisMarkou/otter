@@ -4,9 +4,9 @@ import torch
 import torch.nn.functional as F
 
 
-def downsample(original: torch.Tensor, divisor: int) -> torch.Tensor:
+def downsample(original: torch.Tensor, scale: int) -> torch.Tensor:
     """
-    Downsample a batch of ERA5 data by a factor of `divisor`.
+    Downsample a batch of ERA5 data by a factor of `scale`.
     The input tensor is expected to have the shape (B, Lat, Lon, Time, Var),
     where
         B is the batch size,
@@ -14,28 +14,33 @@ def downsample(original: torch.Tensor, divisor: int) -> torch.Tensor:
         Time is the time dimension,
         Var is the variable/channel dimension.
 
-    Note that the output tensor will have the same shape as the input tensor,
-    but "pixelated" by the downsampling factor.
+    NOTE: The output tensor will have the same shape as the input tensor, but
+        "pixelated" by the downsampling factor.
+
+    NOTE: If scale >= min(num_lat, num_lon), the output tensor will not be the
+        mean, but will instead be a tensor of zeros. This corresponds to the
+        inference case, where we don't know the average weather data at the
+        target time.
 
     Args:
         original: The input tensor.
-        divisor: The downsampling factor, by which the spatial dimensions
-            will be divided.
+        scale: The downsampling factor by which the spatial dimensions will be
+            divided.
     """
-    if divisor == 1:
+    if scale == 1:
         # No downsampling needed
         return original
 
     batch, lat, lon, time, var = original.shape
 
-    lat_down = math.ceil(lat / divisor)
-    lon_down = math.ceil(lon / divisor)
+    lat_down = math.ceil(lat / scale)
+    lon_down = math.ceil(lon / scale)
 
     if lat_down <= 1 or lon_down <= 1:
-        # We have reached the lowest resolution, which is just the mean
-        # of the entire grid, and can speed up the computation.
-        mean = original.mean(dim=(1, 2), keepdim=True)
-        return mean.expand(original.shape)
+        # This corresponds to the inference case, where we don't know the
+        # weather data at the target time, (and also don't know the spatial
+        # average). We return a tensor of zeros as a special case.
+        return torch.zeros_like(original)
 
     x = original.permute(0, 3, 4, 1, 2)  # B, Time, Var, Lat, Lon
     # Merge Var and time, because the avg_pool functions require at most 4 dims
