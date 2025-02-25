@@ -18,7 +18,6 @@ TEST_DATASET = "era5_240x121"
     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
 )
 def test_deterministic_config() -> None:
-
     with TemporaryDirectory() as temp_dir:
         download_zarr_and_store(
             dataset=TEST_DATASET,
@@ -43,6 +42,7 @@ def test_deterministic_config() -> None:
 
         path = os.path.join(temp_dir, f"{TEST_DATASET}_single_array")
         initialize_experiment(
+            "cpu",
             args_list=[
                 "--debug",
                 "--config",

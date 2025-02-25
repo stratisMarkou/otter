@@ -58,6 +58,7 @@ def get_module_attr(string: str) -> Any:
 
 
 def initialize_experiment(
+    device: str,
     experiment_name: Optional[str] = None,
     args_list: Optional[Sequence[str]] = None,
 ) -> Experiment:
@@ -66,6 +67,8 @@ def initialize_experiment(
     writer for tensorboard.
 
     Arguments:
+        device: device to run the experiment on.
+        experiment_name: name of the experiment.
         args_list: list of arguments to parse.
 
     Returns:
@@ -102,6 +105,7 @@ def initialize_experiment(
     assert type(config) is DictConfig  # Check this to silence mypy.
     path = make_experiment_path(config)
     config.info.path_results = path
+    config.model.device = device
     experiment: DictConfig = instantiate(config)
 
     # Write config to file together with commit hash
@@ -225,7 +229,6 @@ def run_and_log_time_to_wandb(
 
 
 def wandb_log_code_exclude_fn(path: str) -> bool:
-
     # Create regex patterns that:
     patterns = [
         # matches all paths starting with ".".
@@ -242,7 +245,6 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
 
 
 def log_code_to_wandb() -> None:
-
     # Create code artifact to log to wandb.
     code_artifact = wandb.Artifact(name="source", type="code")
     for path in os.listdir("."):
@@ -257,7 +259,6 @@ def log_code_to_wandb() -> None:
 
 
 def load_std_dataset() -> xr.DataArray:
-
     from otter.data.normalisation.utils import load_statistic
     from otter.data.utils import (
         split_into_different_variables_along_dim,
@@ -284,7 +285,6 @@ def log_per_variable_per_lead_time_losses_to_wandb(
     mean_loss_info: Dict[str, torch.Tensor],
     std_dataset: xr.DataArray,
 ) -> None:
-
     # Log the mean loss for each time index.
     for i, loss in enumerate(mean_loss):
         # Log and add leading 0s to index i
@@ -308,7 +308,6 @@ def create_optimizer_and_lr_scheduler(
     optimizer_kwargs: Dict[str, Any],
     lr_scheduler_kwargs: Dict[str, Any],
 ) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
-
     optimizer = torch.optim.AdamW(
         params=module.parameters(), **optimizer_kwargs
     )
