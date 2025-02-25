@@ -219,9 +219,7 @@ class MixtureOfExperts(torch.nn.Module):
         assert k <= self.num_experts
 
         # Compute noisy gate logits.
-        gate_logits_dict = self.noisy_gate_logits(
-            x
-        )  # shape (token_batch, num_experts)
+        gate_logits_dict = self.noisy_gate_logits(x)
 
         # Apply keep_top_k operation and softmax, or the other way around,
         # to obtain sparse gate probabilities. By sparse, we mean that only
@@ -278,9 +276,6 @@ class MixtureOfExperts(torch.nn.Module):
 
             # Scatter the product back into the output tensor.
             output = torch.scatter_add(output, dim=0, index=index, src=product)
-
-        # Residual connection.
-        output = output + x
 
         # Compute importance and load loss
         importance_loss = self.importance_loss(gate_probs_expanded)
