@@ -39,43 +39,6 @@ def assert_single_device() -> None:
         )
 
 
-def prepare_tensors_zero_time_and_trg_timedelta_hours(
-    batch: Any,
-    device: str,
-) -> Tuple[
-    torch.Tensor,
-    npt.NDArray[np.float64],
-    npt.NDArray[np.int32],
-    torch.Tensor,
-]:
-    ctx_tensor = torch.stack(
-        [torch.tensor(example.ctx.data).to(device) for example in batch],
-        dim=0,
-    )
-    ctx_times = np.stack(
-        [example.ctx.coords[0].values for example in batch], axis=0
-    )
-    trg_tensor = torch.stack(
-        [torch.tensor(example.trg.data).to(device) for example in batch],
-        dim=0,
-    )
-    trg_times = np.stack(
-        [example.trg.coords[0].values for example in batch], axis=0
-    )
-    ctx_tensor = ctx_tensor.permute(
-        0, 3, 2, 1, 4
-    )  # (batch, lat, lon, time, var_and_level)
-    trg_tensor = trg_tensor.permute(
-        0, 3, 2, 1, 4
-    )  # (batch, lat, lon, time, var_and_level)
-
-    zero_time = np.max(ctx_times, axis=-1)  # (batch,)
-    trg_timedelta = trg_times - zero_time[:, None]
-    trg_timedelta_hours = trg_timedelta.astype("timedelta64[h]").astype(int)
-
-    return ctx_tensor, zero_time, trg_timedelta_hours, trg_tensor
-
-
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
@@ -85,19 +48,20 @@ def train_step(
     step_number: int,
     device: str = "cuda",
 ) -> int:
-
-    model = model.to(device)
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    ctx, zero_time, trg_timedelta_hours, trg = (
-        prepare_tensors_zero_time_and_trg_timedelta_hours(batch, device)
+    ctx = run_and_log_time_to_wandb(
+        "batch.ctx.to", batch.ctx.to, device, non_blocking=True
     )
+    trg = run_and_log_time_to_wandb(
+        "batch.trg.to", batch.trg.to, device, non_blocking=True
+    )
+
     prd_stats = run_and_log_time_to_wandb(
         "model.forward",
         model.forward,
         ctx=ctx,
-        zero_time=zero_time,
-        trg_timedelta_hours=trg_timedelta_hours,
-        device=device,
+        zero_time=batch.zero_time,
+        trg_timedelta_hours=batch.trg_timedelta_hours,
     )
 
     loss, loss_info = run_and_log_time_to_wandb(
@@ -117,8 +81,14 @@ def train_step(
         prefix="train",
     )
 
+    # Loss.item requires all async GPU operations to be completed. This
+    # synchronization takes non-trivial time and corresponds to any of the
+    # above operations that are performed on the GPU. It is profiled here so
+    # that the individual timings sum to the whole training step timing.
+    loss_value = run_and_log_time_to_wandb("synchronise", loss.item)
+    wandb.log({"train/loss": loss_value}, commit=False)
+
     current_lr = lr_scheduler.get_last_lr()[0]
-    wandb.log({"train/loss": loss.detach().cpu().numpy()}, commit=False)
     wandb.log({"misc/learning_rate": current_lr}, commit=False)
     wandb.log({"misc/gradient_step": step_number}, commit=True)
 
@@ -131,9 +101,7 @@ def validation_epoch(
     dataloader: Iterable[Any],
     loss_fns: Dict[str, LossFunction],
 ) -> None:
-
     # Ensure model is in evaluation mode.
-    model = model.to(device)
     model = model.eval()
 
     with torch.no_grad():
@@ -142,19 +110,11 @@ def validation_epoch(
             dict()
         )
         for batch in tqdm(dataloader):
-
-            # Prepare tensors for the batch.
-            ctx, zero_time, trg_timedelta_hours, trg = (
-                prepare_tensors_zero_time_and_trg_timedelta_hours(
-                    batch,
-                    device,
-                )
-            )
+            ctx, trg = batch.ctx.to(device), batch.trg.to(device)
             prd_stats = model(
                 ctx=ctx,
-                zero_time=zero_time,
-                trg_timedelta_hours=trg_timedelta_hours,
-                device=device,
+                zero_time=batch.zero_time,
+                trg_timedelta_hours=batch.trg_timedelta_hours,
             )
 
             # Compute the loss for each loss function and store results.
@@ -215,7 +175,7 @@ def load_checkpointed_weights_from_experiment(
 
 
 def main() -> None:
-
+    torch.set_float32_matmul_precision("high")
     # Ensure that only one device is available.
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -226,7 +186,8 @@ def main() -> None:
 
     # Initialize experiment, including data loaders, model, and optimizer.
     assert wandb.run is not None
-    experiment = initialize_experiment(experiment_name=wandb.run.name)
+    experiment = initialize_experiment(device, experiment_name=wandb.run.name)
+    experiment.model = experiment.model.to(device)
 
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
         module=experiment.model,
@@ -245,7 +206,6 @@ def main() -> None:
         train_loader = iter(tqdm(experiment.train_dataloader))
 
         while True:
-
             if step % experiment.constants.training.validate_every == 0:
                 validation_epoch(
                     model=experiment.model,
