@@ -1,3 +1,4 @@
+# %%
 from pathlib import Path
 
 import requests
@@ -11,9 +12,15 @@ from otter.experiment.downsample import downsample
 def make_downsample_ladder_plot() -> plt.Figure:  # type: ignore
     url = "https://picsum.photos/256"  # Random image
     image = Image.open(requests.get(url, stream=True).raw)
+    image2 = Image.open(requests.get(url, stream=True).raw)
+
+    # Join 2 images together side-by-side, to get the lat > lon situation.
+    joined_image = Image.new("RGB", (image.width * 2, image.height))
+    joined_image.paste(image, (0, 0))
+    joined_image.paste(image2, (image.width, 0))
 
     transform = transforms.ToTensor()
-    tensor_image = transform(image)  # 3xHxW
+    tensor_image = transform(joined_image)  # 3xHxW
 
     height = tensor_image.shape[1]
     width = tensor_image.shape[2]
@@ -25,14 +32,15 @@ def make_downsample_ladder_plot() -> plt.Figure:  # type: ignore
     og = og.permute(0, 2, 3, 4, 1)  # B, H, W, T, C
 
     image_tensors = []
-    K = 9
+    K = 10
     for k in range(0, K):
         lat = og.shape[1]
         lon = og.shape[2]
         n_channels = og.shape[4]
 
-        divisor = 2**k
-        downscaled = downsample(og, divisor)
+        scale = 2**k
+        print(scale)
+        downscaled = downsample(og, scale)
         result1 = downscaled[0, :, :, 0, :]
         plottable = result1.reshape(lat, lon, n_channels)
         image_tensors.append(plottable)

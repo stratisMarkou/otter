@@ -4,16 +4,17 @@ import torch.testing
 
 from otter.experiment.downsample import downsample
 
+R_tensor = torch.ones(8, 8) * 0.9
+G_tensor = torch.ones(8, 8) * 0.5
+B_tensor = torch.ones(8, 8) * 0.1
+
 
 @pytest.fixture
 def constant_tensor() -> torch.Tensor:
     """Create a simple RGB test tensor with known values."""
     # Create 8x8 RGB image as (1, 8, 8, 1, 3) tensor
     # Format: (Batch, Lat, Lon, Time, Var[RGB])
-    r = torch.ones(8, 8) * 0.9
-    g = torch.ones(8, 8) * 0.5
-    b = torch.ones(8, 8) * 0.1
-    rgb = torch.stack([r, g, b], dim=-1)  # 8x8x3
+    rgb = torch.stack([R_tensor, G_tensor, B_tensor], dim=-1)  # 8x8x3
     rgb_reshaped = rgb.unsqueeze(0).unsqueeze(3)  # 1x8x8x1x3
     # Stack two copies into a "batch": 2x8x8x1x3
     rgb_batched = rgb_reshaped.repeat(2, 1, 1, 1, 1)
@@ -47,9 +48,9 @@ def test_basic_downsampling(constant_tensor: torch.Tensor) -> None:
 
     # Since we used constant values for each channel, downsampling
     # should preserve these values exactly
-    torch.testing.assert_close(result[0, :, :, 0, 0], torch.ones(8, 8) * 0.9)
-    torch.testing.assert_close(result[0, :, :, 0, 1], torch.ones(8, 8) * 0.5)
-    torch.testing.assert_close(result[0, :, :, 0, 2], torch.ones(8, 8) * 0.1)
+    torch.testing.assert_close(result[0, :, :, 0, 0], R_tensor)
+    torch.testing.assert_close(result[0, :, :, 0, 1], G_tensor)
+    torch.testing.assert_close(result[0, :, :, 0, 2], B_tensor)
 
 
 def test_transitivity(gradient_tensor: torch.Tensor) -> None:
@@ -89,10 +90,10 @@ def test_divisor_one(random_tensor: torch.Tensor) -> None:
     torch.testing.assert_close(result, random_tensor)
 
 
-def test_extreme_downsampling(random_tensor: torch.Tensor) -> None:
+def test_1px_case(random_tensor: torch.Tensor) -> None:
     """Test downsampling to 1x1 spatial dimensions."""
-    large_divisor = 100  # Forces 1x1 output
-    result = downsample(random_tensor, large_divisor)
+    scale = random_tensor.shape[1]  # Forces 1x1 output
+    result = downsample(random_tensor, scale)
 
     # Check shape preservation
     assert result.shape == random_tensor.shape
@@ -139,10 +140,6 @@ def test_erasure_case(random_tensor: torch.Tensor) -> None:
     """Tests that when the downsampling factor matches or exceeds the spatial
     dimensionality, the output tensor is zero."""
 
-    # Test case where divisor matches spatial dimensions
-    result = downsample(random_tensor, 16)
-    assert torch.all(result == 0), "Output should be all zeros"
-
     # Test case where divisor exceeds spatial dimensions
-    result = downsample(random_tensor, 32)
+    result = downsample(random_tensor, random_tensor.shape[1] + 1)
     assert torch.all(result == 0), "Output should be all zeros"

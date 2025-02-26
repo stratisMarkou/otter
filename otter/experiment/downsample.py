@@ -1,5 +1,3 @@
-import math
-
 import torch
 import torch.nn.functional as F
 
@@ -17,7 +15,7 @@ def downsample(original: torch.Tensor, scale: int) -> torch.Tensor:
     NOTE: The output tensor will have the same shape as the input tensor, but
         "pixelated" by the downsampling factor.
 
-    NOTE: If scale >= min(num_lat, num_lon), the output tensor will not be the
+    NOTE: If scale > min(num_lat, num_lon), the output tensor will not be the
         mean, but will instead be a tensor of zeros. This corresponds to the
         inference case, where we don't know the average weather data at the
         target time.
@@ -33,10 +31,10 @@ def downsample(original: torch.Tensor, scale: int) -> torch.Tensor:
 
     batch, lat, lon, time, var = original.shape
 
-    lat_down = math.ceil(lat / scale)
-    lon_down = math.ceil(lon / scale)
+    lat_down = lat // scale
+    lon_down = lon // scale
 
-    if lat_down <= 1 or lon_down <= 1:
+    if lat_down < 1 or lon_down < 1:
         # This corresponds to the inference case, where we don't know the
         # weather data at the target time, (and also don't know the spatial
         # average). We return a tensor of zeros as a special case.
