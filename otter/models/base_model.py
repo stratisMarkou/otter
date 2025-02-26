@@ -64,7 +64,7 @@ def _get_normalisation_mean_and_std(
     return mean, std
 
 
-class DeterministicModel(torch.nn.Module):
+class BaseModel(torch.nn.Module):
     def __init__(
         self,
         backbone_network: torch.nn.Module,
@@ -267,7 +267,7 @@ class DeterministicModel(torch.nn.Module):
         return torch.stack(predictions, dim=-2)
 
 
-def make_deterministic_model(
+def make_base_model(
     backbone_network: torch.nn.Module,
     time_embedding: TimeEmbedding,
     temporal_resolution_hours: int,
@@ -276,8 +276,8 @@ def make_deterministic_model(
     data_grid_num_lat: int,
     data_grid_num_lon: int,
     device: str,
-) -> DeterministicModel:
-    return DeterministicModel(
+) -> BaseModel:
+    return BaseModel(
         backbone_network=backbone_network,
         time_embedding=time_embedding,
         temporal_resolution_hours=temporal_resolution_hours,

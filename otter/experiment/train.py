@@ -193,7 +193,7 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Initialize wandb.
-    wandb.init(project="otter-deterministic", entity="otter-weather")
+    wandb.init(project="otter-base", entity="otter-weather")
     log_code_to_wandb()
 
     # Initialize experiment, including data loaders, model, and optimizer.

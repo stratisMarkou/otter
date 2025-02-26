@@ -17,7 +17,7 @@ TEST_DATASET = "era5_240x121"
     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
 )
-def test_deterministic_config() -> None:
+def test_base_config() -> None:
     with TemporaryDirectory() as temp_dir:
         download_zarr_and_store(
             dataset=TEST_DATASET,
@@ -46,7 +46,7 @@ def test_deterministic_config() -> None:
             args_list=[
                 "--debug",
                 "--config",
-                "otter/experiment/config/deterministic.yaml",
+                "otter/experiment/config/base.yaml",
                 f"constants.data.path_to_labelled_array={path}",
                 # Use a small MLP to keep test fast and prevent OOMs.
                 "backbone_network.mlp_num_hidden=256",

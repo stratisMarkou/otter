@@ -35,14 +35,14 @@ python otter/data/source/convert_saved_zarr_to_memmap.py
 # python otter/data/normalisation/compute_stats.py
 ```
 
-To train a deterministic model, from the repo root, run:
+To train a (deterministic) single-scale model, from the repo root, run:
 ```bash
 # This will train a model with logging to wandb. It will also check your local branch
 # is clean, i.e. that it has no changes relative to the remote branch.
-wandb online; python otter/experiment/train.py --config otter/experiment/config/deterministic.yaml
+wandb online; python otter/experiment/train.py --config otter/experiment/config/base.yaml
 
 # You can disable this check by adding the flag --debug at the end of the command, as in
-wandb online; python otter/experiment/train.py --config otter/experiment/config/deterministic.yaml --debug
+wandb online; python otter/experiment/train.py --config otter/experiment/config/base.yaml --debug
 ```
 
 

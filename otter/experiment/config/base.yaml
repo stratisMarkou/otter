@@ -66,7 +66,7 @@ backbone_network:
   pos_embedding: ${pos_embedding}
 
 model:
-  _target_: otter.models.deterministic_model.make_deterministic_model
+  _target_: otter.models.base_model.make_base_model
   backbone_network: ${backbone_network}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
   time_embedding: ${time_embedding}
@@ -141,4 +141,4 @@ constants:
 
 info:
   root_results: _results
-  wandb_project: otter-deterministic
+  wandb_project: otter-base
