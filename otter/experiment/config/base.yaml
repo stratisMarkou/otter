@@ -117,6 +117,11 @@ constants:
     num_context_frames: 2
     train_num_target_frames: 1
     valid_num_target_frames: 4
+    num_ctx_variables: 74
+    num_trg_variables: 69
+    num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
+    num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${time_embedding.num_scales}'}
+    num_output_channels: ${constants.data.num_trg_variables}
     batch_size: 4
     num_workers: 6
     prefetch_factor: 4

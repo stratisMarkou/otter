@@ -16,6 +16,7 @@ from otter.data.datasets import (  # type: ignore
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
+    ForecastingSample,
 )
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -155,13 +156,20 @@ class BaseModel(torch.nn.Module):
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
+    def preprocess_batch(
+        self,
+        batch: ForecastingSample,
+    ) -> ForecastingSample:
+        return batch
+
     def forward(
         self,
-        ctx: torch.Tensor,
-        zero_time: npt.NDArray[np.datetime64],
-        trg_timedelta_hours: npt.NDArray[np.int32],
+        batch: ForecastingSample,
         skip_model: bool = False,
     ) -> Dict[str, torch.Tensor]:
+        ctx = batch.ctx
+        zero_time = batch.zero_time
+        trg_timedelta_hours = batch.trg_timedelta_hours
         if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
                 "All target times must be multiples of the temporal resolution"
