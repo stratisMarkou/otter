@@ -43,8 +43,8 @@ time_embedding:
 
 pos_embedding:
   _target_: otter.models.architectures.embeddings.SpatialEmbedding
-  num_scales: 32
-  embedding_mode: concat
+  num_scales: 128
+  embedding_mode: add
   token_dimension: ${backbone_network.token_dimensions[0]}
 
 backbone_network:
@@ -53,10 +53,10 @@ backbone_network:
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [512, 512, 512, 512]
+  token_dimensions: [768, 768, 768, 768]
   output_dimension: 69
   window_size: 4
-  mlp_num_hidden: 256
+  mlp_num_hidden: 2048
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
@@ -115,7 +115,8 @@ constants:
     train_num_target_frames: 1
     valid_num_target_frames: 4
     batch_size: 4
-    num_workers: 2
+    num_workers: 6
+    prefetch_factor: 4
     path_to_labelled_array: "./_data/era5_240x121_single_array_float32"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn

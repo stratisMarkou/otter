@@ -48,6 +48,11 @@ class SwinTransformer(nn.Module):
                 first_token_dim = (
                     token_dimensions[0] - 2 * pos_embedding.num_scales
                 )
+        else:
+            if isinstance(token_dimensions, int):
+                first_token_dim = token_dimensions
+            else:
+                first_token_dim = token_dimensions[0]
 
         if isinstance(token_dimensions, int):
             num_stages = len(num_blocks_per_stage)
