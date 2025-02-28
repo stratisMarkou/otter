@@ -9,9 +9,9 @@ class MLP(torch.nn.Module):
     def __init__(
         self,
         in_features: int,
+        output_features: int,
         hidden_features: int,
         num_hidden_layers: int,
-        output_features: int,
     ):
         super().__init__()
         self.in_features = in_features
