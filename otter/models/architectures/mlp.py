@@ -2,6 +2,8 @@
 
 import torch
 
+from otter.models.architectures.transformer_output import SwinTransformerOutput
+
 
 class MLP(torch.nn.Module):
     def __init__(
@@ -35,12 +37,24 @@ class MLP(torch.nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.shape[-1] != self.in_features:
+    def forward(
+        self, x: SwinTransformerOutput | torch.Tensor
+    ) -> SwinTransformerOutput | torch.Tensor:
+
+        if isinstance(x, SwinTransformerOutput):
+            pred = x.pred
+        else:
+            pred = x
+
+        if pred.shape[-1] != self.in_features:
             raise ValueError(
-                f"Input tensor has shape {x.shape}, "
+                f"Input tensor has shape {pred.shape}, "
                 f"expected {self.in_features}"
             )
         for layer in self.layers:
-            x = layer(x)
-        return x
+            pred = layer(pred)
+
+        if isinstance(x, SwinTransformerOutput):
+            x.pred = pred
+            return x
+        return pred

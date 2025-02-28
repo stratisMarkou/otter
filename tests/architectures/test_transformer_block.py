@@ -1,13 +1,17 @@
 """Tests forward passes through transformer block."""
 
+from functools import partial
+
 import pytest
 import torch
 
+from otter.models.architectures.mlp import MLP
 from otter.models.architectures.transformer_blocks import (
     TransformerBlock,
     extract_subimages_and_fold_into_batch_dim,
     unfold_from_batch_dim_and_combine_subimages,
 )
+from otter.models.architectures.transformer_output import SwinTransformerOutput
 
 
 # Tests that combine_windows is the inverse of the extract_windows.
@@ -54,10 +58,16 @@ def test_transformer_block(
     batch_dim: int,
     sequence_length: int,
 ) -> None:
+
+    feedforward_network = partial(
+        MLP,
+        hidden_features=mlp_num_hidden,
+        num_hidden_layers=mlp_num_layers,
+    )
+
     transformer_block = TransformerBlock(
         token_dim=token_dim,
-        mlp_num_hidden=mlp_num_hidden,
-        mlp_num_layers=mlp_num_layers,
+        feedforward_network=feedforward_network,
         num_heads=num_heads,
         # Seting use_efficient attention to False uses nn.MultiheadAttention
         # instead of xformers.ops.memory_efficient_attention, which is not
@@ -65,5 +75,5 @@ def test_transformer_block(
         use_efficient_attention=False,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
-    y = transformer_block(x)
+    y = transformer_block(SwinTransformerOutput(x)).pred
     assert y.shape == (batch_dim, sequence_length, token_dim)

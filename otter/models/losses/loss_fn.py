@@ -81,6 +81,21 @@ def lwrmse(
     return _rmse(trg, prd_stats, apply_latitude_weighting=True)
 
 
+def gather_auxiliary_losses(
+    prd_stats: PredictionStatistics,
+) -> Tuple[torch.Tensor, LossInfo]:
+    """Gather auxiliary losses from prediction statistics."""
+    loss = torch.tensor(0.0).to(prd_stats["mean"].device)
+    loss_info = {}
+    for key in prd_stats.keys():
+        if "loss" in key:
+            loss_item = prd_stats[key].sum(dim=-1).mean()
+            loss_info[key] = loss_item.cpu().detach().numpy()
+            loss += loss_item
+    loss_info["total_auxiliary_loss"] = loss.cpu().detach().numpy()
+    return loss, loss_info
+
+
 def apply_loss(
     trg: torch.Tensor,
     prd_stats: PredictionStatistics,

@@ -24,6 +24,7 @@ from otter.data.utils import (
     stack_dataset_variable_and_levels,
 )
 from otter.models.architectures.embeddings import TimeEmbedding
+from otter.models.architectures.utils import merge_output_dicts
 
 
 def _get_variable_and_level_list(
@@ -182,7 +183,7 @@ class DeterministicModel(torch.nn.Module):
             f"{tuple(ctx.shape[1:3])}"
         )
 
-        prd = self.rollout(
+        prd, aux_losses = self.rollout(
             ctx=ctx,
             zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
@@ -194,7 +195,7 @@ class DeterministicModel(torch.nn.Module):
         prd = prd + self.trg_mean
         assert isinstance(prd, torch.Tensor)  # Assert to silence mypy
 
-        return dict(mean=prd)
+        return dict(mean=prd) | aux_losses
 
     def rollout(
         self,
@@ -203,8 +204,9 @@ class DeterministicModel(torch.nn.Module):
         trg_timedelta_hours: npt.NDArray[np.int32],
         num_rollout_steps: int,
         skip_model: bool = False,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         predictions: List[torch.Tensor] = list()
+        aux_losses: List[Dict[str, torch.Tensor]] = list()
         for i in range(num_rollout_steps):
             # Get residual connection from context data. The dimension size
             # res_var_and_level refers to the number of variables that are
@@ -247,12 +249,13 @@ class DeterministicModel(torch.nn.Module):
                     [ctx_reshaped, time_embedding], dim=-1
                 )
 
-                prediction = residual + self.backbone_network(
-                    ctx_with_time_embedding
-                )  # (batch, lat, lon, trg_var_and_level)
+                output = self.backbone_network(ctx_with_time_embedding)
+                prediction = residual + output.pred
+                aux_loss = output.aux_losses
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prediction)
+                aux_losses.append(aux_loss)
 
             # Using this prediction, update the context data for the next step.
             # NOTE: We can't simply assign the prediction e.g. using
@@ -264,7 +267,7 @@ class DeterministicModel(torch.nn.Module):
 
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
-        return torch.stack(predictions, dim=-2)
+        return torch.stack(predictions, dim=-2), merge_output_dicts(aux_losses)
 
 
 def make_deterministic_model(

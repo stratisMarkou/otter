@@ -1,8 +1,10 @@
+from functools import partial
 from typing import List
 
 import pytest
 import torch
 
+from otter.models.architectures.mlp import MLP
 from otter.models.architectures.transformer import SwinTransformer
 
 
@@ -33,6 +35,12 @@ def test_swin_transformer(
     num_mlp_layers = 2
     num_heads = 4
 
+    feedforward_network = partial(
+        MLP,
+        hidden_features=mlp_num_hidden,
+        num_hidden_layers=num_mlp_layers,
+    )
+
     swin_transformer = SwinTransformer(
         in_channels=grid_channel_dim,
         height=grid_height,
@@ -41,14 +49,13 @@ def test_swin_transformer(
         token_dimensions=token_dim,
         output_dimension=grid_channel_dim,
         window_size=window_size,
-        mlp_num_hidden=mlp_num_hidden,
-        mlp_num_layers=num_mlp_layers,
         num_heads=num_heads,
         num_blocks_per_stage=num_blocks_per_stage,
         # Seting use_efficient attention to False uses nn.MultiheadAttention
         # instead of xformers.ops.memory_efficient_attention, which is not
         # runnable in the test environment when we don't have a GPU.
         use_efficient_attention=False,
+        feedforward_network=feedforward_network,
     )
 
     # Create a random input tensor

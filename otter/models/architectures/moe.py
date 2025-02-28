@@ -1,12 +1,10 @@
-from typing import (
-    Dict,
-    Tuple,
-)
+from typing import Tuple
 
 import torch
 import torch.distributions as dist
 
 from otter.models.architectures.mlp import MLP
+from otter.models.architectures.transformer_output import SwinTransformerOutput
 
 
 def _softmax_then_top_k(
@@ -26,10 +24,12 @@ class MixtureOfExperts(torch.nn.Module):
 
     def __init__(
         self,
-        token_dim: int,
+        in_features: int,
+        output_features: int,
         num_experts: int,
         num_hidden_layers_per_expert: int,
         num_hidden_units_per_expert: int,
+        k: int,
         use_gating_bias: bool = False,
         apply_softmax_before_top_k: bool = False,
         w_importance: float = 1.0,
@@ -37,14 +37,19 @@ class MixtureOfExperts(torch.nn.Module):
     ):
         super().__init__()
 
+        # NOTE: current implementation does not support different input and
+        # output dimensions.
+        assert in_features == output_features
+        self.in_features = in_features
+
         # Expert MLPs.
         self.experts = torch.nn.ModuleList(
             [
                 MLP(
-                    in_features=token_dim,
+                    in_features=in_features,
                     num_hidden_layers=num_hidden_layers_per_expert,
                     hidden_features=num_hidden_units_per_expert,
-                    output_features=token_dim,
+                    output_features=output_features,
                 )
                 for _ in range(num_experts)
             ]
@@ -53,12 +58,12 @@ class MixtureOfExperts(torch.nn.Module):
 
         # Layer for gating the experts.
         self.linear_layer = torch.nn.Linear(
-            token_dim, num_experts, bias=use_gating_bias
+            in_features, num_experts, bias=use_gating_bias
         )
 
         # Layer for adding noise to the gating logits.
         self.linear_gate_noise_layer = torch.nn.Linear(
-            token_dim, num_experts, bias=use_gating_bias
+            in_features, num_experts, bias=use_gating_bias
         )
         self.gaussian_noise_std = num_experts**-0.5
 
@@ -71,7 +76,11 @@ class MixtureOfExperts(torch.nn.Module):
         self.w_importance = w_importance
         self.w_load = w_load
 
-    def noisy_gate_logits(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        self.k = k
+
+    def noisy_gate_logits(
+        self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """Computes noise-perturbed gating logits for each expert.
 
         The gating logits are computed according to the formula:
@@ -88,8 +97,6 @@ class MixtureOfExperts(torch.nn.Module):
         Returns:
             torch.Tensor: Gating logits of shape (token_batch, num_experts).
         """
-        assert x.dim() == 2
-        batch_dim = x.shape[0]
 
         # Apply gating layer.
         logits: torch.Tensor = self.linear_layer(x)
@@ -97,7 +104,7 @@ class MixtureOfExperts(torch.nn.Module):
         if self.training:
             # Draw standard Gaussian noise and scale by input-dependent factor.
             noise: torch.Tensor = (
-                torch.randn(batch_dim, self.num_experts, device=x.device)
+                torch.randn(*logits.shape, device=x.device)
                 * self.gaussian_noise_std
             )
             noise_std: torch.Tensor = self.softplus(
@@ -105,13 +112,9 @@ class MixtureOfExperts(torch.nn.Module):
             )
             noise = noise * noise_std
 
-            return dict(
-                logits=logits + noise,
-                noise_std=noise_std,
-                unnoised_logits=logits,
-            )
+            return logits + noise, noise_std, logits
 
-        return dict(logits=logits)
+        return logits, None, None
 
     def importance_loss(self, gate_probs: torch.Tensor) -> torch.Tensor:
         """Computes importance loss weighted by w_importance.
@@ -145,7 +148,9 @@ class MixtureOfExperts(torch.nn.Module):
 
     def load_loss(
         self,
-        gate_logits_dict: Dict[str, torch.Tensor],
+        gate_logits: torch.Tensor,
+        noise_std: torch.Tensor | None,
+        gate_logits_without_noise: torch.Tensor | None,
         gates_khot: torch.Tensor,
         k: int,
     ) -> torch.Tensor:
@@ -177,24 +182,26 @@ class MixtureOfExperts(torch.nn.Module):
             return torch.tensor(0.0, device=gates_khot.device)
 
         if k < self.num_experts and self.training:
+
+            assert gate_logits_without_noise is not None
+            assert noise_std is not None
+
             # NOTE: this topk could probably be avoided, but then requires
             # splitting _softmax_then_top_k function
             top_k_logits, _ = torch.topk(
-                gate_logits_dict["logits"], k=k + 1, dim=1
+                gate_logits, k=k + 1, dim=1
             )  # shape (token_batch, k+1)
             in_logits = top_k_logits[:, -1:]  # shape (token_batch, 1)
             out_logits = top_k_logits[:, -2:-1]  # shape (token_batch, 1)
             kth_excluding = (
                 in_logits * gates_khot + (1 - gates_khot) * out_logits
             )  # shape (token_batch, num_experts)
-            cdf_input = (
-                gate_logits_dict["unnoised_logits"] - kth_excluding
-            ) / gate_logits_dict["noise_std"]
+            cdf_input = (gate_logits_without_noise - kth_excluding) / noise_std
             probs = dist.Normal(0.0, 1.0).cdf(cdf_input)  # type: ignore
             load = probs.sum(dim=0)  # shape (num_experts,)
         else:
             load = gates_khot.sum(dim=0).type(
-                gate_logits_dict["logits"].dtype
+                gate_logits.dtype
             )  # shape (num_experts,)
 
         eps = 1e-10
@@ -203,38 +210,45 @@ class MixtureOfExperts(torch.nn.Module):
         )
         return loss_load
 
-    def forward(self, x: torch.Tensor, k: int) -> Dict[str, torch.Tensor]:
+    def forward(self, x: SwinTransformerOutput) -> SwinTransformerOutput:
         """Performs forward pass through mixture of experts layer.
 
         NOTE: this layer includes a resuidual connection by default.
 
         Args:
             x (torch.Tensor): Input tensor of shape (token_batch, token_dim).
-            k (int): Number of experts to route each token to.
 
         Returns:
             torch.Tensor: Output tensor of shape (token_batch, token_dim).
         """
-        assert x.dim() == 2  # Shape: (token_batch, token_dim).
-        assert k <= self.num_experts
+        if x.pred.shape[-1] != self.in_features:
+            raise ValueError(
+                f"Input tensor has shape {x.pred.shape}, "
+                f"expected {self.in_features}"
+            )
+
+        k = self.k
+        pred = x.pred.reshape(
+            -1, self.in_features
+        )  # shape (token_batch, token_dim)
 
         # Compute noisy gate logits.
-        gate_logits_dict = self.noisy_gate_logits(x)
+        gate_logits, noise_std, logits_wo_noise = self.noisy_gate_logits(pred)
 
         # Apply keep_top_k operation and softmax, or the other way around,
         # to obtain sparse gate probabilities. By sparse, we mean that only
         # the top-k probabilities are returned.
         gate_probs, gate_indices = (
-            _softmax_then_top_k(gate_logits_dict["logits"], k=k, dim=1)
+            _softmax_then_top_k(gate_logits, k=k, dim=1)
             if self.apply_softmax_before_top_k
-            else _top_k_then_softmax(gate_logits_dict["logits"], k=k, dim=1)
+            else _top_k_then_softmax(gate_logits, k=k, dim=1)
         )  # shape (token_batch, k), (token_batch, k)
 
         # Scatter gate probabilities, converting them to a tensor of shape
         # (token_batch, num_experts), that contains all zeroes except for
         # the top-k probabilities for each token.
         gate_probs_expanded = torch.zeros_like(
-            gate_logits_dict["logits"], device=x.device, requires_grad=True
+            gate_logits, device=pred.device, requires_grad=True
         )  # shape (token_batch, num_experts)
         gate_probs_expanded = torch.scatter_add(
             gate_probs_expanded, dim=1, index=gate_indices, src=gate_probs
@@ -244,16 +258,19 @@ class MixtureOfExperts(torch.nn.Module):
         # (token_batch, num_experts), that contains a k-hot representation
         # of the active gates. This is used for indexing the tokens later.
         gates_khot = torch.zeros(
-            x.shape[0], self.num_experts, dtype=torch.int32, device=x.device
+            pred.shape[0],
+            self.num_experts,
+            dtype=torch.int32,
+            device=pred.device,
         )  # shape (token_batch, num_experts)
         ones = torch.ones(
-            *gate_indices.shape, dtype=torch.int32, device=x.device
+            *gate_indices.shape, dtype=torch.int32, device=pred.device
         )  # shape (token_batch, k)
         gates_khot.scatter_(
             dim=1, index=gate_indices, src=ones
         )  # shape (token_batch, num_experts)
 
-        output = torch.zeros_like(x, device=x.device, requires_grad=True)
+        output = torch.zeros_like(pred, device=pred.device, requires_grad=True)
 
         for i, expert in enumerate(self.experts):
 
@@ -261,7 +278,9 @@ class MixtureOfExperts(torch.nn.Module):
             token_in_expert = gates_khot[:, i].bool()  # shape (token_batch,)
 
             # Apply the i-th expert to its tokens.
-            z = expert(x[token_in_expert])  # shape (expert_tokens, token_dim)
+            z = expert(
+                pred[token_in_expert]
+            )  # shape (expert_tokens, token_dim)
 
             # Compute the product of the result of the expert
             # and the gate probabilities corresponding to the tokens.
@@ -280,9 +299,27 @@ class MixtureOfExperts(torch.nn.Module):
         # Compute importance and load loss
         importance_loss = self.importance_loss(gate_probs_expanded)
         load_loss = self.load_loss(
-            gate_logits_dict=gate_logits_dict, gates_khot=gates_khot, k=k
+            gate_logits=gate_logits,
+            noise_std=noise_std,
+            gate_logits_without_noise=logits_wo_noise,
+            gates_khot=gates_khot,
+            k=k,
         )
 
-        return dict(
-            pred=output, importance_loss=importance_loss, load_loss=load_loss
-        )
+        x.pred = output.reshape(x.pred.shape)
+        for loss_name in x.aux_losses:
+            if loss_name == "importance_loss":
+                x.aux_losses[loss_name] = torch.cat(
+                    (x.aux_losses[loss_name], importance_loss.unsqueeze(0)),
+                    dim=0,
+                )
+            elif loss_name == "load_loss":
+                x.aux_losses[loss_name] = torch.cat(
+                    (x.aux_losses[loss_name], load_loss.unsqueeze(0)),
+                    dim=0,
+                )
+        if len(x.aux_losses) == 0:
+            x.aux_losses["importance_loss"] = importance_loss.unsqueeze(0)
+            x.aux_losses["load_loss"] = load_loss.unsqueeze(0)
+
+        return x

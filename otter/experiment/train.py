@@ -25,6 +25,7 @@ from otter.experiment.utils import (
 from otter.models.losses.loss_fn import (
     LossInfo,
     PredictionStatistics,
+    gather_auxiliary_losses,
 )
 
 LossFunction = Callable[[PredictionStatistics], Tuple[torch.Tensor, LossInfo]]
@@ -70,6 +71,15 @@ def train_step(
         prd_stats=prd_stats,
         trg=trg,
     )
+
+    auxiliary_loss, auxiliary_loss_info = run_and_log_time_to_wandb(
+        "gather_auxiliary_losses",
+        gather_auxiliary_losses,
+        prd_stats=prd_stats,
+    )
+
+    loss += auxiliary_loss
+    loss_info.update(auxiliary_loss_info)
 
     run_and_log_time_to_wandb("loss.backward", loss.backward)
     run_and_log_time_to_wandb("optimizer.step", optimizer.step)
@@ -127,6 +137,13 @@ def validation_epoch(
                     prd_stats=prd_stats,
                     trg=trg,
                 )
+
+                if loss_name == "train_loss":
+                    aux_loss, aux_loss_info = gather_auxiliary_losses(
+                        prd_stats=prd_stats,
+                    )
+                    loss += aux_loss
+                    loss_info.update(aux_loss_info)
 
                 losses[loss_name].append(loss.cpu().detach().numpy())
                 loss_infos[loss_name].append(loss_info)

@@ -1,0 +1,148 @@
+train_dataset:
+  _target_: otter.data.datasets.make_gridded_weather_task
+  path_to_labelled_array: ${constants.data.path_to_labelled_array}
+  start_date: ${constants.data.train_start_date}
+  end_date: ${constants.data.train_end_date}
+  num_context_frames: ${constants.data.num_context_frames}
+  num_target_frames: ${constants.data.train_num_target_frames}
+  temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
+  ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
+  trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
+
+valid_dataset:
+  _target_: otter.data.datasets.make_gridded_weather_task
+  path_to_labelled_array: ${constants.data.path_to_labelled_array}
+  start_date: ${constants.data.valid_start_date}
+  end_date: ${constants.data.valid_end_date}
+  num_context_frames: ${constants.data.num_context_frames}
+  num_target_frames: ${constants.data.valid_num_target_frames}
+  temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
+  ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
+  trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
+  task_sub_sampling_factor: ${constants.data.val_task_subsampling_factor}
+
+train_dataloader:
+  _target_: torch.utils.data.DataLoader
+  dataset: ${train_dataset}
+  batch_size: ${constants.data.batch_size}
+  shuffle: true
+  num_workers: ${constants.data.num_workers}
+  collate_fn: ${constants.data.collate_fn}
+  pin_memory: true
+  prefetch_factor: ${constants.data.prefetch_factor}
+
+valid_dataloader:
+  _target_: torch.utils.data.DataLoader
+  dataset: ${valid_dataset}
+  batch_size: ${constants.data.batch_size}
+  shuffle: true
+  num_workers: ${constants.data.num_workers}
+  collate_fn: ${constants.data.collate_fn}
+  pin_memory: true
+  prefetch_factor: ${constants.data.prefetch_factor}
+
+time_embedding:
+  _target_: otter.models.architectures.embeddings.TimeEmbedding
+  num_scales: 16
+
+backbone_network:
+  _target_: otter.models.architectures.transformer.SwinTransformer
+  in_channels: ${eval:'148 + 2 * ${time_embedding.num_scales}'}
+  height: 128
+  width: 256
+  patch_size: 2
+  token_dimensions: [512, 512, 512, 512]
+  output_dimension: 69
+  window_size: 4
+  num_heads: 8
+  num_blocks_per_stage: [4, 4, 4]
+  feedforward_network: ${feedforward_network}
+
+feedforward_network:
+  _target_: otter.models.architectures.moe.MixtureOfExperts
+  _partial_: true
+  num_experts: 10
+  k: 5
+  num_hidden_layers_per_expert: 2
+  num_hidden_units_per_expert: 256
+  use_gating_bias: False
+  apply_softmax_before_top_k: False
+  w_importance: 1.0
+  w_load: 1.0
+
+model:
+  _target_: otter.models.deterministic_model.make_deterministic_model
+  backbone_network: ${backbone_network}
+  temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
+  time_embedding: ${time_embedding}
+  ctx_variables_to_remove: ${constants.data.ctx_variables_to_remove}
+  trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
+  data_grid_num_lat: 121
+  data_grid_num_lon: 240
+
+loss_fn:
+  _target_: otter.models.losses.loss_fn.make_loss_fn
+  model: ${model}
+  loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+  weighting_fns:
+    - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
+    - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}
+    - ${get_module_attr:otter.models.losses.weighting.apply_division_by_variable_diff_std}
+
+val_loss_fns:
+  # Always include the training loss function in the validation loss functions.
+  train_loss: ${loss_fn}
+  # Additional loss functions reported exclusively during validation.
+  raw_rmse:
+    _target_: otter.models.losses.loss_fn.make_loss_fn
+    model: ${model}
+    loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+  raw_lwrmse:
+    _target_: otter.models.losses.loss_fn.make_loss_fn
+    model: ${model}
+    loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
+
+
+optimizer_kwargs:
+  lr: ${constants.training.initial_learning_rate}
+
+lr_scheduler_kwargs:
+  T_max: ${constants.training.num_training_steps}
+  eta_min: 1e-6
+
+constants:
+  data:
+    train_start_date: "1979-01-01 00:00:00"
+    train_end_date: "2019-12-31 18:00:00"
+    valid_start_date: "2020-01-01 00:00:00"
+    valid_end_date: "2020-12-31 18:00:00"
+    temporal_resolution_hours: 6
+    ctx_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
+    trg_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
+    num_context_frames: 2
+    train_num_target_frames: 1
+    valid_num_target_frames: 4
+    batch_size: 4
+    num_workers: 6
+    prefetch_factor: 4
+    path_to_labelled_array: "./_data/era5_240x121_single_array_float32"
+    collate_fn:
+      _target_: otter.data.datasets.get_collate_fn
+    # Sub-sampling factor for the validation task, as we don't want to waste
+    # lots of time validating while training.
+    val_task_subsampling_factor: 5
+  training:
+    initial_learning_rate: 1e-4
+    epochs: 40
+    num_training_steps:
+      _target_: otter.experiment.utils.get_num_training_steps
+      num_epochs: ${constants.training.epochs}
+      dataloader: ${train_dataloader}
+    validate_every: 5000
+    save_checkpoint_every: 10_000
+  load_weights_from_experiment: null
+
+
+info:
+  root_results: _results
+  wandb_project: otter-deterministic

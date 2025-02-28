@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Sequence
 
 import torch
@@ -6,6 +7,7 @@ from torch import nn
 from otter.models.architectures.embeddings import PositionEmbedding
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
+from otter.models.architectures.transformer_output import SwinTransformerOutput
 from otter.models.architectures.utils import (
     conv_channel_last,
     interpolate_bilinear_channel_last,
@@ -18,14 +20,13 @@ class SwinTransformer(nn.Module):
         token_dimensions: Sequence[int] | int,
         output_dimension: int,
         window_size: int,
-        mlp_num_hidden: int,
-        mlp_num_layers: int,
         num_heads: int,
         in_channels: int,
         height: int,
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
+        feedforward_network: Callable[[int, int], nn.Module],
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -60,8 +61,7 @@ class SwinTransformer(nn.Module):
             down_swin_stages.append(
                 make_swin_stage(
                     token_dim=t2,
-                    mlp_num_hidden=mlp_num_hidden,
-                    mlp_num_layers=mlp_num_layers,
+                    feedforward_network=feedforward_network,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
@@ -76,8 +76,7 @@ class SwinTransformer(nn.Module):
             up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t1,
-                    mlp_num_hidden=mlp_num_hidden,
-                    mlp_num_layers=mlp_num_layers,
+                    feedforward_network=feedforward_network,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
@@ -124,7 +123,7 @@ class SwinTransformer(nn.Module):
         self.width = width
         self.height = height
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> SwinTransformerOutput:
         """Apply vision transformer to batch of images.
 
         Arguments:
@@ -143,27 +142,33 @@ class SwinTransformer(nn.Module):
         x = self.tokeniser(x)
         x = self.embedding(x)
         skips = []
+        output = SwinTransformerOutput(x)
 
         for downsampling_conv, down_swin_stage in zip(
             self.patch_downsampling_layers,
             self.down_swin_stages,
         ):
-            skips.append(x)
-            x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-            x = down_swin_stage(x)
+            skips.append(output.pred)
+            output.pred = downsampling_conv(
+                output.pred.permute(0, 3, 1, 2)
+            ).permute(0, 2, 3, 1)
+            output = down_swin_stage(output)
 
         for upsampling_conv, up_swin_stage, skip in zip(
             self.patch_upsampling_layers,
             self.up_swin_stages,
             skips[::-1],
         ):
-            x = up_swin_stage(x)
-            x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-            x = x + skip
+            output = up_swin_stage(output)
+            output.pred = upsampling_conv(
+                output.pred.permute(0, 3, 1, 2)
+            ).permute(0, 2, 3, 1)
+            output.pred = output.pred + skip
 
-        x = conv_channel_last(self.final_conv, x)
+        output.pred = conv_channel_last(self.final_conv, output.pred)
 
         # Interpolate image to original dimensions
-        return interpolate_bilinear_channel_last(
-            x, height=original_height, width=original_width
+        output.pred = interpolate_bilinear_channel_last(
+            output.pred, height=original_height, width=original_width
         )
+        return output
