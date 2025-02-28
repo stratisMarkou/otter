@@ -244,7 +244,10 @@ def main() -> None:
                     device=device,
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
+<<<<<<< HEAD
                     scale_scheduler=experiment.inference_scale_scheduler,
+=======
+>>>>>>> d3b446c (multiscale and time rollout, scale scheduler)
                 )
 
             try:

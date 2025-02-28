@@ -59,6 +59,11 @@ backbone_network:
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
 
+scale_scheduler:
+  _target_: otter.models.architectures.schedulers.PowerScaleScheduler
+  num_scales: 6
+  scale_probs: [1, 1, 1, 1, 1, 1]
+
 model:
   _target_: otter.models.multiscale_model.make_multiscale_model
   backbone_network: ${backbone_network}
@@ -68,6 +73,7 @@ model:
   trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
   data_grid_num_lat: 121
   data_grid_num_lon: 240
+  scale_scheduler: ${scale_scheduler}
 
 loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
