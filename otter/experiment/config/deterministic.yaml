@@ -47,14 +47,14 @@ time_embedding:
 
 backbone_network:
   _target_: otter.models.architectures.transformer.SwinTransformer
-  in_channels: ${eval:'148 + 2 * ${time_embedding.num_scales}'}
+  in_channels: ${eval:'174 + 2 * ${time_embedding.num_scales}'}
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [256, 256, 256, 256]
-  output_dimension: 69
+  token_dimensions: [1024, 1024, 1024, 1024]
+  output_dimension: 82
   window_size: 4
-  mlp_num_hidden: 256
+  mlp_num_hidden: 1024
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
@@ -106,8 +106,8 @@ constants:
     valid_start_date: "2020-01-01 00:00:00"
     valid_end_date: "2020-12-31 18:00:00"
     temporal_resolution_hours: 6
-    ctx_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
-    trg_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
+    ctx_variables_to_remove: ["sea_surface_temperature"]
+    trg_variables_to_remove: ["sea_surface_temperature"]
     num_context_frames: 2
     train_num_target_frames: 1
     valid_num_target_frames: 4
