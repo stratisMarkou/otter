@@ -48,5 +48,7 @@ def test_deterministic_config() -> None:
                 "--config",
                 "otter/experiment/config/deterministic.yaml",
                 f"constants.data.path_to_labelled_array={path}",
+                # Use a small MLP to keep test fast and prevent OOMs.
+                "backbone_network.mlp_num_hidden=256",
             ],
         )
