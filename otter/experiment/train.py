@@ -12,7 +12,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import torch
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
 import wandb
@@ -40,6 +40,21 @@ def assert_single_device() -> None:
         )
 
 
+def get_mixed_precision_dtype(mixed_precision_dtype: str) -> torch.dtype:
+
+    if mixed_precision_dtype == "float16":
+        return torch.float16
+
+    elif mixed_precision_dtype == "float32":
+        return torch.float32
+
+    else:
+        raise ValueError(
+            f"Invalid mixed precision dtype: {mixed_precision_dtype}. "
+            "Must be one of ['float16', 'float32']."
+        )
+
+
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
@@ -48,6 +63,7 @@ def train_step(
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     step_number: int,
     scaler: GradScaler,
+    mixed_precision_dtype: str,
     device: str = "cuda",
 ) -> int:
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
@@ -58,7 +74,10 @@ def train_step(
         "batch.trg.to", batch.trg.to, device, non_blocking=True
     )
 
-    with torch.cuda.amp.autocast(dtype=torch.float16):
+    with torch.amp.autocast(  # type: ignore
+        device_type=device,
+        dtype=get_mixed_precision_dtype(mixed_precision_dtype),
+    ):
         prd_stats = run_and_log_time_to_wandb(
             "model.forward",
             model.forward,
@@ -76,10 +95,10 @@ def train_step(
 
     scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("loss.backward", scaled_loss.backward)
-    run_and_log_time_to_wandb("optimizer.step", optimizer.step)
+    run_and_log_time_to_wandb("scaler.step", scaler.step, optimizer)
+    run_and_log_time_to_wandb("scaler.update", scaler.update)
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
     run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
-    run_and_log_time_to_wandb("scaler.step", scaler.step)
 
     log_loss_info_to_wandb(
         loss_info=loss_info,
@@ -206,7 +225,8 @@ def main() -> None:
             experiment_name=experiment.constants.load_weights_from_experiment,
         )
 
-    scaler = GradScaler()
+    scaler = GradScaler(device=device)
+    mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     step = 0
     for _ in range(experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
@@ -232,6 +252,7 @@ def main() -> None:
                     step_number=step,
                     device=device,
                     scaler=scaler,
+                    mixed_precision_dtype=mixed_precision_dtype,
                 )
             except StopIteration:
                 break

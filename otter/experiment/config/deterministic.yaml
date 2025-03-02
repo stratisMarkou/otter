@@ -51,10 +51,10 @@ backbone_network:
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [1024, 1024, 1024, 1024]
+  token_dimensions: [256, 256, 256, 256]
   output_dimension: 69
   window_size: 4
-  mlp_num_hidden: 4096
+  mlp_num_hidden: 256
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
@@ -129,6 +129,7 @@ constants:
       dataloader: ${train_dataloader}
     validate_every: 5000
     save_checkpoint_every: 10_000
+    mixed_precision_dtype: float16
   load_weights_from_experiment: null
 
 
