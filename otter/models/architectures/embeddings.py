@@ -9,7 +9,6 @@ REFERENCE_DATETIME = np.datetime64("1979-01-01T00:00:00")
 
 
 class PositionEmbedding(nn.Module):
-
     def __init__(
         self,
         token_dimension: int,
@@ -37,7 +36,6 @@ class PositionEmbedding(nn.Module):
 
 
 class FourierExpansionEmbedding(nn.Module):
-
     def __init__(
         self,
         min_scale: float,

@@ -1,37 +1,24 @@
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
-    -   id: trailing-whitespace
-    -   id: end-of-file-fixer
-    -   id: check-yaml
-    -   id: check-added-large-files
--   repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.1
     hooks:
-      - id: isort
-        args: ["--profile", "black", "--filter-files"]
--   repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-      - id: black
-        language_version: python3.10
--   repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-      - id: black-jupyter
-        language_version: python3.10
--   repo: https://github.com/pre-commit/mirrors-mypy
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.10.0
     hooks:
-    -   id: mypy
+      - id: mypy
         entry: bash -c "mypy otter tests --disallow-untyped-defs --strict"
         language: system
--   repo: https://github.com/asottile/blacken-docs
+  - repo: https://github.com/asottile/blacken-docs
     rev: 1.16.0
     hooks:
-    -   id: blacken-docs
--   repo: https://github.com/pycqa/flake8
-    rev: 7.1.0
-    hooks:
-    -   id: flake8
+      - id: blacken-docs

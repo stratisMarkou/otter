@@ -27,7 +27,6 @@ def test_swin_transformer(
     window_size: int,
     num_blocks_per_stage: List[int],
 ) -> None:
-
     batch_dim = 2
     mlp_num_hidden = 32
     num_mlp_layers = 2

@@ -38,7 +38,6 @@ def apply_division_by_variable_diff_std(
     tensor: torch.Tensor,
     variable_and_level: Sequence[str],
 ) -> torch.Tensor:
-
     std_array = VAR_STD_DATA_ARRAY.sel(
         variable_and_level=variable_and_level
     ).values
@@ -52,7 +51,6 @@ def apply_division_by_variable_std(
     tensor: torch.Tensor,
     variable_and_level: Sequence[str],
 ) -> torch.Tensor:
-
     std_array = VAR_DIFF_STD_DATA_ARRAY.sel(
         variable_and_level=variable_and_level
     ).values

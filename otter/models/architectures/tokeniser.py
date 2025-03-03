@@ -5,7 +5,6 @@ from otter.models.architectures.utils import conv_channel_last
 
 
 class ImageTokeniser(nn.Module):
-
     def __init__(
         self,
         in_channels: int,
@@ -14,9 +13,9 @@ class ImageTokeniser(nn.Module):
     ):
         super().__init__()
 
-        assert (
-            patch_size == 1 or patch_size % 2 == 0
-        ), "Patch size must be one or even"
+        assert patch_size == 1 or patch_size % 2 == 0, (
+            "Patch size must be one or even"
+        )
 
         self.patch_size = patch_size
         self.conv = nn.Conv2d(
