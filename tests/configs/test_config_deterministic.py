@@ -46,7 +46,7 @@ def test_deterministic_config() -> None:
             args_list=[
                 "--debug",
                 "--config_path",
-                "otter/experiment/config/",
+                "config/",
                 "--config_name",
                 "deterministic",
                 f"constants.data.path_to_labelled_array={path}",
