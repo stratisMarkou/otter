@@ -40,21 +40,6 @@ def assert_single_device() -> None:
         )
 
 
-def get_mixed_precision_dtype(mixed_precision_dtype: str) -> torch.dtype:
-
-    if mixed_precision_dtype == "float16":
-        return torch.float16
-
-    elif mixed_precision_dtype == "float32":
-        return torch.float32
-
-    else:
-        raise ValueError(
-            f"Invalid mixed precision dtype: {mixed_precision_dtype}. "
-            "Must be one of ['float16', 'float32']."
-        )
-
-
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
@@ -63,7 +48,7 @@ def train_step(
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     step_number: int,
     scaler: GradScaler,
-    mixed_precision_dtype: str,
+    mixed_precision_dtype: torch.dtype,
     device: str = "cuda",
 ) -> int:
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
@@ -76,7 +61,7 @@ def train_step(
 
     with torch.amp.autocast(  # type: ignore
         device_type=device,
-        dtype=get_mixed_precision_dtype(mixed_precision_dtype),
+        dtype=mixed_precision_dtype,
     ):
         prd_stats = run_and_log_time_to_wandb(
             "model.forward",
