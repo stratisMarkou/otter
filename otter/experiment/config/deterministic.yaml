@@ -129,6 +129,7 @@ constants:
       dataloader: ${train_dataloader}
     validate_every: 5000
     save_checkpoint_every: 10_000
+    mixed_precision_dtype: ${get_module_attr:torch.float16}
   load_weights_from_experiment: null
 
 
