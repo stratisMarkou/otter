@@ -3,7 +3,10 @@ from typing import Sequence
 import torch
 from torch import nn
 
-from otter.models.architectures.embeddings import PositionEmbedding
+from otter.models.architectures.embeddings import (
+    PositionEmbedding,
+    SpatialEmbedding,
+)
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
@@ -26,11 +29,17 @@ class SwinTransformer(nn.Module):
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
+        pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
 
         assert len(num_blocks_per_stage) > 0
+
+        if isinstance(token_dimensions, int):
+            first_token_dim = token_dimensions
+        else:
+            first_token_dim = token_dimensions[0]
 
         if isinstance(token_dimensions, int):
             num_stages = len(num_blocks_per_stage)
@@ -104,18 +113,14 @@ class SwinTransformer(nn.Module):
 
         self.tokeniser = ImageTokeniser(
             in_channels=in_channels,
-            token_dimension=token_dimensions[0],
+            token_dimension=first_token_dim,
             patch_size=patch_size,
         )
 
-        self.embedding = PositionEmbedding(
-            token_dimension=token_dimensions[0],
-            height=height // patch_size,
-            width=width // patch_size,
-        )
+        self.embedding = pos_embedding
 
         self.final_conv = nn.ConvTranspose2d(
-            in_channels=token_dimensions[0],
+            in_channels=token_dimensions[-1],
             out_channels=output_dimension,
             stride=(patch_size, patch_size),
             kernel_size=(patch_size, patch_size),
@@ -142,6 +147,7 @@ class SwinTransformer(nn.Module):
 
         x = self.tokeniser(x)
         x = self.embedding(x)
+
         skips = []
 
         for downsampling_conv, down_swin_stage in zip(
