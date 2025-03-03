@@ -1,10 +1,13 @@
-from typing import Tuple
+from typing import (
+    Optional,
+    Tuple,
+)
 
 import torch
 import torch.distributions as dist
 
 from otter.models.architectures.mlp import MLP
-from otter.models.architectures.transformer_output import SwinTransformerOutput
+from otter.models.architectures.transformer_output import LoadBalancingLosses
 
 
 def _softmax_then_top_k(
@@ -27,8 +30,8 @@ class MixtureOfExperts(torch.nn.Module):
         in_features: int,
         output_features: int,
         num_experts: int,
-        num_hidden_layers_per_expert: int,
-        num_hidden_units_per_expert: int,
+        hidden_features: int,
+        num_hidden_layers: int,
         k: int,
         use_gating_bias: bool = False,
         apply_softmax_before_top_k: bool = False,
@@ -47,8 +50,8 @@ class MixtureOfExperts(torch.nn.Module):
             [
                 MLP(
                     in_features=in_features,
-                    num_hidden_layers=num_hidden_layers_per_expert,
-                    hidden_features=num_hidden_units_per_expert,
+                    num_hidden_layers=num_hidden_layers,
+                    hidden_features=hidden_features,
                     output_features=output_features,
                 )
                 for _ in range(num_experts)
@@ -210,7 +213,9 @@ class MixtureOfExperts(torch.nn.Module):
         )
         return loss_load
 
-    def forward(self, x: SwinTransformerOutput) -> SwinTransformerOutput:
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Performs forward pass through mixture of experts layer.
 
         NOTE: this layer includes a resuidual connection by default.
@@ -221,14 +226,14 @@ class MixtureOfExperts(torch.nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (token_batch, token_dim).
         """
-        if x.pred.shape[-1] != self.in_features:
+        if x.shape[-1] != self.in_features:
             raise ValueError(
-                f"Input tensor has shape {x.pred.shape}, "
+                f"Input tensor has shape {x.shape}, "
                 f"expected {self.in_features}"
             )
 
         k = self.k
-        pred = x.pred.reshape(
+        pred = x.reshape(
             -1, self.in_features
         )  # shape (token_batch, token_dim)
 
@@ -263,6 +268,7 @@ class MixtureOfExperts(torch.nn.Module):
             dtype=torch.int32,
             device=pred.device,
         )  # shape (token_batch, num_experts)
+
         ones = torch.ones(
             *gate_indices.shape, dtype=torch.int32, device=pred.device
         )  # shape (token_batch, k)
@@ -278,7 +284,7 @@ class MixtureOfExperts(torch.nn.Module):
             token_in_expert = gates_khot[:, i].bool()  # shape (token_batch,)
 
             # Apply the i-th expert to its tokens.
-            z = expert(
+            expert_output, _ = expert(
                 pred[token_in_expert]
             )  # shape (expert_tokens, token_dim)
 
@@ -287,7 +293,7 @@ class MixtureOfExperts(torch.nn.Module):
             probs = gate_probs_expanded[:, i]  # shape (token_batch,)
             probs = probs[token_in_expert]  # shape (expert_tokens,)
 
-            product = z * probs[:, None]  # shape (expert_tokens, token_dim)
+            product = expert_output * probs[:, None]
 
             # Repeat index to match shape of product along second dimension.
             index = torch.nonzero(token_in_expert)
@@ -295,6 +301,8 @@ class MixtureOfExperts(torch.nn.Module):
 
             # Scatter the product back into the output tensor.
             output = torch.scatter_add(output, dim=0, index=index, src=product)
+
+        output = output.reshape(x.shape)
 
         # Compute importance and load loss
         importance_loss = self.importance_loss(gate_probs_expanded)
@@ -306,20 +314,8 @@ class MixtureOfExperts(torch.nn.Module):
             k=k,
         )
 
-        x.pred = output.reshape(x.pred.shape)
-        for loss_name in x.aux_losses:
-            if loss_name == "importance_loss":
-                x.aux_losses[loss_name] = torch.cat(
-                    (x.aux_losses[loss_name], importance_loss.unsqueeze(0)),
-                    dim=0,
-                )
-            elif loss_name == "load_loss":
-                x.aux_losses[loss_name] = torch.cat(
-                    (x.aux_losses[loss_name], load_loss.unsqueeze(0)),
-                    dim=0,
-                )
-        if len(x.aux_losses) == 0:
-            x.aux_losses["importance_loss"] = importance_loss.unsqueeze(0)
-            x.aux_losses["load_loss"] = load_loss.unsqueeze(0)
-
-        return x
+        load_balancing_losses = LoadBalancingLosses(
+            importance_loss=importance_loss,
+            load_loss=load_loss,
+        )
+        return output, load_balancing_losses

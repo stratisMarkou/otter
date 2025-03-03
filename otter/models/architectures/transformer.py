@@ -1,5 +1,9 @@
 from collections.abc import Callable
-from typing import Sequence
+from typing import (
+    List,
+    Optional,
+    Sequence,
+)
 
 import torch
 from torch import nn
@@ -7,8 +11,9 @@ from torch import nn
 from otter.models.architectures.embeddings import PositionEmbedding
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
-from otter.models.architectures.transformer_output import SwinTransformerOutput
+from otter.models.architectures.transformer_output import LoadBalancingLosses
 from otter.models.architectures.utils import (
+    aggregate_load_balancing_losses,
     conv_channel_last,
     interpolate_bilinear_channel_last,
 )
@@ -123,7 +128,10 @@ class SwinTransformer(nn.Module):
         self.width = width
         self.height = height
 
-    def forward(self, x: torch.Tensor) -> SwinTransformerOutput:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply vision transformer to batch of images.
 
         Arguments:
@@ -142,33 +150,34 @@ class SwinTransformer(nn.Module):
         x = self.tokeniser(x)
         x = self.embedding(x)
         skips = []
-        output = SwinTransformerOutput(x)
+        load_balancing_losses_list: List[LoadBalancingLosses] = list()
 
         for downsampling_conv, down_swin_stage in zip(
             self.patch_downsampling_layers,
             self.down_swin_stages,
         ):
-            skips.append(output.pred)
-            output.pred = downsampling_conv(
-                output.pred.permute(0, 3, 1, 2)
-            ).permute(0, 2, 3, 1)
-            output = down_swin_stage(output)
+            skips.append(x)
+            x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            for swin_transformer_block in down_swin_stage:
+                x, load_balancing_losses_per_block = swin_transformer_block(x)
+                load_balancing_losses_list += load_balancing_losses_per_block
 
         for upsampling_conv, up_swin_stage, skip in zip(
             self.patch_upsampling_layers,
             self.up_swin_stages,
             skips[::-1],
         ):
-            output = up_swin_stage(output)
-            output.pred = upsampling_conv(
-                output.pred.permute(0, 3, 1, 2)
-            ).permute(0, 2, 3, 1)
-            output.pred = output.pred + skip
+            for swin_transformer_block in up_swin_stage:
+                x, load_balancing_losses_per_block = swin_transformer_block(x)
+                load_balancing_losses_list += load_balancing_losses_per_block
+            x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            x = x + skip
 
-        output.pred = conv_channel_last(self.final_conv, output.pred)
+        x = conv_channel_last(self.final_conv, x)
 
         # Interpolate image to original dimensions
-        output.pred = interpolate_bilinear_channel_last(
-            output.pred, height=original_height, width=original_width
+        x = interpolate_bilinear_channel_last(
+            x, height=original_height, width=original_width
         )
-        return output
+
+        return x, aggregate_load_balancing_losses(load_balancing_losses_list)

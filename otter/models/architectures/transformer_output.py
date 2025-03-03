@@ -1,13 +1,9 @@
-from dataclasses import (
-    dataclass,
-    field,
-)
-from typing import Dict
+from dataclasses import dataclass
 
 import torch
 
 
 @dataclass
-class SwinTransformerOutput:
-    pred: torch.Tensor
-    aux_losses: Dict[str, torch.Tensor] = field(default_factory=dict)
+class LoadBalancingLosses:
+    importance_loss: torch.Tensor
+    load_loss: torch.Tensor

@@ -1,5 +1,7 @@
 from typing import (
     Callable,
+    List,
+    Optional,
     Tuple,
 )
 
@@ -7,7 +9,7 @@ import torch
 from torch import nn
 
 from otter.models.architectures.attention import EfficientMultiHeadAttention
-from otter.models.architectures.transformer_output import SwinTransformerOutput
+from otter.models.architectures.transformer_output import LoadBalancingLosses
 
 
 def extract_subimages(x: torch.Tensor, subimage_size: int) -> torch.Tensor:
@@ -208,8 +210,8 @@ class TransformerBlock(nn.Module):
 
     def forward(
         self,
-        x: SwinTransformerOutput,
-    ) -> SwinTransformerOutput:
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply the transformer block to input tokens `x`.
 
         Args:
@@ -218,14 +220,14 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        x_residual = x.pred + self.mhsa(self.ln1(x.pred))
+        x_residual = x + self.mhsa(self.ln1(x))
 
-        x.pred = self.ln2(x_residual)
-        x = self.ffn(x)
+        x = self.ln2(x_residual)
+        x, load_balancing_losses = self.ffn(x)
 
-        x.pred = x_residual + x.pred
+        x = x_residual + x
 
-        return x
+        return x, load_balancing_losses
 
 
 class SwinTransformerBlock(torch.nn.Module):
@@ -260,8 +262,8 @@ class SwinTransformerBlock(torch.nn.Module):
 
     def forward(
         self,
-        x: SwinTransformerOutput,
-    ) -> SwinTransformerOutput:
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, List[LoadBalancingLosses]]:
         """Apply the Swin Transformer block to input tokens `x`.
 
         Arguments:
@@ -270,38 +272,47 @@ class SwinTransformerBlock(torch.nn.Module):
         Returns:
             output tensor of shape (B, H, W, D)
         """
-        original_shape = x.pred.shape
+        original_shape = x.shape
         S = self.window_size
 
+        load_balancing_losses_list: List[LoadBalancingLosses] = list()
         # Apply first transformer block, extracting windows, applying
         # the transformer block to them, and re-combining them to the
         # original image.
-        x.pred = extract_subimages_and_fold_into_batch_dim(
-            x.pred, S
+        x = extract_subimages_and_fold_into_batch_dim(
+            x, S
         )  # (B*H//S*W//S, S**2, D)
-        x = self.first_block(x)  # (B*H//S*W//S, S**2, D)
-        x.pred = unfold_from_batch_dim_and_combine_subimages(
-            x.pred, original_shape, S
+        x, load_balancing_losses = self.first_block(
+            x
+        )  # (B*H//S*W//S, S**2, D)
+
+        if load_balancing_losses is not None:
+            load_balancing_losses_list.append(load_balancing_losses)
+
+        x = unfold_from_batch_dim_and_combine_subimages(
+            x, original_shape, S
         )  # (B, H, W, D)
 
         # Apply second transformer block same as the first block, but
         # shifting the windows before and after the block.
-        x.pred = shift_horizontally_and_vertically(
-            x.pred, S // 2
-        )  # (B, H, W, D)
-        x.pred = extract_subimages_and_fold_into_batch_dim(
-            x.pred, S
+        x = shift_horizontally_and_vertically(x, S // 2)  # (B, H, W, D)
+        x = extract_subimages_and_fold_into_batch_dim(
+            x, S
         )  # (B*H//S*W//S, S**2, D)
 
-        x = self.second_block(x)  # (B*H//S*W//S, S**2, D)
-        x.pred = unfold_from_batch_dim_and_combine_subimages(
-            x.pred, original_shape, S
-        )  # (B, H, W, D)
-        x.pred = shift_horizontally_and_vertically(
-            x.pred, -(S // 2)
-        )  # (B, H, W, D)
+        x, load_balancing_losses = self.second_block(
+            x
+        )  # (B*H//S*W//S, S**2, D)
 
-        return x
+        if load_balancing_losses is not None:
+            load_balancing_losses_list.append(load_balancing_losses)
+
+        x = unfold_from_batch_dim_and_combine_subimages(
+            x, original_shape, S
+        )  # (B, H, W, D)
+        x = shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
+
+        return x, load_balancing_losses_list
 
 
 def make_swin_stage(
@@ -312,8 +323,8 @@ def make_swin_stage(
     window_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.Module:
-    return torch.nn.Sequential(
-        *[
+    return torch.nn.ModuleList(
+        [
             SwinTransformerBlock(
                 token_dim=token_dim,
                 feedforward_network=feedforward_network,

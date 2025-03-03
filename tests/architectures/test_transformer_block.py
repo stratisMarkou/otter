@@ -11,7 +11,6 @@ from otter.models.architectures.transformer_blocks import (
     extract_subimages_and_fold_into_batch_dim,
     unfold_from_batch_dim_and_combine_subimages,
 )
-from otter.models.architectures.transformer_output import SwinTransformerOutput
 
 
 # Tests that combine_windows is the inverse of the extract_windows.
@@ -75,5 +74,5 @@ def test_transformer_block(
         use_efficient_attention=False,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
-    y = transformer_block(SwinTransformerOutput(x)).pred
+    y, _ = transformer_block(x)
     assert y.shape == (batch_dim, sequence_length, token_dim)

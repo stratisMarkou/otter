@@ -62,7 +62,7 @@ def test_swin_transformer(
     x = torch.randn(batch_dim, grid_height, grid_width, grid_channel_dim)
 
     # Run the forward pass
-    y = swin_transformer(x).pred
+    y, _ = swin_transformer(x)
 
     # Check that the output tensor has the correct shape
     assert y.shape == (batch_dim, grid_height, grid_width, grid_channel_dim)

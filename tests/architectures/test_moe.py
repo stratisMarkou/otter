@@ -6,12 +6,11 @@ from otter.models.architectures.moe import (
     _softmax_then_top_k,
     _top_k_then_softmax,
 )
-from otter.models.architectures.transformer_output import SwinTransformerOutput
 
 
 @pytest.mark.parametrize(
-    "token_dim, num_experts, num_hidden_layers_per_expert, "
-    "num_hidden_units_per_expert, use_gating_bias, apply_softmax_before_top_k,"
+    "token_dim, num_experts, num_hidden_layers, "
+    "hidden_features, use_gating_bias, apply_softmax_before_top_k,"
     " w_importance, w_load, k, token_batch_dim",
     [
         (64, 16, 2, 32, False, False, 1.0, 1.0, 8, 16),
@@ -22,8 +21,8 @@ from otter.models.architectures.transformer_output import SwinTransformerOutput
 def test_moe_forward(
     token_dim: int,
     num_experts: int,
-    num_hidden_layers_per_expert: int,
-    num_hidden_units_per_expert: int,
+    num_hidden_layers: int,
+    hidden_features: int,
     use_gating_bias: bool,
     apply_softmax_before_top_k: bool,
     w_importance: float,
@@ -35,8 +34,8 @@ def test_moe_forward(
         in_features=token_dim,
         output_features=token_dim,
         num_experts=num_experts,
-        num_hidden_layers_per_expert=num_hidden_layers_per_expert,
-        num_hidden_units_per_expert=num_hidden_units_per_expert,
+        num_hidden_layers=num_hidden_layers,
+        hidden_features=hidden_features,
         use_gating_bias=use_gating_bias,
         apply_softmax_before_top_k=apply_softmax_before_top_k,
         k=k,
@@ -44,14 +43,14 @@ def test_moe_forward(
         w_load=w_load,
     )
     x = torch.rand((token_batch_dim, token_dim))
-    output = moe(SwinTransformerOutput(x))
+    output, _ = moe(x)
     expected_shape = (token_batch_dim, token_dim)
-    assert output.pred.shape == expected_shape
+    assert output.shape == expected_shape
 
 
 @pytest.mark.parametrize(
-    "token_dim, num_experts, num_hidden_layers_per_expert, "
-    "num_hidden_units_per_expert, use_gating_bias, apply_softmax_before_top_k,"
+    "token_dim, num_experts, num_hidden_layers, "
+    "hidden_features, use_gating_bias, apply_softmax_before_top_k,"
     " w_importance, w_load, k, token_batch_dim",
     [
         (64, 16, 2, 32, False, False, 1.0, 1.0, 8, 4),
@@ -62,8 +61,8 @@ def test_moe_forward(
 def test_output_computation(
     token_dim: int,
     num_experts: int,
-    num_hidden_layers_per_expert: int,
-    num_hidden_units_per_expert: int,
+    num_hidden_layers: int,
+    hidden_features: int,
     use_gating_bias: bool,
     apply_softmax_before_top_k: bool,
     w_importance: float,
@@ -75,8 +74,8 @@ def test_output_computation(
         in_features=token_dim,
         output_features=token_dim,
         num_experts=num_experts,
-        num_hidden_layers_per_expert=num_hidden_layers_per_expert,
-        num_hidden_units_per_expert=num_hidden_units_per_expert,
+        num_hidden_layers=num_hidden_layers,
+        hidden_features=hidden_features,
         use_gating_bias=use_gating_bias,
         apply_softmax_before_top_k=apply_softmax_before_top_k,
         k=k,
@@ -84,7 +83,7 @@ def test_output_computation(
         w_load=w_load,
     ).eval()
     x = torch.rand((token_batch_dim, token_dim))
-    output_moe = moe(SwinTransformerOutput(x)).pred
+    output_moe, _ = moe(x)
 
     logits, _, _ = moe.noisy_gate_logits(x)
 
@@ -97,6 +96,7 @@ def test_output_computation(
     output = torch.zeros_like(x)
     for i in range(token_batch_dim):
         for prob, idx in zip(gate_probs[i], gate_indices[i]):
-            output[i] += prob * moe.experts[idx](x[i].unsqueeze(0)).squeeze(0)
+            expert_output, _ = moe.experts[idx](x[i].unsqueeze(0))
+            output[i] += prob * expert_output.squeeze(0)
 
     assert torch.allclose(output, output_moe)

@@ -18,6 +18,10 @@ import git
 import torch
 import xarray as xr
 import yaml
+from hydra import (
+    compose,
+    initialize,
+)
 from hydra.utils import instantiate
 from omegaconf import (
     DictConfig,
@@ -79,7 +83,8 @@ def initialize_experiment(
 
     # Make argument parser with just the config argument
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str)
+    parser.add_argument("--config_path", type=str)
+    parser.add_argument("--config_name", type=str)
     parser.add_argument("--debug", action="store_true")
     args, extra_args = parser.parse_known_args(args=args_list)
 
@@ -97,12 +102,18 @@ def initialize_experiment(
     # Initialize experiment, make path and writer
     OmegaConf.register_new_resolver("eval", eval)
     OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
-    config = OmegaConf.load(args.config)
+
+    initialize(config_path=args.config_path, version_base="1.3")
+    config_yaml = compose(config_name=args.config_name)
+
     config_changes = OmegaConf.from_cli(extra_args)
 
-    config = OmegaConf.merge(config, config_changes)
+    config_merged = OmegaConf.merge(config_yaml, config_changes)
+    assert type(config_merged) is DictConfig  # Check this to silence mypy.
+
+    config: DictConfig = config_merged
+    OmegaConf.set_struct(config, False)
     config.info.experiment_name = experiment_name
-    assert type(config) is DictConfig  # Check this to silence mypy.
     path = make_experiment_path(config)
     config.info.path_results = path
     config.model.device = device

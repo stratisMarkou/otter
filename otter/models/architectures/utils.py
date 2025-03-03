@@ -1,3 +1,4 @@
+from dataclasses import fields
 from typing import (
     Dict,
     List,
@@ -5,6 +6,8 @@ from typing import (
 
 import torch
 from torch import nn
+
+from otter.models.architectures.transformer_output import LoadBalancingLosses
 
 
 def conv_channel_last(conv: nn.Module, x: torch.Tensor) -> torch.Tensor:
@@ -24,18 +27,27 @@ def interpolate_bilinear_channel_last(
     return out
 
 
-def merge_output_dicts(
-    output_dicts: List[Dict[str, torch.Tensor]]
-) -> Dict[str, torch.Tensor]:
-    """Merge a list of output dictionaries.
+def aggregate_load_balancing_losses(
+    x: List[LoadBalancingLosses],
+    mean: bool = False,
+) -> LoadBalancingLosses | None:
+    """Aggregates the list of LoadBalanscingLosses by taking a sum or a mean.
 
     Arguments:
-        output_dicts: list of output dictionaries
+        x: list of LoadBalancingLosses to aggregate
+        mean: whether to take the mean or the sum
 
     Returns:
-        merged output dictionary
+        Aggregated LoadBalancingLosses or None if the input list is empty
     """
-    merged_dict: dict[str, torch.Tensor] = {}
-    for key in output_dicts[0].keys():
-        merged_dict[key] = torch.stack([d[key] for d in output_dicts], dim=0)
-    return merged_dict
+    if len(x):
+        output: Dict[str, torch.Tensor] = {}
+        for field in fields(x[0]):
+            gathered_loss = [getattr(loss_item, field.name) for loss_item in x]
+            output[field.name] = torch.stack(gathered_loss, dim=0)
+            if mean:
+                output[field.name] = output[field.name].mean(dim=0)
+            else:
+                output[field.name] = output[field.name].sum(dim=0)
+        return LoadBalancingLosses(**output)
+    return None

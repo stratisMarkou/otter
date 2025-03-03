@@ -1,8 +1,10 @@
 """Base MLP model, for use within the transformer."""
 
+from typing import Optional
+
 import torch
 
-from otter.models.architectures.transformer_output import SwinTransformerOutput
+from otter.models.architectures.transformer_output import LoadBalancingLosses
 
 
 class MLP(torch.nn.Module):
@@ -38,23 +40,15 @@ class MLP(torch.nn.Module):
         )
 
     def forward(
-        self, x: SwinTransformerOutput | torch.Tensor
-    ) -> SwinTransformerOutput | torch.Tensor:
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
 
-        if isinstance(x, SwinTransformerOutput):
-            pred = x.pred
-        else:
-            pred = x
-
-        if pred.shape[-1] != self.in_features:
+        if x.shape[-1] != self.in_features:
             raise ValueError(
-                f"Input tensor has shape {pred.shape}, "
+                f"Input tensor has shape {x.shape}, "
                 f"expected {self.in_features}"
             )
         for layer in self.layers:
-            pred = layer(pred)
+            x = layer(x)
 
-        if isinstance(x, SwinTransformerOutput):
-            x.pred = pred
-            return x
-        return pred
+        return x, None
