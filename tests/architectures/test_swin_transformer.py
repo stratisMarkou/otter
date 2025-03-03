@@ -25,7 +25,7 @@ from otter.models.architectures.transformer import SwinTransformer
             2,
             4,
             [2, 2],
-            SpatialEmbedding(32, 0.1, 720, "add", 12),
+            SpatialEmbedding(32, 0.1, 720, 12),
         ),
         (64, 32, 9, 16, 4, 2, [1, 1], PositionEmbedding(16, 32, 64)),
         (
@@ -36,7 +36,7 @@ from otter.models.architectures.transformer import SwinTransformer
             4,
             4,
             [2, 2],
-            SpatialEmbedding(64, 0.1, 720, "concat", 16),
+            SpatialEmbedding(64, 0.1, 720, 16),
         ),
     ],
 )

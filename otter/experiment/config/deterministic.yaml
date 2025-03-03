@@ -46,10 +46,9 @@ time_embedding:
   num_scales: 16
 
 pos_embedding:
-  _target_: otter.models.architectures.embeddings.PositionEmbedding
+  _target_: otter.models.architectures.embeddings.SpatialEmbedding
+  num_scales: 128
   token_dimension: ${backbone_network.token_dimensions[0]}
-  height: ${eval:'${backbone_network.height} // ${backbone_network.patch_size}'}
-  width: ${eval:'${backbone_network.width} // ${backbone_network.patch_size}'}
 
 backbone_network:
   _target_: otter.models.architectures.transformer.SwinTransformer

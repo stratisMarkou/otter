@@ -116,7 +116,6 @@ class SpatialEmbedding(FourierExpansionEmbedding):
         num_scales: int,
         min_scale: float = SPATIAL_EMBEDDING_DEFAULT_MIN_SCALE,
         max_scale: float = SPATIAL_EMBEDDING_DEFAULT_MAX_SCALE,
-        embedding_mode: str = "add",
         token_dimension: Optional[int] = None,
     ) -> None:
         super().__init__(min_scale, max_scale, num_scales // 2)
@@ -126,25 +125,12 @@ class SpatialEmbedding(FourierExpansionEmbedding):
 
         self.num_scales = num_scales
 
-        assert embedding_mode in ["concat", "add"], (
-            f"Unsupported embedding mode: {embedding_mode}. "
-            "Expected one of ['concat', 'add']."
-        )
-        if embedding_mode == "add":
-            assert (
-                token_dimension is not None
-            ), "You must specify the token dimension."
-        self.embedding_mode = embedding_mode
-
     def forward(
         self,
         x: torch.Tensor,
     ) -> torch.Tensor:
         """
         Add Fourier-based positional embeddings to the input tensor.
-
-        D_final = D if embedding_mode is 'add'
-        D_final = D + 2 * num_scales if embedding_mode is 'concat'
 
         Arguments:
             x (torch.Tensor): Input tensor of shape (B, H, W, D)
@@ -175,12 +161,5 @@ class SpatialEmbedding(FourierExpansionEmbedding):
             spatial_embedding, "h w d -> b h w d", b=x.shape[0]
         )
 
-        if self.embedding_mode == "concat":
-            return torch.concat([x, spatial_embedding], dim=-1)
-        elif self.embedding_mode == "add":
-            spatial_embedding = self.linear(spatial_embedding)
-            return x + spatial_embedding
-        else:
-            raise ValueError(
-                f"Embedding mode {self.embedding_mode} not supported"
-            )
+        spatial_embedding = self.linear(spatial_embedding)
+        return x + spatial_embedding

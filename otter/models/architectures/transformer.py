@@ -36,23 +36,10 @@ class SwinTransformer(nn.Module):
 
         assert len(num_blocks_per_stage) > 0
 
-        if (
-            hasattr(pos_embedding, "embedding_mode")
-            and pos_embedding.embedding_mode == "concat"
-        ):
-            if isinstance(token_dimensions, int):
-                first_token_dim = (
-                    token_dimensions - 2 * pos_embedding.num_scales
-                )
-            else:
-                first_token_dim = (
-                    token_dimensions[0] - 2 * pos_embedding.num_scales
-                )
+        if isinstance(token_dimensions, int):
+            first_token_dim = token_dimensions
         else:
-            if isinstance(token_dimensions, int):
-                first_token_dim = token_dimensions
-            else:
-                first_token_dim = token_dimensions[0]
+            first_token_dim = token_dimensions[0]
 
         if isinstance(token_dimensions, int):
             num_stages = len(num_blocks_per_stage)
