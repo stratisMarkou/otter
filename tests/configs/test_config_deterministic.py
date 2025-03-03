@@ -45,8 +45,10 @@ def test_deterministic_config() -> None:
             "cpu",
             args_list=[
                 "--debug",
-                "--config",
-                "otter/experiment/config/deterministic.yaml",
+                "--config_path",
+                "otter/experiment/config/",
+                "--config_name",
+                "deterministic",
                 f"constants.data.path_to_labelled_array={path}",
             ],
         )
