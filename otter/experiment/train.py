@@ -59,6 +59,9 @@ def train_step(
         "batch.trg.to", batch.trg.to, device, non_blocking=True
     )
 
+    # Do forward pass with AMP autocasting. Only forward pass needs to be
+    # autocasted, as the backward is computed with matching dtypes to the
+    # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
     with torch.amp.autocast(  # type: ignore
         device_type=device,
         dtype=mixed_precision_dtype,
