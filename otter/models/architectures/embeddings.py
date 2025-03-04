@@ -14,7 +14,6 @@ SPATIAL_EMBEDDING_DEFAULT_MAX_SCALE = 720
 
 
 class PositionEmbedding(nn.Module):
-
     def __init__(
         self,
         token_dimension: int,
@@ -42,7 +41,6 @@ class PositionEmbedding(nn.Module):
 
 
 class FourierExpansionEmbedding(nn.Module):
-
     def __init__(
         self,
         min_scale: float,

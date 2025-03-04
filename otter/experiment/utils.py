@@ -111,9 +111,7 @@ def initialize_experiment(
     # Write config to file together with commit hash
     with open(f"{path}/config.yml", "w") as file:
         hash = get_current_commit_hash(repo) if not args.debug else None
-        config_to_save: DictConfig = OmegaConf.to_container(
-            config
-        )  # type: ignore
+        config_to_save: DictConfig = OmegaConf.to_container(config)  # type: ignore
         config_to_save.update({"commit": hash})
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)
 
