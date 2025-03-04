@@ -248,7 +248,7 @@ class DeterministicModel(torch.nn.Module):
                 )
 
                 prediction = residual + self.backbone_network(
-                    ctx_with_time_embedding
+                    ctx_with_time_embedding,
                 )  # (batch, lat, lon, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
