@@ -41,6 +41,22 @@ valid_dataloader:
   pin_memory: true
   prefetch_factor: ${constants.data.prefetch_factor}
 
+train_scale_scheduler:
+  _target_: otter.models.architectures.schedulers.ScaleScheduler
+  # 128 > 121, corresponding to the complete target information erasure case.
+  data_scales: [2, 4, 8, 16, 32, 64, 128]
+  data_scale_probs: [1, 1, 1, 1, 1, 1, 1]
+  # During training, we have no rollout through scales.
+  rollout_scales: []
+
+inference_scale_scheduler:
+  _target_: otter.models.architectures.schedulers.ScaleScheduler
+  # During inference, we want to erase all real information.
+  data_scales: [128]
+  data_scale_probs: [1]
+  # During rollout, go from the coarsest to the finest scale.
+  rollout_scales: [64, 32, 16, 8, 4, 2]
+
 time_embedding:
   _target_: otter.models.architectures.embeddings.TimeEmbedding
   num_scales: 16
@@ -59,11 +75,6 @@ backbone_network:
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
 
-scale_scheduler:
-  _target_: otter.models.architectures.schedulers.PowerScaleScheduler
-  num_scales: 6
-  scale_probs: [1, 1, 1, 1, 1, 1]
-
 model:
   _target_: otter.models.multiscale_model.make_multiscale_model
   backbone_network: ${backbone_network}
@@ -73,7 +84,6 @@ model:
   trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
   data_grid_num_lat: 121
   data_grid_num_lon: 240
-  scale_scheduler: ${scale_scheduler}
 
 loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
@@ -96,7 +106,6 @@ val_loss_fns:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
-
 
 optimizer_kwargs:
   lr: ${constants.training.initial_learning_rate}
@@ -140,8 +149,8 @@ constants:
       dataloader: ${train_dataloader}
     validate_every: 5000
     save_checkpoint_every: 10_000
+    mixed_precision_dtype: ${get_module_attr:torch.float16}
   load_weights_from_experiment: null
-
 
 info:
   root_results: _results

@@ -16,7 +16,6 @@ from otter.data.datasets import (  # type: ignore
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
-    ForecastingSample,
 )
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -25,6 +24,7 @@ from otter.data.utils import (
     stack_dataset_variable_and_levels,
 )
 from otter.models.architectures.embeddings import TimeEmbedding
+from otter.models.multiscale_model import MultiscaleInput
 
 
 def _get_variable_and_level_list(
@@ -156,16 +156,8 @@ class BaseModel(torch.nn.Module):
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
-    def preprocess_batch(
-        self,
-        batch: ForecastingSample,
-    ) -> ForecastingSample:
-        return batch
-
     def forward(
-        self,
-        batch: ForecastingSample,
-        skip_model: bool = False,
+        self, batch: MultiscaleInput, scales: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
         ctx = batch.ctx
         zero_time = batch.zero_time
@@ -195,7 +187,6 @@ class BaseModel(torch.nn.Module):
             zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
             num_rollout_steps=num_rollout_steps,
-            skip_model=skip_model,
         )  # (batch, lat, lon, time_idx, trg_var_and_level)
 
         prd = prd * self.trg_std
@@ -210,7 +201,6 @@ class BaseModel(torch.nn.Module):
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         num_rollout_steps: int,
-        skip_model: bool = False,
     ) -> torch.Tensor:
         predictions: List[torch.Tensor] = list()
         for i in range(num_rollout_steps):
@@ -229,35 +219,30 @@ class BaseModel(torch.nn.Module):
                 ..., 0, self.idx_residual
             ]  # (batch, lat, lon, time_idx, res_var_and_level)
 
-            # Prediction is residual plus backbone network output.
-            if skip_model:
-                prediction = residual
+            ctx_reshaped = ctx.reshape(
+                *ctx.shape[:-2], -1
+            )  # (batch, lat, lon, time_idx * var_and_level)
+            time_embedding: torch.Tensor = self.time_embedding(
+                zero_time + i * self.temporal_resolution_hours
+            )  # (batch, embedding_dim)
 
-            else:
-                ctx_reshaped = ctx.reshape(
-                    *ctx.shape[:-2], -1
-                )  # (batch, lat, lon, time_idx * var_and_level)
-                time_embedding: torch.Tensor = self.time_embedding(
-                    zero_time + i * self.temporal_resolution_hours
-                )  # (batch, embedding_dim)
+            # Repeat-tile the time embedding to match the dimensions of
+            # ctx_reshaped except the batch dimension (first) and the
+            # feature dimension (last).
+            time_embedding = time_embedding[:, None, None, :]
+            time_embedding = time_embedding.repeat(
+                1, *ctx_reshaped.shape[1:-1], 1
+            )  # (batch, lat, lon, embedding_dim)
+            time_embedding = time_embedding.to(ctx_reshaped.device)
 
-                # Repeat-tile the time embedding to match the dimensions of
-                # ctx_reshaped except the batch dimension (first) and the
-                # feature dimension (last).
-                time_embedding = time_embedding[:, None, None, :]
-                time_embedding = time_embedding.repeat(
-                    1, *ctx_reshaped.shape[1:-1], 1
-                )  # (batch, lat, lon, embedding_dim)
-                time_embedding = time_embedding.to(ctx_reshaped.device)
+            # Concatenate the time embedding with the reshaped context.
+            ctx_with_time_embedding = torch.cat(
+                [ctx_reshaped, time_embedding], dim=-1
+            )
 
-                # Concatenate the time embedding with the reshaped context.
-                ctx_with_time_embedding = torch.cat(
-                    [ctx_reshaped, time_embedding], dim=-1
-                )
-
-                prediction = residual + self.backbone_network(
-                    ctx_with_time_embedding,
-                )  # (batch, lat, lon, trg_var_and_level)
+            prediction = residual + self.backbone_network(
+                ctx_with_time_embedding
+            )  # (batch, lat, lon, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prediction)

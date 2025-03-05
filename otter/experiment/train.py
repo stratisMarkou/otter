@@ -59,9 +59,15 @@ def train_step(
     batch = run_and_log_time_to_wandb(
         "batch.to", batch.to, device, non_blocking=True
     )
-    trg = run_and_log_time_to_wandb(
-        "batch.trg.to", batch.trg.to, device, non_blocking=True
+
+    scales = scale_scheduler.get_scales()
+    processed_batch = run_and_log_time_to_wandb(
+        "preprocess_batch",
+        preprocess_batch,
+        batch=batch,
+        scale=scales[0],
     )
+    processed_batch = processed_batch.to(device)
 
     # Do forward pass with AMP autocasting. Only forward pass needs to be
     # autocasted, as the backward is computed with matching dtypes to the
@@ -73,9 +79,8 @@ def train_step(
         prd_stats = run_and_log_time_to_wandb(
             "model.forward",
             model.forward,
-            ctx=ctx,
-            zero_time=batch.zero_time,
-            trg_timedelta_hours=batch.trg_timedelta_hours,
+            processed_batch,
+            scales=scales[1:],
         )
 
     loss, loss_info = run_and_log_time_to_wandb(
@@ -244,10 +249,7 @@ def main() -> None:
                     device=device,
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
-<<<<<<< HEAD
                     scale_scheduler=experiment.inference_scale_scheduler,
-=======
->>>>>>> d3b446c (multiscale and time rollout, scale scheduler)
                 )
 
             try:

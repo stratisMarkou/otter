@@ -17,7 +17,6 @@ from otter.data.datasets import (  # type: ignore
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
-    ForecastingSample,
 )
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -27,7 +26,6 @@ from otter.data.utils import (
 )
 from otter.experiment.downsample import downsample
 from otter.models.architectures.embeddings import TimeEmbedding
-from otter.models.architectures.schedulers import PowerScaleScheduler
 
 
 def _get_variable_and_level_list(
@@ -100,7 +98,6 @@ class MultiscaleModel(torch.nn.Module):
         data_grid_num_lat: int,
         data_grid_num_lon: int,
         device: str,
-        scale_scheduler: PowerScaleScheduler,
     ) -> None:
         super().__init__()
 
@@ -176,48 +173,28 @@ class MultiscaleModel(torch.nn.Module):
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
-        self.scale_scheduler = scale_scheduler
-        self.scale_scheduler.to(device)
-
-    def preprocess_batch(
-        self,
-        batch: ForecastingSample,
-    ) -> MultiscaleInput:
-        if self.training:
-            scale = self.scale_scheduler.sample_scale()
-            print(f"Processing to the scale {scale}")
-        else:
-            print("Processing to the coarsest scale")
-            scale = int(self.scale_scheduler.scales[0].item())
-        downsampled_trg = downsample(batch.trg, scale)
-
-        return MultiscaleInput(
-            ctx=batch.ctx,
-            zero_time=batch.zero_time,
-            downsampled_trg=downsampled_trg,
-            scale=scale,
-            trg_timedelta_hours=batch.trg_timedelta_hours,
-        )
-
-    def forward(self, inputs: MultiscaleInput) -> Dict[str, torch.Tensor]:
-        ctx = inputs.ctx
-        zero_time = inputs.zero_time
-        downsampled_trg = inputs.downsampled_trg
-        trg_timedelta_hours = inputs.trg_timedelta_hours
+    def forward(
+        self, batch: MultiscaleInput, scales: torch.Tensor
+    ) -> Dict[str, torch.Tensor]:
+        ctx = batch.ctx
+        zero_time = batch.zero_time
+        downsampled_trg = batch.downsampled_trg
+        trg_timedelta_hours = batch.trg_timedelta_hours
         if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
                 "All target times must be multiples of the temporal resolution"
             )
 
-        num_rollout_steps = np.max(
-            (trg_timedelta_hours // self.temporal_resolution_hours)
-        )
-
         ctx = ctx - self.ctx_mean
         ctx = ctx / self.ctx_std
 
-        downsampled_trg = downsampled_trg - self.trg_mean
-        downsampled_trg = downsampled_trg / self.trg_std
+        # Special case: when the downsampled_trg tensor is erased, i.e. all
+        # zeros, we don't want to apply normalisation to it.
+        # Could check all elements, but checking just the first one is
+        # sufficient in practice, as no real data will be all zeros.
+        if (downsampled_trg[0, 0, 0, 0, :] != 0).sum() > 0:
+            downsampled_trg = downsampled_trg - self.trg_mean
+            downsampled_trg = downsampled_trg / self.trg_std
 
         expected_shape = tuple(
             (self.data_grid_num_lat, self.data_grid_num_lon)
@@ -227,34 +204,20 @@ class MultiscaleModel(torch.nn.Module):
             f"{tuple(ctx.shape[1:3])}"
         )
 
-        if self.training:
-            prd = self.scale_forward(
-                ctx=ctx,
-                zero_time=zero_time,
-                downsampled_trg=downsampled_trg,
-            )  # (batch, lat, lon, 1, trg_var_and_level)
-            scales = torch.tensor(inputs.scale)
-        else:
-            prd = self.rollout(
-                ctx=ctx,
-                zero_time=zero_time,
-                downsampled_trg=downsampled_trg,
-                scales=self.scale_scheduler.scales,
-                trg_timedelta_hours=trg_timedelta_hours,
-                num_rollout_steps=num_rollout_steps,
-            )  # (batch, lat, lon, tgt_time_idx, trg_var_and_level)
-            scales = self.scale_scheduler.scales
+        prd = self.time_rollout(
+            ctx=ctx,
+            zero_time=zero_time,
+            downsampled_trg=downsampled_trg,
+            scales=scales,
+            trg_timedelta_hours=trg_timedelta_hours,
+        )  # (batch, lat, lon, tgt_time_idx, scale, trg_var_and_level)
 
         prd = prd * self.trg_std
         prd = prd + self.trg_mean
-        assert isinstance(prd, torch.Tensor)  # Assert to silence mypy
 
-        # TODO: Discuss how we want to record losses (each scale?)
-        # If we want to do this, we probably need another scale dimension
-        # in the outputs. And we can pass the scales to the stats dict.
-        return dict(mean=prd, scales=scales)
+        return dict(mean=prd)
 
-    def scale_forward(
+    def single_scale_forward(
         self,
         ctx: torch.Tensor,
         downsampled_trg: torch.Tensor,
@@ -309,38 +272,71 @@ class MultiscaleModel(torch.nn.Module):
         zero_time: npt.NDArray[np.datetime64],
         scales: torch.Tensor,
     ) -> torch.Tensor:
-        # This assumes the downsampled_tgt we originally pass
-        # is already downsampled according to scale[0].
-        for scale in scales[1:]:
-            prediction = self.scale_forward(
-                ctx=ctx,
-                downsampled_trg=downsampled_trg,
-                zero_time=zero_time,
-            )  # (batch, lat, lon, 1, trg_var_and_level)
+        predictions = []
 
+        prediction = self.single_scale_forward(
+            ctx=ctx,
+            downsampled_trg=downsampled_trg,
+            zero_time=zero_time,
+        )  # (batch, lat, lon, 1, trg_var_and_level)
+        predictions.append(prediction)
+
+        # Optionally refine the prediction via rollout through scales.
+        for scale in scales:
             downsampled_trg = downsample(
                 prediction, scale
             )  # (batch, lat, lon, 1, trg_var_and_level)
 
-        return prediction
+            prediction = self.single_scale_forward(
+                ctx=ctx,
+                downsampled_trg=downsampled_trg,
+                zero_time=zero_time,
+            )
+            predictions.append(prediction)
 
-    def rollout(
+        return torch.stack(
+            predictions, dim=-2
+        )  # batch, lat, lon, 1, scale, trg_var_and_level
+
+    def time_rollout(
         self,
         ctx: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
         downsampled_trg: torch.Tensor,
         scales: torch.Tensor,
         trg_timedelta_hours: npt.NDArray[np.int32],
-        num_rollout_steps: int,
     ) -> torch.Tensor:
+        """
+        Rolls out the model over time, predicting the target variables at
+        each time step.
+
+        Args:
+            ctx: The context data tensor of shape (batch, lat, lon,
+                ctx_time_idx, ctx_var_and_level).
+            zero_time: The time of the latest context timestep.
+            downsampled_trg: The downsampled target data tensor of shape
+                (batch, lat, lon, trg_time_idx, trg_var_and_level).
+                At validation, this should be a tensor of zeros.
+            scales: The scales to use for the rollout through scales.
+            trg_timedelta_hours: The target times at which to predict.
+        Returns:
+            The prediction tensor of shape (batch, lat, lon, trg_time_idx,
+                scale, trg_var_and_level).
+        """
+        num_rollout_steps = np.max(
+            (trg_timedelta_hours // self.temporal_resolution_hours)
+        )
+
         predictions: List[torch.Tensor] = list()
         for i in range(num_rollout_steps):
+            # Choose the downsampled target slice for the current time step.
+            downsampled_slice = downsampled_trg[..., i : i + 1, :]
             prediction = self.multiscale_forward(
                 ctx,
-                downsampled_trg=downsampled_trg[..., i : i + 1, :],  # noqa
+                downsampled_trg=downsampled_slice,
                 zero_time=zero_time + i * self.temporal_resolution_hours,
                 scales=scales,
-            )  # (batch, lat, lon, 1, trg_var_and_level)
+            )  # (batch, lat, lon, 1, scale, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prediction)
@@ -351,11 +347,18 @@ class MultiscaleModel(torch.nn.Module):
             # because the prediction may contain fewer variables than the
             # context data (e.g. static/known data).
             ctx_next_time_frame = ctx[..., :1, :].clone()
-            ctx_next_time_frame[..., 0:1, self.idx_ctx_for_update] = prediction
+
+            # Autoregressively update the context with the prediction of the
+            # latest scale.
+            best_pred = prediction[
+                ..., -1, :
+            ]  # (batch, lat, lon, 1, trg_var_and_level)
+            ctx_next_time_frame[..., 0:1, self.idx_ctx_for_update] = best_pred
 
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
-        return torch.concat(predictions, dim=-2)
+        # Concat the time rollout steps along the time dimension
+        return torch.concat(predictions, dim=3)
 
 
 def make_multiscale_model(
@@ -367,7 +370,6 @@ def make_multiscale_model(
     data_grid_num_lat: int,
     data_grid_num_lon: int,
     device: str,
-    scale_scheduler: PowerScaleScheduler,
 ) -> MultiscaleModel:
     return MultiscaleModel(
         backbone_network=backbone_network,
@@ -398,5 +400,4 @@ def make_multiscale_model(
         data_grid_num_lat=data_grid_num_lat,
         data_grid_num_lon=data_grid_num_lon,
         device=device,
-        scale_scheduler=scale_scheduler,
     )
