@@ -61,19 +61,25 @@ time_embedding:
   _target_: otter.models.architectures.embeddings.TimeEmbedding
   num_scales: 16
 
+pos_embedding:
+  _target_: otter.models.architectures.embeddings.SpatialEmbedding
+  num_scales: 128
+  token_dimension: ${backbone_network.token_dimensions[0]}
+
 backbone_network:
   _target_: otter.models.architectures.transformer.SwinTransformer
   in_channels: ${constants.data.num_input_channels}
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [512, 512, 512, 512]
+  token_dimensions: [1024, 1024, 1024, 1024]
   output_dimension: ${constants.data.num_output_channels}
   window_size: 4
-  mlp_num_hidden: 256
+  mlp_num_hidden: 4096
   mlp_num_layers: 2
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
+  pos_embedding: ${pos_embedding}
 
 model:
   _target_: otter.models.multiscale_model.make_multiscale_model
@@ -121,13 +127,13 @@ constants:
     valid_start_date: "2020-01-01 00:00:00"
     valid_end_date: "2020-12-31 18:00:00"
     temporal_resolution_hours: 6
-    ctx_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
-    trg_variables_to_remove: ["sea_surface_temperature", "vertical_velocity"]
+    ctx_variables_to_remove: ["sea_surface_temperature"]
+    trg_variables_to_remove: ["sea_surface_temperature"]
     num_context_frames: 2
     train_num_target_frames: 1
     valid_num_target_frames: 4
-    num_ctx_variables: 74
-    num_trg_variables: 69
+    num_ctx_variables: 87
+    num_trg_variables: 82
     num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
     num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${time_embedding.num_scales} + ${constants.data.num_trg_variables}'}
     num_output_channels: ${constants.data.num_trg_variables}
