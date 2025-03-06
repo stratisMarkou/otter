@@ -123,14 +123,14 @@ def join_into_single_variable_along_dim(
 
     # Check that all variables have the same dimension values
     dim_values_as_list = list(dim_values.values())
-    assert all(dim_values_as_list[0] == dv for dv in dim_values_as_list), (
-        f"Variables have different dimension values for {dim=}"
-    )
+    assert all(
+        dim_values_as_list[0] == dv for dv in dim_values_as_list
+    ), f"Variables have different dimension values for {dim=}"
 
     # Check that there exists at least one variable to join
-    assert len(resulting_joined_variables) > 0, (
-        f"No variables to join for {dim=}"
-    )
+    assert (
+        len(resulting_joined_variables) > 0
+    ), f"No variables to join for {dim=}"
 
     # We will join the variables in sorted order.
     dim_values_sorted = sorted(list(dim_values_as_list[0]))
@@ -331,9 +331,9 @@ class LabelledArray:
                 for value in index_coords[coord.name]:
                     if coord.is_sorted:
                         index = bisect.bisect_left(coord.values, value)
-                        assert coord.values[index] == value, (
-                            f"Value {value} not found in coord {coord.name}"
-                        )
+                        assert (
+                            coord.values[index] == value
+                        ), f"Value {value} not found in coord {coord.name}"
                         coord_indices.append(index)
 
                     else:
