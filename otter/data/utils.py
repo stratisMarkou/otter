@@ -57,9 +57,7 @@ def split_into_different_variables_along_dim(
     dim_values = dataset[dim].values
 
     for variable in dataset.variables:
-        if (dim in dataset[variable].dims) and not (
-            variable in dataset.coords
-        ):
+        if (dim in dataset[variable].dims) and variable not in dataset.coords:
             for dim_value in dim_values:
                 dataset[f"{variable}/{dim}_{dim_value}"] = dataset[
                     variable
@@ -99,7 +97,7 @@ def join_into_single_variable_along_dim(
 
     dataset = dataset.copy()
 
-    assert not (dim in dataset.dims), f"Dimension {dim} found in zarr"
+    assert dim not in dataset.dims, f"Dimension {dim} found in zarr"
 
     # First determine the unique values of the dimension
     dim_values: Dict[str, set[str]] = {}
@@ -110,7 +108,6 @@ def join_into_single_variable_along_dim(
         # If the variable name we're currently at in the iteration has
         # the dimension we're joining over, then we add it.
         if f"/{dim}_" in dataset_variable:
-
             # The `dataset_variable` string is assumed to be of the form
             # `variable/dim_dimvalue`. We split the string by the dimension
             # and extract the variable name and the dimension value.
@@ -126,14 +123,14 @@ def join_into_single_variable_along_dim(
 
     # Check that all variables have the same dimension values
     dim_values_as_list = list(dim_values.values())
-    assert all(
-        dim_values_as_list[0] == dv for dv in dim_values_as_list
-    ), f"Variables have different dimension values for {dim=}"
+    assert all(dim_values_as_list[0] == dv for dv in dim_values_as_list), (
+        f"Variables have different dimension values for {dim=}"
+    )
 
     # Check that there exists at least one variable to join
-    assert (
-        len(resulting_joined_variables) > 0
-    ), f"No variables to join for {dim=}"
+    assert len(resulting_joined_variables) > 0, (
+        f"No variables to join for {dim=}"
+    )
 
     # We will join the variables in sorted order.
     dim_values_sorted = sorted(list(dim_values_as_list[0]))
@@ -182,89 +179,114 @@ def save_xarray_dataset_as_memmap(
     iteration_dimension: str | None,
     sorted_dims: Optional[List[str]] = None,
     save_data_dtype: Optional[npt.DTypeLike] = None,
+    slice_size: int = 1000,
 ) -> None:
+    """Save an xarray Dataset as a memory-mapped array.
 
-    def _slice_axis_n_at_index_i(
-        n: int, i: int, num_axes: int
-    ) -> tuple[slice | int, ...]:
-        if not (0 <= n <= num_axes):
-            raise ValueError(
-                f"Axis {n=} must be in the range [0, {num_axes=}]."
-            )
-        return (slice(None),) * n + (i,) + (slice(None),) * (num_axes - n - 1)
-
+    Args:
+        dataset: Input xarray Dataset
+        path: Path to save the memory-mapped array and metadata
+        iteration_dimension: Dimension to iterate over when saving data
+        sorted_dims: List of dimensions that are sorted
+        save_data_dtype: Optional dtype to cast data to before saving
+        chunk_size: Number of samples to process at once (default: 1000)
+    """
+    # Create output directory structure
     os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, "dims"), exist_ok=True)
 
-    # Split the dataset into different variables along the
-    # variable_and_level dimension.
+    # Process dataset in smaller chunks to reduce memory usage
     split_dataset = split_into_different_variables_along_dim(
         dataset,
         dim="level",
     )
-    data_array_template = stack_dataset_variable_and_levels(split_dataset)
-    data_array_template = data_array_template.sortby("variable_and_level")
+
+    # Get initial chunk to determine metadata
+    first_chunk = split_dataset.isel(
+        {iteration_dimension: slice(0, 1)} if iteration_dimension else {}
+    )
+    template_array = stack_dataset_variable_and_levels(first_chunk)
+    template_array = template_array.sortby("variable_and_level")
+
     if save_data_dtype is not None:
-        data_array_template = data_array_template.astype(save_data_dtype)
+        dtype = save_data_dtype
+    else:
+        dtype = template_array.dtype
 
-    # Save dimensions.
-    with open(os.path.join(path, "dim_names.pkl"), "wb") as file:
-        pickle.dump(data_array_template.dims, file)
+    dims = template_array.dims
+    shape = list(template_array.shape)
+    if iteration_dimension:
+        # Update shape with full dimension size
+        dim_idx = list(dims).index(iteration_dimension)
+        shape[dim_idx] = len(dataset[iteration_dimension])
 
-    os.makedirs(os.path.join(path, "dims"))
-    for dim in data_array_template.dims:
+    # Save metadata files
+    metadata = {
+        "dim_names.pkl": dims,
+        "sorted.pkl": sorted_dims,
+        "shape.pkl": tuple(shape),
+    }
+    for filename, data in metadata.items():
+        with open(os.path.join(path, filename), "wb") as f:
+            pickle.dump(data, f)
+
+    # Save dtype as numpy dtype string representation
+    with open(os.path.join(path, "dtype"), "w") as f:
+        f.write(np.dtype(dtype).str)
+
+    # Save dimension coordinates
+    for dim in dims:
         dim_path = os.path.join(path, "dims", f"{dim}.npy")
-        np.save(dim_path, data_array_template[dim].values)
+        if dim == "variable_and_level":
+            # Sort variables consistently
+            values = template_array[dim].values
+        else:
+            values = dataset[dim].values
+        np.save(dim_path, values)
 
-    # Save sorted dimensions.
-    with open(os.path.join(path, "sorted.pkl"), "wb") as file:
-        pickle.dump(sorted_dims, file)
-
-    # Save shape of data array.
-    with open(os.path.join(path, "shape.pkl"), "wb") as file:
-        pickle.dump(data_array_template.shape, file)
-
-    # Save data type.
-    with open(os.path.join(path, "dtype"), "w") as file:  # type: ignore
-        file.write(str(data_array_template.dtype))  # type: ignore
-
-    # Open memmap to save data.
+    # Create memory-mapped array
     data_memmap = np.memmap(
         os.path.join(path, "data.memmap"),
-        dtype=data_array_template.dtype,
+        dtype=dtype,
         mode="w+",
-        shape=data_array_template.shape,
+        shape=tuple(shape),
     )
 
     if iteration_dimension is None:
-        data_memmap[...] = data_array_template.values
-
+        # Process entire dataset at once if no iteration dimension
+        slice_data = stack_dataset_variable_and_levels(split_dataset)
+        slice_data = slice_data.sortby("variable_and_level")
+        if save_data_dtype is not None:
+            slice_data = slice_data.astype(save_data_dtype)
+        data_memmap[...] = slice_data.values
     else:
-        iteration_index = list(data_array_template.dims).index(
-            iteration_dimension
-        )
+        # Process data in slices
+        dim_size = shape[list(dims).index(iteration_dimension)]
+        for slice_start in trange(0, dim_size, slice_size):
+            # Get slices indices
+            slice_end = min(slice_start + slice_size, dim_size)
+            slice_dict = {iteration_dimension: slice(slice_start, slice_end)}
 
-        # Iterate over the data array and save the data.
-        for i in trange(data_array_template[iteration_dimension].shape[0]):
+            # Process chunk
+            sliced_dataset = split_dataset.isel(slice_dict)
+            slice_data = stack_dataset_variable_and_levels(sliced_dataset)
+            slice_data = slice_data.sortby("variable_and_level")
+            if save_data_dtype is not None:
+                slice_data = slice_data.astype(save_data_dtype)
 
-            # Save data to memmap at index i along the iteration dim.
-            slice_i = _slice_axis_n_at_index_i(
-                iteration_index, i, data_array_template.ndim
+            # Write chunk to memmap
+            slice_tuple = tuple(
+                (
+                    slice(slice_start, slice_end)
+                    if d == iteration_dimension
+                    else slice(None)
+                )
+                for d in dims
             )
+            data_memmap[slice_tuple] = slice_data.values
 
-            split_dataset_slice_i = split_into_different_variables_along_dim(
-                dataset.isel({iteration_dimension: i}), dim="level"
-            )
-            stacked_array_slice_i = stack_dataset_variable_and_levels(
-                split_dataset_slice_i
-            )
-            stacked_array_slice_i = stacked_array_slice_i.sortby(
-                "variable_and_level"
-            )
-
-            # Save data to memmap.
-            data_memmap[slice_i] = stacked_array_slice_i.values.astype(
-                save_data_dtype
-            )
+    # Ensure data is written to disk
+    data_memmap.flush()
 
 
 @dataclass
@@ -275,13 +297,11 @@ class Coordinate:
 
 
 class LabelledArray:
-
     def __init__(
         self,
         data: npt.NDArray[Any],
         coords: List[Coordinate],
     ) -> None:
-
         self.data = data
         self.coords = coords
 
@@ -299,11 +319,9 @@ class LabelledArray:
                 )
 
     def sel(self, **index_coords: Any) -> LabelledArray:
-
         # Get indices along each coordinate.
         indices: List[List[int] | None] = []
         for coord in self.coords:
-
             if coord.name not in index_coords:
                 indices.append(None)
 
@@ -314,8 +332,7 @@ class LabelledArray:
                     if coord.is_sorted:
                         index = bisect.bisect_left(coord.values, value)
                         assert coord.values[index] == value, (
-                            f"Value {value} not found in sorted coordinate "
-                            f"{coord.name}"
+                            f"Value {value} not found in coord {coord.name}"
                         )
                         coord_indices.append(index)
 
@@ -352,7 +369,6 @@ class LabelledArray:
 def open_memmap_and_dims(
     path: str,
 ) -> Tuple[Tuple[str, ...], npt.NDArray[np.float32]]:
-
     # Get dimensions.
     with open(os.path.join(path, "dim_names.pkl"), "rb") as file:
         dims = pickle.load(file)
@@ -377,7 +393,6 @@ def open_memmap_and_dims(
 
 
 def open_memmap_as_labelled_array(path: str) -> LabelledArray:
-
     # Get dimensions and data.
     dims, data = open_memmap_and_dims(path)
 

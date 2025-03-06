@@ -42,7 +42,6 @@ class MLP(torch.nn.Module):
     def forward(
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
-
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Input tensor has shape {x.shape}, "

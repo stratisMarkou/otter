@@ -57,7 +57,6 @@ def test_transformer_block(
     batch_dim: int,
     sequence_length: int,
 ) -> None:
-
     feedforward_network = partial(
         MLP,
         hidden_features=mlp_num_hidden,

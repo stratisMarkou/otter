@@ -1,6 +1,5 @@
 # This is a basic workflow to help you get started with Actions
 name: ci-run-tests-pr-main
-
 # Controls when the workflow will run
 on:
   # Runs workflow whenever a pull request to main is opened and whenever changes are
@@ -8,10 +7,8 @@ on:
   pull_request:
     branches: [ "main" ]
     types: [opened, synchronize]
-
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
@@ -21,23 +18,19 @@ jobs:
     defaults:
       run:
         shell: bash -el {0}
-
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
-
       - uses: conda-incubator/setup-miniconda@v3
         with:
           activate-environment: anaconda-client-env
           environment-file: env.yaml
           auto-activate-base: false
-
       - run: |
           conda info
           conda list
-
-      - run: black --check otter tests setup.py
-      - run: flake8 otter tests setup.py
+      - run: ruff format --check otter tests setup.py
+      - run: ruff check otter tests setup.py
       - run: mypy --disallow-untyped-defs --strict otter tests
       - run: OTTER_RUN_ALL_TESTS=true pytest tests

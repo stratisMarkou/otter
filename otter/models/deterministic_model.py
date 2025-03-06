@@ -145,7 +145,7 @@ class DeterministicModel(torch.nn.Module):
             variables_and_levels=self.trg_variables_and_levels,
         )
 
-        # Precompute normalisation statistics
+        # Preload normalisation statistics
         ctx_mean_tensor = torch.tensor(ctx_mean.values).float().to(device)
         ctx_std_tensor = torch.tensor(ctx_std.values).float().to(device)
         self.ctx_mean = ctx_mean_tensor[None, None, None, None, :]
@@ -251,7 +251,7 @@ class DeterministicModel(torch.nn.Module):
 
                 prediction, load_balancing_losses = self.backbone_network(
                     ctx_with_time_embedding
-                )
+                )  # (batch, lat, lon, trg_var_and_level)
                 prediction = residual + prediction
                 if load_balancing_losses is not None:
                     load_balancing_losses_list.append(load_balancing_losses)
