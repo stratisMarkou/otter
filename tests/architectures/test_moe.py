@@ -14,7 +14,7 @@ from otter.models.architectures.moe import (
     " w_importance, w_load, k, token_batch_dim",
     [
         (64, 16, 2, 32, False, False, 1.0, 1.0, 8, 16),
-        (32, 4, 2, 32, True, False, 0.5, 0.0, 4, 8),
+        (32, 4, 2, 32, True, False, 0.5, 0.0, 3, 8),
         (32, 4, 2, 32, True, False, 0.5, 0.5, 1, 8),
     ],
 )

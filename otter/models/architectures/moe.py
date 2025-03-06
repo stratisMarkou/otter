@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import (
     Optional,
     Tuple,
@@ -7,7 +8,12 @@ import torch
 import torch.distributions as dist
 
 from otter.models.architectures.mlp import MLP
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+
+
+@dataclass
+class LoadBalancingLosses:
+    importance_loss: torch.Tensor
+    load_loss: torch.Tensor
 
 
 def _softmax_then_top_k(
@@ -180,22 +186,37 @@ class MixtureOfExperts(torch.nn.Module):
 
         assert gates_khot.dim() == 2
         assert gates_khot.shape[1] == self.num_experts
+        assert k < self.num_experts
 
         if self.w_load == 0.0:
             return torch.tensor(0.0, device=gates_khot.device)
 
-        if k < self.num_experts and self.training:
+        if self.training:
 
             assert gate_logits_without_noise is not None
             assert noise_std is not None
 
-            # NOTE: this topk could probably be avoided, but then requires
+            # NOTE: this topk could probably be avoided, but it requires
             # splitting _softmax_then_top_k function
-            top_k_logits, _ = torch.topk(
+            top_k_plus_one_logits, _ = torch.topk(
                 gate_logits, k=k + 1, dim=1
             )  # shape (token_batch, k+1)
-            in_logits = top_k_logits[:, -1:]  # shape (token_batch, 1)
-            out_logits = top_k_logits[:, -2:-1]  # shape (token_batch, 1)
+            # kth_excluding is a tensor of shape (token_batch, num_experts)
+            # whose element at indices [i, j] contains the kth largest entry
+            # of gate_logits excluding the entry at index j itself.
+            # Therefore, we have two cases:
+            #
+            # 1. if the gate is inactive, gates_khot[i, j] is 0, and the kth
+            #    largest entry is in top_k_plus_one_logits[:, -2]
+            #
+            # 2. if the gate is active, gates_khot[i, j] is 1, and the kth
+            #    largest entry is in top_k_plus_one_logits[:, -1]
+            #
+            #  The following expression evaluates this in parallel.
+            in_logits = top_k_plus_one_logits[:, -1:]  # shape (token_batch, 1)
+            out_logits = top_k_plus_one_logits[
+                :, -2:-1
+            ]  # shape (token_batch, 1)
             kth_excluding = (
                 in_logits * gates_khot + (1 - gates_khot) * out_logits
             )  # shape (token_batch, num_experts)
@@ -203,6 +224,9 @@ class MixtureOfExperts(torch.nn.Module):
             probs = dist.Normal(0.0, 1.0).cdf(cdf_input)  # type: ignore
             load = probs.sum(dim=0)  # shape (num_experts,)
         else:
+            # If the model is not in the training mode, the gate probabilities
+            # are deterministic and the load is computed using gates_khot
+            # tensor, as we do not need it to be differentiable.
             load = gates_khot.sum(dim=0).type(
                 gate_logits.dtype
             )  # shape (num_experts,)

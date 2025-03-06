@@ -40,7 +40,7 @@ def aggregate_load_balancing_losses(
     Returns:
         Aggregated LoadBalancingLosses or None if the input list is empty
     """
-    if len(x):
+    if x:
         output: Dict[str, torch.Tensor] = {}
         for field in fields(x[0]):
             gathered_loss = [getattr(loss_item, field.name) for loss_item in x]

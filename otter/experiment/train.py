@@ -78,11 +78,10 @@ def train_step(
         load_balancing_losses=load_balancing_losses,
     )
 
-    if (
-        load_balancing_loss is not None
-        and load_balancing_loss_info is not None
-    ):
+    if load_balancing_loss is not None:
         loss += load_balancing_loss
+
+    if load_balancing_loss_info is not None:
         loss_info.update(load_balancing_loss_info)
 
     run_and_log_time_to_wandb("loss.backward", loss.backward)
@@ -146,8 +145,9 @@ def validation_epoch(
                     load_loss, load_loss_info = gather_load_balancing_losses(
                         load_balancing_losses=load_balancing_losses
                     )
-                    if load_loss is not None and load_loss_info is not None:
+                    if load_loss is not None:
                         loss += load_loss
+                    if load_loss_info is not None:
                         loss_info.update(load_loss_info)
 
                 losses[loss_name].append(loss.cpu().detach().numpy())

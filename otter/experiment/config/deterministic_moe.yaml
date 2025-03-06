@@ -2,7 +2,8 @@ defaults:
   - deterministic  # Load a base config
   - _self_
 
-# TODO: we haven't explored the paramters for k, num_experts, w_importance, w_load
+# TODO(sasha, stratis): we haven't explored the paramters for k, num_experts,
+# w_importance, w_load
 feedforward_network:
   _target_: otter.models.architectures.moe.MixtureOfExperts
   _partial_: true

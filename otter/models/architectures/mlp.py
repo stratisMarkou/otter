@@ -51,4 +51,6 @@ class MLP(torch.nn.Module):
         for layer in self.layers:
             x = layer(x)
 
+        # None is added for compatibility with MixtureOfExperts,
+        # which computes LoadBalancingLosses.
         return x, None
