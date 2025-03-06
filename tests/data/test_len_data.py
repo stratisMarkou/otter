@@ -1,8 +1,17 @@
 import os
+from tempfile import TemporaryDirectory
 
 import pytest
+import xarray as xr
 
 from otter.data.datasets import make_gridded_weather_task
+from otter.data.source.utils import (
+    download_zarr_and_store,
+)
+from otter.data.utils import save_xarray_dataset_as_memmap
+
+
+TEST_DATASET = "era5_240x121"
 
 
 # Tests that th length of the dataset is correct
@@ -24,10 +33,10 @@ from otter.data.datasets import make_gridded_weather_task
         ("2020-01-01 00:00:00", "2020-01-04 21:00:00", 12, 1, 2, 6),
     ],
 )
-@pytest.mark.skipif(
-    os.getenv("OTTER_RUN_ALL_TESTS") != "true",
-    reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
-)
+# @pytest.mark.skipif(
+#     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
+#     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
+# )
 def test_len_dataset(
     start_date: str,
     end_date: str,
@@ -36,18 +45,46 @@ def test_len_dataset(
     temporal_resolution_hours: int,
     correct_len: int,
 ) -> None:
-    # Construct dataset
-    dataset = make_gridded_weather_task(
-        path_to_labelled_array="/scratches/richardson_2/otter_data/era5_240x121_single_array_float32",
-        start_date=start_date,
-        end_date=end_date,
-        num_context_frames=num_context_frames,
-        num_target_frames=num_target_frames,
-        temporal_resolution_hours=temporal_resolution_hours,
-        ctx_variables_to_exclude=[],
-        trg_variables_to_exclude=[],
-        task_sub_sampling_factor=1,
-    )
+    # First download the dataset
+    with TemporaryDirectory() as temp_dir:
+        download_zarr_and_store(
+            dataset=TEST_DATASET,
+            output_dir=temp_dir,
+            overwrite_existing=False,
+            test=False,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        zarr_path = os.path.join(temp_dir, f"{TEST_DATASET}.zarr")
+        dataset = xr.open_zarr(zarr_path)
+
+        save_xarray_dataset_as_memmap(
+            dataset=dataset,
+            path=f"{temp_dir}/{TEST_DATASET}_single_array",
+            iteration_dimension="time",
+            sorted_dims=[
+                "time",
+                "latitude",
+                "longitude",
+                "variable_and_level",
+            ],
+        )
+
+        path = os.path.join(temp_dir, f"{TEST_DATASET}_single_array")
+
+        # Construct dataset
+        dataset = make_gridded_weather_task(
+            path_to_labelled_array=path,
+            start_date=start_date,
+            end_date=end_date,
+            num_context_frames=num_context_frames,
+            num_target_frames=num_target_frames,
+            temporal_resolution_hours=temporal_resolution_hours,
+            ctx_variables_to_exclude=[],
+            trg_variables_to_exclude=[],
+            task_sub_sampling_factor=1,
+        )
 
     # Assert the length is correct
     assert len(dataset) == correct_len
