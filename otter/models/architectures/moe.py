@@ -30,7 +30,6 @@ def _top_k_then_softmax(
 
 
 class MixtureOfExperts(torch.nn.Module):
-
     def __init__(
         self,
         in_features: int,
@@ -192,7 +191,6 @@ class MixtureOfExperts(torch.nn.Module):
             return torch.tensor(0.0, device=gates_khot.device)
 
         if self.training:
-
             assert gate_logits_without_noise is not None
             assert noise_std is not None
 
@@ -303,7 +301,6 @@ class MixtureOfExperts(torch.nn.Module):
         output = torch.zeros_like(pred, device=pred.device, requires_grad=True)
 
         for i, expert in enumerate(self.experts):
-
             # Get booleans encoding whether each token goes to the i-th expert.
             token_in_expert = gates_khot[:, i].bool()  # shape (token_batch,)
 
