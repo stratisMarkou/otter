@@ -21,7 +21,6 @@ import yaml
 import hydra
 from hydra import (
     compose,
-    initialize,
 )
 from hydra.utils import instantiate
 from omegaconf import (
@@ -101,8 +100,8 @@ def initialize_experiment(
         raise AssertionError("Repo has commits ahead, please push changes.")
 
     # Check if GlobalHydra is already initialized, and clear if it is.
-    if hydra.core.global_hydra.GlobalHydra.instance() is not None:
-        hydra.core.global_hydra.GlobalHydra.instance().clear()
+    # if hydra.core.global_hydra.GlobalHydra.instance() is not None:
+    #     hydra.core.global_hydra.GlobalHydra.instance().clear()
 
     # Register custom resolvers if not already registered.
     if not OmegaConf.has_resolver("eval"):
@@ -112,8 +111,10 @@ def initialize_experiment(
         OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
 
     # Initialize experiment.
-    initialize(config_path=args.config_path, version_base="1.3")
-    config_yaml = compose(config_name=args.config_name)
+    with hydra.initialize_config_module(
+        config_module=args.config_path, version_base="1.3"
+    ):
+        config_yaml = compose(config_name=args.config_name)
 
     config_changes = OmegaConf.from_cli(extra_args)
 
