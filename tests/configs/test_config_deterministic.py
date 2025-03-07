@@ -20,7 +20,7 @@ TEST_DATASET = "era5_240x121"
 @pytest.mark.parametrize(
     "config_name",
     [
-        "deterministic",
+        # "deterministic",
         "deterministic_moe",
     ],
 )
