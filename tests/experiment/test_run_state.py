@@ -70,19 +70,19 @@ def assert_state_equal(state1: RunState, state2: RunState) -> None:
 
     # Compare model states
     for key in state1.model_state:
-        assert torch.equal(
-            state1.model_state[key], state2.model_state[key]
-        ), f"Model states differ at key {key}"
+        assert torch.equal(state1.model_state[key], state2.model_state[key]), (
+            f"Model states differ at key {key}"
+        )
 
     # Compare optimizer states
-    assert (
-        state1.optimizer_state.keys() == state2.optimizer_state.keys()
-    ), "Optimizer state keys differ"
+    assert state1.optimizer_state.keys() == state2.optimizer_state.keys(), (
+        "Optimizer state keys differ"
+    )
 
     # Compare scheduler states
-    assert (
-        state1.scheduler_state == state2.scheduler_state
-    ), "Scheduler states differ"
+    assert state1.scheduler_state == state2.scheduler_state, (
+        "Scheduler states differ"
+    )
 
     # Compare scaler states
     assert state1.scaler_state == state2.scaler_state, "Scaler states differ"
