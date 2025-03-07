@@ -2,6 +2,7 @@ import argparse
 import importlib
 import logging
 import os
+import random
 import re
 from datetime import datetime
 from typing import (
@@ -59,7 +60,6 @@ def get_module_attr(string: str) -> Any:
 
 def initialize_experiment(
     device: str,
-    experiment_name: Optional[str] = None,
     args_list: Optional[Sequence[str]] = None,
 ) -> Experiment:
     """Initialize experiment by parsing the config file, checking that the
@@ -68,7 +68,6 @@ def initialize_experiment(
 
     Arguments:
         device: device to run the experiment on.
-        experiment_name: name of the experiment.
         args_list: list of arguments to parse.
 
     Returns:
@@ -77,50 +76,135 @@ def initialize_experiment(
         writer: tensorboard writer.
     """
 
-    # Make argument parser with just the config argument
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str)
-    parser.add_argument("--debug", action="store_true")
-    args, extra_args = parser.parse_known_args(args=args_list)
+    args, extra_args = _parse_args(args_list)
+    config = _get_config(args.config, extra_args)
 
-    # Create a repo object and check if local repo is clean
+    experiment_name = (
+        args.resume_experiment
+        if args.resume_experiment
+        else _generate_experiment_name()
+    )
+
+    _initalize_wandb(experiment_name)
+
     repo = git.Repo(search_parent_directories=True)
-
     # Check that the repo is clean, and up to date with remote branch,
     # if not in debug mode.
-    if not args.debug and repo.is_dirty():
-        raise AssertionError("Repo is dirty, please commit changes.")
+    if not args.debug:
+        _assert_repo_is_clean(repo)
 
-    if not args.debug and has_commits_ahead(repo):
-        raise AssertionError("Repo has commits ahead, please push changes.")
+    experiment_path = _create_experiment_path(config, experiment_name)
 
-    # Initialize experiment, make path and writer
-    OmegaConf.register_new_resolver("eval", eval)
-    OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
-    config = OmegaConf.load(args.config)
-    config_changes = OmegaConf.from_cli(extra_args)
-
-    config = OmegaConf.merge(config, config_changes)
     config.info.experiment_name = experiment_name
-    assert type(config) is DictConfig  # Check this to silence mypy.
-    path = make_experiment_path(config)
-    config.info.path_results = path
+    config.info.experiment_path = experiment_path
+    config.info.start_from_checkpoint = bool(args.resume_experiment)
     config.model.device = device
+
+    _write_config(config, experiment_path, repo)
+
+    logging.info("Instantiating dependencies.")
+
     experiment: DictConfig = instantiate(config)
-
-    # Write config to file together with commit hash
-    with open(f"{path}/config.yml", "w") as file:
-        hash = get_current_commit_hash(repo) if not args.debug else None
-        config_to_save: DictConfig = OmegaConf.to_container(
-            config
-        )  # type: ignore
-        config_to_save.update({"commit": hash})
-        yaml.dump(config_to_save, file, indent=4, sort_keys=False)
-
     return experiment
 
 
-def has_commits_ahead(repo: git.Repo) -> bool:
+def _parse_args(
+    args_list: Optional[Sequence[str]],
+) -> tuple[argparse.Namespace, list[str]]:
+    """
+    Parse CLI arguments.
+
+    Arguments:
+        args_list: Optional list of arguments to parse.
+
+    Returns:
+        args: Known parsed arguments.
+        extra_args: Additional arguments to be logged/stored.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str)
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument(
+        "--resume_experiment",
+        type=str,
+        required=False,
+        help="Resume the experiment with the provided given name",
+    )
+    return parser.parse_known_args(args=args_list)
+
+
+def _generate_experiment_name() -> str:
+    adjectives = [
+        "swift",
+        "fierce",
+        "gentle",
+        "clever",
+        "brave",
+        "cunning",
+        "loyal",
+        "playful",
+        "quiet",
+        "bold",
+        "majestic",
+        "nimble",
+        "mighty",
+        "elegant",
+        "sly",
+        "energetic",
+        "daring",
+        "graceful",
+        "wild",
+        "fearless",
+    ]
+
+    animals = [
+        "tiger",
+        "eagle",
+        "wolf",
+        "panther",
+        "falcon",
+        "fox",
+        "bear",
+        "lion",
+        "cheetah",
+        "hawk",
+        "otter",
+        "deer",
+        "jaguar",
+        "leopard",
+        "owl",
+        "raven",
+        "buffalo",
+        "cougar",
+        "lynx",
+        "badger",
+    ]
+
+    adjective = random.choice(adjectives)
+    animal = random.choice(animals)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+
+    return f"{adjective}-{animal}-{timestamp}"
+
+
+def _initalize_wandb(experiment_name: str) -> None:
+    wandb.init(
+        project="otter-deterministic",
+        entity="otter-weather",
+        name=experiment_name,
+        id=experiment_name,
+    )
+
+
+def _assert_repo_is_clean(repo: git.Repo) -> None:
+    if repo.is_dirty():
+        raise AssertionError("Repo is dirty, please commit changes.")
+
+    if _has_commits_ahead(repo):
+        raise AssertionError("Repo has commits ahead, please push changes.")
+
+
+def _has_commits_ahead(repo: git.Repo) -> bool:
     """Check if there are commits ahead in the local current branch.
 
     Arguments:
@@ -141,7 +225,22 @@ def has_commits_ahead(repo: git.Repo) -> bool:
         return len(commits) > 0
 
 
-def get_current_commit_hash(repo: git.Repo) -> str:
+def _get_config(config_name: str, extra_args: list[str]) -> DictConfig:
+    """
+    Reads the config file, evaluates expressions, and merges it with overrides.
+    """
+    # Initialize experiment, make path and writer
+    OmegaConf.register_new_resolver("eval", eval)
+    OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+    config = OmegaConf.load(config_name)
+    config_changes = OmegaConf.from_cli(extra_args)
+
+    config = OmegaConf.merge(config, config_changes)
+    assert type(config) is DictConfig  # Silence mypy
+    return config
+
+
+def _get_current_commit_hash(repo: git.Repo) -> str:
     """Get the current commit hash of the local repo.
 
     Arguments:
@@ -157,22 +256,18 @@ def get_current_commit_hash(repo: git.Repo) -> str:
         return repo.head.commit.hexsha
 
 
-def make_experiment_path(experiment: DictConfig) -> str:
-    """Parse initialized experiment config and make up a path
-    for the experiment, and create it if it doesn't exist,
-    otherwise raise an error. Finally return the path.
+def _create_experiment_path(config: DictConfig, experiment_name: str) -> str:
+    """Creates a path for the experiment, and create it if it doesn't exist.
 
     Arguments:
         config: config object.
-
+        experiment_name: name of the experiment.
     Returns:
         experiment_path: path to the experiment.
     """
 
-    datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    experiment_name = experiment.info.experiment_name or datetime_str
     path = os.path.join(
-        experiment.info.root_results,
+        config.info.root_results,
         experiment_name,
     )
 
@@ -180,13 +275,20 @@ def make_experiment_path(experiment: DictConfig) -> str:
         logging.info(f"Making path for experiment results: {path}.")
         os.makedirs(path)
 
-    else:
-        logging.info(
-            f"Path for experiment results:\n{path}\nalready exists! Exiting."
-        )
-        quit()
-
     return path
+
+
+def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
+    # Write config to file together with commit hash
+    path = f"{path}/config.yml"
+    logging.info(f"Writing reified config to {path}.")
+    with open(path, "w") as file:
+        hash = _get_current_commit_hash(repo)
+        config_to_save: DictConfig = OmegaConf.to_container(
+            config
+        )  # type: ignore
+        config_to_save.update({"commit": hash})
+        yaml.dump(config_to_save, file, indent=4, sort_keys=False)
 
 
 def count_parameters(module: torch.nn.Module) -> int:

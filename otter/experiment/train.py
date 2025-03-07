@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import (
     Any,
@@ -16,10 +17,14 @@ from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
 import wandb
+from otter.experiment.run_state import (
+    TrainState,
+    load_initial_state,
+    save_run_state,
+)
 from otter.experiment.utils import (
     create_optimizer_and_lr_scheduler,
     initialize_experiment,
-    log_code_to_wandb,
     log_loss_info_to_wandb,
     run_and_log_time_to_wandb,
 )
@@ -28,7 +33,9 @@ from otter.models.losses.loss_fn import (
     PredictionStatistics,
 )
 
-LossFunction = Callable[[PredictionStatistics], Tuple[torch.Tensor, LossInfo]]
+LossFunction = Callable[
+    [torch.Tensor, PredictionStatistics], Tuple[torch.Tensor, LossInfo]
+]
 
 
 def assert_single_device() -> None:
@@ -135,10 +142,7 @@ def validation_epoch(
                     losses[loss_name] = []
                     loss_infos[loss_name] = []
 
-                loss, loss_info = loss_fn(  # type: ignore
-                    prd_stats=prd_stats,
-                    trg=trg,
-                )
+                loss, loss_info = loss_fn(trg, prd_stats)
 
                 losses[loss_name].append(loss.cpu().detach().numpy())
                 loss_infos[loss_name].append(loss_info)
@@ -192,13 +196,10 @@ def main() -> None:
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Initialize wandb.
-    wandb.init(project="otter-deterministic", entity="otter-weather")
-    log_code_to_wandb()
+    logging.info("Initializing experiment.")
+    experiment = initialize_experiment(device)
+    logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
-    # Initialize experiment, including data loaders, model, and optimizer.
-    assert wandb.run is not None
-    experiment = initialize_experiment(device, experiment_name=wandb.run.name)
     experiment.model = experiment.model.to(device)
 
     optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
@@ -206,17 +207,49 @@ def main() -> None:
         optimizer_kwargs=experiment.optimizer_kwargs,
         lr_scheduler_kwargs=experiment.lr_scheduler_kwargs,
     )
-
-    if experiment.constants.load_weights_from_experiment:
-        load_checkpointed_weights_from_experiment(
-            model=experiment.model,
-            experiment_name=experiment.constants.load_weights_from_experiment,
-        )
-
     scaler = GradScaler(device=device)
+
+    if experiment.info.start_from_checkpoint:
+        logging.info("Loading initial state from checkpoint.")
+        initial_state = load_initial_state(
+            experiment=experiment,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            scaler=scaler,
+        )
+        logging.info("Successfully loaded initial state.")
+    else:
+        initial_state = TrainState(epoch=0, step=0)
+
+    logging.info(f"Starting from: {initial_state}")
+
+    train_loop(
+        start_epoch=initial_state.epoch,
+        step=initial_state.step,
+        experiment=experiment,
+        device=device,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+        scaler=scaler,
+    )
+
+    wandb.finish()
+
+
+def train_loop(
+    start_epoch: int,
+    step: int,
+    experiment: Any,
+    device: str,
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    scaler: GradScaler,
+) -> None:
+    """
+    The main training loop for the experiment.
+    """
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
-    step = 0
-    for _ in range(experiment.constants.training.epochs):
+    for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
         while True:
@@ -247,15 +280,19 @@ def main() -> None:
             step = step + 1
 
             if step % experiment.constants.training.save_checkpoint_every == 0:
-                checkpoint_path = f"{experiment.info.path_results}/checkpoints"
-                os.makedirs(checkpoint_path, exist_ok=True)
-                torch.save(
-                    experiment.model.state_dict(),
-                    f"{checkpoint_path}/step={step:07d}",
+                logging.info("Saving checkpoint.")
+                # Save complete run state
+                save_run_state(
+                    experiment=experiment,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
+                    scaler=scaler,
+                    epoch=epoch,
+                    step=step,
                 )
-
-    wandb.finish()
+                logging.info("Checkpoint saved.")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
