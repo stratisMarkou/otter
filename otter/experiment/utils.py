@@ -101,8 +101,9 @@ def initialize_experiment(
         raise AssertionError("Repo has commits ahead, please push changes.")
 
     # Check if GlobalHydra is already initialized, and clear if it is.
-    if hydra.core.global_hydra.GlobalHydra.instance() is not None:
-        hydra.core.global_hydra.GlobalHydra.instance().clear()
+    if not hydra.core.global_hydra.GlobalHydra().is_initialized():
+        # Initialize hydra and add config path to search path.
+        initialize(config_path=args.config_path, version_base="1.3")
 
     # Register custom resolvers if not already registered.
     if not OmegaConf.has_resolver("eval"):
@@ -111,16 +112,13 @@ def initialize_experiment(
     if not OmegaConf.has_resolver("get_module_attr"):
         OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
 
-    # Initialize experiment.
-    initialize(config_path=args.config_path, version_base="1.3")
     config_yaml = compose(config_name=args.config_name)
-
     config_changes = OmegaConf.from_cli(extra_args)
 
     config_merged = OmegaConf.merge(config_yaml, config_changes)
     assert type(config_merged) is DictConfig  # Check this to silence mypy.
-
     config: DictConfig = config_merged
+
     OmegaConf.set_struct(config, False)
     config.info.experiment_name = experiment_name
     path = make_experiment_path(config)
