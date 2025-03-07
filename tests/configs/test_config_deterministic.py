@@ -13,10 +13,10 @@ from otter.experiment.utils import initialize_experiment
 TEST_DATASET = "era5_240x121"
 
 
-@pytest.mark.skipif(
-    os.getenv("OTTER_RUN_ALL_TESTS") != "true",
-    reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
-)
+# @pytest.mark.skipif(
+#     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
+#     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
+# )
 @pytest.mark.parametrize(
     "config_name",
     [
@@ -53,7 +53,7 @@ def test_deterministic_config(config_name: str) -> None:
             args_list=[
                 "--debug",
                 "--config_path",
-                "config/",
+                "otter.experiment.config",
                 "--config_name",
                 config_name,
                 f"constants.data.path_to_labelled_array={path}",
