@@ -15,7 +15,6 @@ def normalise_dataset_zero_mean_unit_std(
     repo_base_path: str = ".",
     zarr_name: str = "era5_240x121",
 ) -> xr.Dataset:
-
     dataset = dataset.copy()
 
     mean = load_statistic(
@@ -44,7 +43,6 @@ def unnormalise_dataset_zero_mean_unit_std(
     repo_base_path: str = ".",
     zarr_name: str = "era5_240x121",
 ) -> xr.Dataset:
-
     dataset = dataset.copy()
 
     mean = load_statistic(

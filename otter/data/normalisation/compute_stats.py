@@ -41,7 +41,6 @@ class NormalisationStatistic(ABC):
 
 
 class Mean(NormalisationStatistic):
-
     def __init__(self, single_example: xr.Dataset) -> None:
         self.sufficient_statistics = dict(
             sum=single_example.sum(dim=["latitude", "longitude"]),
@@ -62,7 +61,6 @@ class Mean(NormalisationStatistic):
 
 
 class StandardDeviation(NormalisationStatistic):
-
     def __init__(self, single_example: xr.Dataset) -> None:
         self.sufficient_statistics = dict(
             sum_of_squares=(single_example**2).sum(
@@ -93,7 +91,6 @@ class StandardDeviation(NormalisationStatistic):
 
 
 class Min(NormalisationStatistic):
-
     def __init__(self, single_example: xr.Dataset) -> None:
         self.sufficient_statistics = dict(
             min=single_example.min(dim=["latitude", "longitude"]),
@@ -111,7 +108,6 @@ class Min(NormalisationStatistic):
 
 
 class Max(NormalisationStatistic):
-
     def __init__(self, single_example: xr.Dataset) -> None:
         self.sufficient_statistics = dict(
             max=single_example.max(dim=["latitude", "longitude"]),
@@ -192,17 +188,13 @@ def compute_normalisation_stats_from_zarr(
             if stat in stats:
                 stats[stat] = stats[stat].update(example)
             else:
-                stats[stat] = ALL_NORMALISATION_STATISTICS[stat](
-                    example
-                )  # type: ignore
+                stats[stat] = ALL_NORMALISATION_STATISTICS[stat](example)  # type: ignore
 
             diff = next_example - example
             if stat in diff_stats:
                 diff_stats[stat] = diff_stats[stat].update(diff)
             else:
-                diff_stats[stat] = ALL_NORMALISATION_STATISTICS[stat](
-                    diff
-                )  # type: ignore
+                diff_stats[stat] = ALL_NORMALISATION_STATISTICS[stat](diff)  # type: ignore
 
     if save_results:
         for stat in stats:
@@ -227,7 +219,6 @@ def compute_normalisation_stats_from_zarr(
 
 
 def main() -> None:
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_time_frames", type=int, default=2048)
     parser.add_argument("--repo_dir", type=str)

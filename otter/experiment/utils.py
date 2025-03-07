@@ -284,9 +284,7 @@ def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
     logging.info(f"Writing reified config to {path}.")
     with open(path, "w") as file:
         hash = _get_current_commit_hash(repo)
-        config_to_save: DictConfig = OmegaConf.to_container(
-            config
-        )  # type: ignore
+        config_to_save: DictConfig = OmegaConf.to_container(config)  # type: ignore
         config_to_save.update({"commit": hash})
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)
 
