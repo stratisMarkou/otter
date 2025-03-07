@@ -18,6 +18,7 @@ import git
 import torch
 import xarray as xr
 import yaml
+import hydra
 from hydra import (
     compose,
     initialize,
@@ -98,6 +99,10 @@ def initialize_experiment(
 
     if not args.debug and has_commits_ahead(repo):
         raise AssertionError("Repo has commits ahead, please push changes.")
+
+    # Check if GlobalHydra is already initialized, and clear if it is.
+    if hydra.core.global_hydra.GlobalHydra.instance() is not None:
+        hydra.core.global_hydra.GlobalHydra.instance().clear()
 
     # Register custom resolvers if not already registered.
     if not OmegaConf.has_resolver("eval"):
