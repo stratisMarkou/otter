@@ -79,9 +79,9 @@ def test_shape_preservation() -> None:
         x = torch.randn(shape)
         for divisor in [2, 3, 4]:
             result = downsample(x, divisor)
-            assert (
-                result.shape == shape
-            ), f"Shape mismatch for {shape} with divisor {divisor}"
+            assert result.shape == shape, (
+                f"Shape mismatch for {shape} with divisor {divisor}"
+            )
 
 
 def test_divisor_one(random_tensor: torch.Tensor) -> None:
@@ -102,9 +102,9 @@ def test_1px_case(random_tensor: torch.Tensor) -> None:
     for t in range(2):  # time
         for v in range(3):  # var
             unique_values = torch.unique(result[0, :, :, t, v])
-            assert (
-                len(unique_values) == 1
-            ), "Spatial dimensions should be constant"
+            assert len(unique_values) == 1, (
+                "Spatial dimensions should be constant"
+            )
 
 
 def test_mean_preservation(random_tensor: torch.Tensor) -> None:

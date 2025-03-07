@@ -25,12 +25,12 @@ def extract_subimages(x: torch.Tensor, subimage_size: int) -> torch.Tensor:
     B, H, W, D = x.shape
     S = subimage_size
 
-    assert (
-        H % S == 0
-    ), f"Height {H} must be divisible by window size {S} ({x.shape=})"
-    assert (
-        W % S == 0
-    ), f"Width {W} must be divisible by window size {S} ({x.shape=})"
+    assert H % S == 0, (
+        f"Height {H} must be divisible by window size {S} ({x.shape=})"
+    )
+    assert W % S == 0, (
+        f"Width {W} must be divisible by window size {S} ({x.shape=})"
+    )
 
     return torch.reshape(x, [B, H // S, S, W // S, S, D])
 
