@@ -99,10 +99,14 @@ def initialize_experiment(
     if not args.debug and has_commits_ahead(repo):
         raise AssertionError("Repo has commits ahead, please push changes.")
 
-    # Initialize experiment, make path and writer
-    OmegaConf.register_new_resolver("eval", eval)
-    OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+    # Register custom resolvers if not already registered.
+    if not OmegaConf.has_resolver("eval"):
+        OmegaConf.register_new_resolver("eval", eval)
 
+    if not OmegaConf.has_resolver("get_module_attr"):
+        OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+
+    # Initialize experiment.
     initialize(config_path=args.config_path, version_base="1.3")
     config_yaml = compose(config_name=args.config_name)
 
