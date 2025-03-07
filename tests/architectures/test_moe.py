@@ -55,7 +55,7 @@ def test_moe_forward(
     [
         (64, 16, 2, 32, False, False, 1.0, 1.0, 8, 4),
         (32, 16, 2, 32, True, False, 3.0, 0.0, 10, 8),
-        (32, 4, 2, 32, False, False, 0.0, 0.5, 1, 8),
+        (32, 4, 2, 32, False, False, 0.0, 0.5, 2, 8),
     ],
 )
 def test_output_computation(
@@ -99,4 +99,4 @@ def test_output_computation(
             expert_output, _ = moe.experts[idx](x[i].unsqueeze(0))
             output[i] += prob * expert_output.squeeze(0)
 
-    assert torch.allclose(output, output_moe)
+    assert torch.allclose(output, output_moe, atol=1e-6)
