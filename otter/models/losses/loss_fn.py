@@ -2,6 +2,7 @@ from functools import partial
 from typing import (
     Callable,
     Dict,
+    List,
     Optional,
     Sequence,
     Tuple,
@@ -10,6 +11,9 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import torch
+
+from otter.models.architectures.moe import LoadBalancingLosses
+from otter.models.architectures.utils import aggregate_load_balancing_losses
 
 PredictionStatistics = Dict[str, torch.Tensor]
 LossInfo = Dict[str, npt.NDArray[np.float32]]
@@ -79,6 +83,26 @@ def lwrmse(
     prd_stats: PredictionStatistics,
 ) -> torch.Tensor:
     return _rmse(trg, prd_stats, apply_latitude_weighting=True)
+
+
+def gather_load_balancing_losses(
+    load_balancing_losses: List[LoadBalancingLosses],
+) -> Tuple[Optional[torch.Tensor], Optional[LossInfo]]:
+    """Gather load balancing losses from the list of LoadBalancingLosses."""
+    # Computes the mean loss across time steps
+    losses = aggregate_load_balancing_losses(
+        load_balancing_losses,
+        mean=True,
+    )
+    if losses is not None:
+        total_loss = losses.importance_loss + losses.load_loss
+        loss_info = {
+            "importance_loss": losses.importance_loss.cpu().detach().numpy(),
+            "load_loss": losses.load_loss.cpu().detach().numpy(),
+            "total_load_balancing_loss": total_loss.cpu().detach().numpy(),
+        }
+        return total_loss, loss_info
+    return None, None
 
 
 def apply_loss(

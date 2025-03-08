@@ -26,6 +26,7 @@ from otter.experiment.utils import (
 from otter.models.losses.loss_fn import (
     LossInfo,
     PredictionStatistics,
+    gather_load_balancing_losses,
 )
 
 LossFunction = Callable[[PredictionStatistics], Tuple[torch.Tensor, LossInfo]]
@@ -66,7 +67,7 @@ def train_step(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):
-        prd_stats = run_and_log_time_to_wandb(
+        prd_stats, load_balancing_losses = run_and_log_time_to_wandb(
             "model.forward",
             model.forward,
             ctx=ctx,
@@ -80,6 +81,20 @@ def train_step(
             prd_stats=prd_stats,
             trg=trg,
         )
+
+        load_balancing_loss, load_balancing_loss_info = (
+            run_and_log_time_to_wandb(
+                "gather_load_balancing_losses",
+                gather_load_balancing_losses,
+                load_balancing_losses=load_balancing_losses,
+            )
+        )
+
+        if load_balancing_loss is not None:
+            loss += load_balancing_loss
+
+        if load_balancing_loss_info is not None:
+            loss_info.update(load_balancing_loss_info)
 
     scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("scaled_loss.backward", scaled_loss.backward)
@@ -123,7 +138,7 @@ def validation_epoch(
         )
         for batch in tqdm(dataloader):
             ctx, trg = batch.ctx.to(device), batch.trg.to(device)
-            prd_stats = model(
+            prd_stats, load_balancing_losses = model(
                 ctx=ctx,
                 zero_time=batch.zero_time,
                 trg_timedelta_hours=batch.trg_timedelta_hours,
@@ -139,6 +154,15 @@ def validation_epoch(
                     prd_stats=prd_stats,
                     trg=trg,
                 )
+
+                if loss_name == "train_loss":
+                    load_loss, load_loss_info = gather_load_balancing_losses(
+                        load_balancing_losses=load_balancing_losses
+                    )
+                    if load_loss is not None:
+                        loss += load_loss
+                    if load_loss_info is not None:
+                        loss_info.update(load_loss_info)
 
                 losses[loss_name].append(loss.cpu().detach().numpy())
                 loss_infos[loss_name].append(loss_info)
