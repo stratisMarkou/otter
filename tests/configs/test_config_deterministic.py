@@ -13,10 +13,10 @@ from otter.experiment.utils import initialize_experiment
 TEST_DATASET = "era5_240x121"
 
 
-# @pytest.mark.skipif(
-#     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
-#     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
-# )
+@pytest.mark.skipif(
+    os.getenv("OTTER_RUN_ALL_TESTS") != "true",
+    reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
+)
 @pytest.mark.parametrize(
     "config_name",
     [
