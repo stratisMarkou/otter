@@ -67,7 +67,7 @@ backbone_network:
 feedforward_network:
   _target_: otter.models.architectures.mlp.MLP
   _partial_: true
-  hidden_features: 4096
+  hidden_features: 256
   num_hidden_layers: 2
 
 model:
