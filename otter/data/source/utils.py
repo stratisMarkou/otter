@@ -2,6 +2,9 @@ import logging
 import os
 import shutil
 
+from typing import Optional
+
+import numpy as np
 import xarray as xr
 
 ALL_GRID_SURFACE_DYNAMIC_VARIABLES = [
@@ -75,6 +78,8 @@ def download_zarr_and_store(
     output_dir: str,
     overwrite_existing: bool,
     test: bool,
+    start_date: Optional[str] = "",
+    end_date: Optional[str] = "",
 ) -> None:
     path = DATASETS[dataset]
     output_path = f"{output_dir}/{dataset}.zarr"
@@ -94,9 +99,15 @@ def download_zarr_and_store(
     logging.info("Downloading %s from %s to %s...", dataset, path, output_path)
 
     # Open remote zarr and save it locally.
-    zarr = xr.open_zarr(path).sel(level=ALL_GRID_VARIABLE_LEVELS)[
-        ALL_GRID_VARIABLE_NAMES
-    ]
+    if start_date == "" or end_date == "":
+        zarr = xr.open_zarr(path).sel(level=ALL_GRID_VARIABLE_LEVELS)[
+            ALL_GRID_VARIABLE_NAMES
+        ]
+    else:
+        zarr = xr.open_zarr(path).sel(
+            level=ALL_GRID_VARIABLE_LEVELS,
+            time=slice(np.datetime64(start_date), np.datetime64(end_date)),
+        )[ALL_GRID_VARIABLE_NAMES]
     for var in zarr:
         del zarr[var].encoding["chunks"]
     zarr = zarr.chunk(dict(time=1))
