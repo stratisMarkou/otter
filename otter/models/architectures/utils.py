@@ -7,7 +7,7 @@ from typing import (
 import torch
 from torch import nn
 
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+from otter.models.architectures.moe import LoadBalancingLosses
 
 
 def conv_channel_last(conv: nn.Module, x: torch.Tensor) -> torch.Tensor:

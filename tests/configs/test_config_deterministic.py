@@ -52,7 +52,7 @@ def test_deterministic_config(config_name: str) -> None:
             "cpu",
             args_list=[
                 "--debug",
-                "--config_path",
+                "--config_module",
                 "otter.experiment.config",
                 "--config_name",
                 config_name,

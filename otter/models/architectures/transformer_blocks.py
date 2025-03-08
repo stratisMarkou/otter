@@ -9,7 +9,7 @@ import torch
 from torch import nn
 
 from otter.models.architectures.attention import EfficientMultiHeadAttention
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+from otter.models.architectures.moe import LoadBalancingLosses
 
 
 def extract_subimages(x: torch.Tensor, subimage_size: int) -> torch.Tensor:

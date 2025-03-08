@@ -142,9 +142,6 @@ class MixtureOfExperts(torch.nn.Module):
         assert gate_probs.dim() == 2
         assert gate_probs.shape[1] == self.num_experts
 
-        if self.w_importance == 0.0:
-            return torch.tensor(0.0, device=gate_probs.device)
-
         eps = 1e-10
         importance = gate_probs.sum(dim=0)  # shape (num_experts,)
         loss_importance: torch.Tensor = (
@@ -186,9 +183,6 @@ class MixtureOfExperts(torch.nn.Module):
         assert gates_khot.dim() == 2
         assert gates_khot.shape[1] == self.num_experts
         assert k < self.num_experts
-
-        if self.w_load == 0.0:
-            return torch.tensor(0.0, device=gates_khot.device)
 
         if self.training:
             assert gate_logits_without_noise is not None

@@ -1,10 +1,11 @@
 """Base MLP model, for use within the transformer."""
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import torch
 
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+if TYPE_CHECKING:
+    from otter.models.architectures.moe import LoadBalancingLosses
 
 
 class MLP(torch.nn.Module):
@@ -41,7 +42,7 @@ class MLP(torch.nn.Module):
 
     def forward(
         self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
+    ) -> tuple[torch.Tensor, Optional["LoadBalancingLosses"]]:
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Input tensor has shape {x.shape}, "

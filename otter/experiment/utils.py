@@ -83,7 +83,9 @@ def initialize_experiment(
 
     # Make argument parser with just the config argument
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_path", type=str)
+    parser.add_argument(
+        "--config_module", type=str, default="otter.experiment.config"
+    )
     parser.add_argument("--config_name", type=str)
     parser.add_argument("--debug", action="store_true")
     args, extra_args = parser.parse_known_args(args=args_list)
@@ -99,10 +101,6 @@ def initialize_experiment(
     if not args.debug and has_commits_ahead(repo):
         raise AssertionError("Repo has commits ahead, please push changes.")
 
-    # Check if GlobalHydra is already initialized, and clear if it is.
-    # if hydra.core.global_hydra.GlobalHydra.instance() is not None:
-    #     hydra.core.global_hydra.GlobalHydra.instance().clear()
-
     # Register custom resolvers if not already registered.
     if not OmegaConf.has_resolver("eval"):
         OmegaConf.register_new_resolver("eval", eval)
@@ -112,7 +110,7 @@ def initialize_experiment(
 
     # Initialize experiment.
     with hydra.initialize_config_module(
-        config_module=args.config_path, version_base="1.3"
+        config_module=args.config_module, version_base="1.3"
     ):
         config_yaml = compose(config_name=args.config_name)
 

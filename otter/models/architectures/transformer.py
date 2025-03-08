@@ -14,7 +14,7 @@ from otter.models.architectures.embeddings import (
 )
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import (
     aggregate_load_balancing_losses,
     conv_channel_last,

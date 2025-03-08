@@ -24,7 +24,7 @@ from otter.data.utils import (
     stack_dataset_variable_and_levels,
 )
 from otter.models.architectures.embeddings import TimeEmbedding
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+from otter.models.architectures.moe import LoadBalancingLosses
 
 
 def _get_variable_and_level_list(

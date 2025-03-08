@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from otter.models.architectures.transformer_output import LoadBalancingLosses
+from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import aggregate_load_balancing_losses
 
 PredictionStatistics = Dict[str, torch.Tensor]
