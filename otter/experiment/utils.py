@@ -19,16 +19,18 @@ import torch
 import xarray as xr
 import yaml
 import hydra
-from hydra import (
-    compose,
+import wandb
+from hydra import compose
+from distributed_shampoo import (  # type: ignore[import-untyped]
+    AdaptiveAmortizedComputationFrequencyConfig,
+    DistributedShampoo,
+    EigenvalueCorrectedShampooPreconditionerConfig,
 )
 from hydra.utils import instantiate
 from omegaconf import (
     DictConfig,
     OmegaConf,
 )
-
-import wandb
 
 Experiment = DictConfig
 
@@ -325,8 +327,20 @@ def create_optimizer_and_lr_scheduler(
     optimizer_kwargs: Dict[str, Any],
     lr_scheduler_kwargs: Dict[str, Any],
 ) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
-    optimizer = torch.optim.AdamW(
-        params=module.parameters(), **optimizer_kwargs
+    preconditioner_config = EigenvalueCorrectedShampooPreconditionerConfig(
+        amortized_computation_frequency_config=AdaptiveAmortizedComputationFrequencyConfig(
+            # Determines how frequently eigendecompositions are computed and hence also
+            # the average step time.
+            tolerance=0.2,
+        )
+    )
+    optimizer = DistributedShampoo(
+        params=module.parameters(),
+        betas=(0.9, 0.999),  # AdamW default values.
+        weight_decay=0.01,  # AdamW default value.
+        max_preconditioner_dim=8192,
+        preconditioner_config=preconditioner_config,
+        **optimizer_kwargs,
     )
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optimizer, **lr_scheduler_kwargs
