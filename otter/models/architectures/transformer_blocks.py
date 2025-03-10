@@ -1,5 +1,7 @@
 from typing import (
     Callable,
+    List,
+    Optional,
     Tuple,
 )
 
@@ -7,7 +9,7 @@ import torch
 from torch import nn
 
 from otter.models.architectures.attention import EfficientMultiHeadAttention
-from otter.models.architectures.mlp import MLP
+from otter.models.architectures.moe import LoadBalancingLosses
 
 
 def extract_subimages(x: torch.Tensor, subimage_size: int) -> torch.Tensor:
@@ -179,8 +181,7 @@ class TransformerBlock(nn.Module):
     def __init__(
         self,
         token_dim: int,
-        mlp_num_hidden: int,
-        mlp_num_layers: int,
+        feedforward_network: Callable[[int, int], nn.Module],
         num_heads: int,
         use_efficient_attention: bool = True,
     ):
@@ -202,17 +203,15 @@ class TransformerBlock(nn.Module):
             )
             self.mhsa = lambda x: (self.mha_layer(x, x, x)[0])
 
-        self.mlp = MLP(
-            in_features=token_dim,
-            hidden_features=mlp_num_hidden,
-            num_hidden_layers=mlp_num_layers,
-            output_features=token_dim,
-        )
+        self.ffn = feedforward_network(token_dim, token_dim)
 
         self.ln1 = nn.LayerNorm(token_dim)
         self.ln2 = nn.LayerNorm(token_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply the transformer block to input tokens `x`.
 
         Args:
@@ -221,18 +220,19 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        x = x + self.mhsa(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
 
-        return x
+        x = x + self.mhsa(self.ln1(x))
+        x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
+        x = x + x_ffn
+
+        return x, load_balancing_losses
 
 
 class SwinTransformerBlock(torch.nn.Module):
     def __init__(
         self,
         token_dim: int,
-        mlp_num_hidden: int,
-        mlp_num_layers: int,
+        feedforward_network: Callable[[int, int], nn.Module],
         num_heads: int,
         window_size: int,
         use_efficient_attention: bool = True,
@@ -242,8 +242,7 @@ class SwinTransformerBlock(torch.nn.Module):
         # Transformer block applied before the shift operation.
         self.first_block = TransformerBlock(
             token_dim=token_dim,
-            mlp_num_hidden=mlp_num_hidden,
-            mlp_num_layers=mlp_num_layers,
+            feedforward_network=feedforward_network,
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
         )
@@ -251,8 +250,7 @@ class SwinTransformerBlock(torch.nn.Module):
         # Transformer block applied after the shift operation.
         self.second_block = TransformerBlock(
             token_dim=token_dim,
-            mlp_num_hidden=mlp_num_hidden,
-            mlp_num_layers=mlp_num_layers,
+            feedforward_network=feedforward_network,
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
         )
@@ -260,7 +258,10 @@ class SwinTransformerBlock(torch.nn.Module):
         # Window size for extracting subimages.
         self.window_size = window_size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, List[LoadBalancingLosses]]:
         """Apply the Swin Transformer block to input tokens `x`.
 
         Arguments:
@@ -272,13 +273,20 @@ class SwinTransformerBlock(torch.nn.Module):
         original_shape = x.shape
         S = self.window_size
 
+        load_balancing_losses_list: List[LoadBalancingLosses] = list()
         # Apply first transformer block, extracting windows, applying
         # the transformer block to them, and re-combining them to the
         # original image.
         x = extract_subimages_and_fold_into_batch_dim(
             x, S
         )  # (B*H//S*W//S, S**2, D)
-        x = self.first_block(x)  # (B*H//S*W//S, S**2, D)
+        x, load_balancing_losses = self.first_block(
+            x
+        )  # (B*H//S*W//S, S**2, D)
+
+        if load_balancing_losses is not None:
+            load_balancing_losses_list.append(load_balancing_losses)
+
         x = unfold_from_batch_dim_and_combine_subimages(
             x, original_shape, S
         )  # (B, H, W, D)
@@ -289,28 +297,35 @@ class SwinTransformerBlock(torch.nn.Module):
         x = extract_subimages_and_fold_into_batch_dim(
             x, S
         )  # (B*H//S*W//S, S**2, D)
-        x = self.second_block(x)  # (B*H//S*W//S, S**2, D)
+
+        x, load_balancing_losses = self.second_block(
+            x
+        )  # (B*H//S*W//S, S**2, D)
+
+        if load_balancing_losses is not None:
+            load_balancing_losses_list.append(load_balancing_losses)
+
         x = unfold_from_batch_dim_and_combine_subimages(
             x, original_shape, S
         )  # (B, H, W, D)
-        return shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
+        x = shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
+
+        return x, load_balancing_losses_list
 
 
 def make_swin_stage(
     token_dim: int,
-    mlp_num_hidden: int,
-    mlp_num_layers: int,
+    feedforward_network: Callable[[int, int], nn.Module],
     num_heads: int,
     num_swin_blocks: int,
     window_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.Module:
-    return torch.nn.Sequential(
-        *[
+    return torch.nn.ModuleList(
+        [
             SwinTransformerBlock(
                 token_dim=token_dim,
-                mlp_num_hidden=mlp_num_hidden,
-                mlp_num_layers=mlp_num_layers,
+                feedforward_network=feedforward_network,
                 num_heads=num_heads,
                 window_size=window_size,
                 use_efficient_attention=use_efficient_attention,

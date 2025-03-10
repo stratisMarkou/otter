@@ -28,6 +28,7 @@ from otter.models.architectures.schedulers import ScaleScheduler
 from otter.models.losses.loss_fn import (
     LossInfo,
     PredictionStatistics,
+    gather_load_balancing_losses,
 )
 from otter.models.multiscale_model import MultiscaleInput
 
@@ -76,20 +77,34 @@ def train_step(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):
-        prd_stats = run_and_log_time_to_wandb(
+        prd_stats, load_balancing_losses = run_and_log_time_to_wandb(
             "model.forward",
             model.forward,
             processed_batch,
             scales=scales[1:],
         )
 
-    loss, loss_info = run_and_log_time_to_wandb(
-        "loss_fn",
-        loss_fn,
-        prd_stats=prd_stats,
-        trg=batch.trg,
-        scales=scales,
-    )
+        loss, loss_info = run_and_log_time_to_wandb(
+            "loss_fn",
+            loss_fn,
+            prd_stats=prd_stats,
+            trg=batch.trg,
+            scales=scales,
+        )
+
+        load_balancing_loss, load_balancing_loss_info = (
+            run_and_log_time_to_wandb(
+                "gather_load_balancing_losses",
+                gather_load_balancing_losses,
+                load_balancing_losses=load_balancing_losses,
+            )
+        )
+
+        if load_balancing_loss is not None:
+            loss += load_balancing_loss
+
+        if load_balancing_loss_info is not None:
+            loss_info.update(load_balancing_loss_info)
 
     scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("scaled_loss.backward", scaled_loss.backward)
@@ -153,15 +168,25 @@ def validation_epoch(
             )
             preprocessed_batch = preprocessed_batch.to(device)
 
-            prd_stats = model(preprocessed_batch, scales=scales[1:])
+            prd_stats, load_balancing_losses = model(
+                preprocessed_batch, scales=scales[1:]
+            )
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
                 loss, loss_info = loss_fn(  # type: ignore
                     prd_stats=prd_stats,
                     trg=batch.trg,
-                    scales=scales,
                 )
+
+                if loss_name == "train_loss":
+                    load_loss, load_loss_info = gather_load_balancing_losses(
+                        load_balancing_losses=load_balancing_losses
+                    )
+                    if load_loss is not None:
+                        loss += load_loss
+                    if load_loss_info is not None:
+                        loss_info.update(load_loss_info)
 
                 losses[loss_name].append(loss.item())
                 loss_infos[loss_name].append(loss_info)

@@ -1,4 +1,9 @@
-from typing import Sequence
+from collections.abc import Callable
+from typing import (
+    List,
+    Optional,
+    Sequence,
+)
 
 import torch
 from torch import nn
@@ -9,7 +14,9 @@ from otter.models.architectures.embeddings import (
 )
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
+from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import (
+    aggregate_load_balancing_losses,
     conv_channel_last,
     interpolate_bilinear_channel_last,
 )
@@ -21,14 +28,13 @@ class SwinTransformer(nn.Module):
         token_dimensions: Sequence[int] | int,
         output_dimension: int,
         window_size: int,
-        mlp_num_hidden: int,
-        mlp_num_layers: int,
         num_heads: int,
         in_channels: int,
         height: int,
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
+        feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
     ):
@@ -69,8 +75,7 @@ class SwinTransformer(nn.Module):
             down_swin_stages.append(
                 make_swin_stage(
                     token_dim=t2,
-                    mlp_num_hidden=mlp_num_hidden,
-                    mlp_num_layers=mlp_num_layers,
+                    feedforward_network=feedforward_network,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
@@ -85,8 +90,7 @@ class SwinTransformer(nn.Module):
             up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t1,
-                    mlp_num_hidden=mlp_num_hidden,
-                    mlp_num_layers=mlp_num_layers,
+                    feedforward_network=feedforward_network,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
@@ -129,7 +133,10 @@ class SwinTransformer(nn.Module):
         self.width = width
         self.height = height
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply vision transformer to batch of images.
 
         Arguments:
@@ -149,6 +156,7 @@ class SwinTransformer(nn.Module):
         x = self.embedding(x)
 
         skips = []
+        load_balancing_losses_list: List[LoadBalancingLosses] = list()
 
         for downsampling_conv, down_swin_stage in zip(
             self.patch_downsampling_layers,
@@ -156,20 +164,26 @@ class SwinTransformer(nn.Module):
         ):
             skips.append(x)
             x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-            x = down_swin_stage(x)
+            for swin_transformer_block in down_swin_stage:
+                x, load_balancing_losses_per_block = swin_transformer_block(x)
+                load_balancing_losses_list += load_balancing_losses_per_block
 
         for upsampling_conv, up_swin_stage, skip in zip(
             self.patch_upsampling_layers,
             self.up_swin_stages,
             skips[::-1],
         ):
-            x = up_swin_stage(x)
+            for swin_transformer_block in up_swin_stage:
+                x, load_balancing_losses_per_block = swin_transformer_block(x)
+                load_balancing_losses_list += load_balancing_losses_per_block
             x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
             x = x + skip
 
         x = conv_channel_last(self.final_conv, x)
 
         # Interpolate image to original dimensions
-        return interpolate_bilinear_channel_last(
+        x = interpolate_bilinear_channel_last(
             x, height=original_height, width=original_width
         )
+
+        return x, aggregate_load_balancing_losses(load_balancing_losses_list)

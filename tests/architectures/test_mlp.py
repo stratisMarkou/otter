@@ -30,6 +30,6 @@ def test_mlp_forward(
         output_features=output_features,
     )
     x = torch.rand(input_tensor_leading_dims + (in_features,))
-    y = mlp(x)
+    y, _ = mlp(x)
     expected_shape = input_tensor_leading_dims + (output_features,)
     assert y.shape == expected_shape

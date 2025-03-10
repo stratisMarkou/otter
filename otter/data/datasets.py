@@ -164,17 +164,14 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         # Trailing time interval that is not enough to form a full task
         # and will be discarded.
         trailing_time_interval = (
-            self.start_date - self.end_date
-        ) % self.single_task_time_window
+            self.single_task_time_window - self.temporal_resolution
+        )
 
         # Return the number of full tasks that can be formed with the
         # parameters specified for the task.
-        length = (
-            int(
-                (self.end_date - self.start_date - trailing_time_interval)
-                // self.temporal_resolution
-            )
-            - 1
+        length = int(
+            (self.end_date - self.start_date - trailing_time_interval)
+            // self.temporal_resolution
         )
 
         return length // self.task_sub_sampling_factor

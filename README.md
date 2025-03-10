@@ -39,10 +39,10 @@ To train a (deterministic) single-scale model, from the repo root, run:
 ```bash
 # This will train a model with logging to wandb. It will also check your local branch
 # is clean, i.e. that it has no changes relative to the remote branch.
-wandb online; python otter/experiment/train.py --config otter/experiment/config/base.yaml
+wandb online; python otter/experiment/train.py --config_name base
 
 # You can disable this check by adding the flag --debug at the end of the command, as in
-wandb online; python otter/experiment/train.py --config otter/experiment/config/base.yaml --debug
+wandb online; python otter/experiment/train.py --config_name base --debug
 ```
 
 

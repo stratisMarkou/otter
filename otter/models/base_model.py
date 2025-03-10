@@ -24,6 +24,7 @@ from otter.data.utils import (
     stack_dataset_variable_and_levels,
 )
 from otter.models.architectures.embeddings import TimeEmbedding
+from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.multiscale_model import MultiscaleInput
 
 
@@ -158,7 +159,7 @@ class BaseModel(torch.nn.Module):
 
     def forward(
         self, batch: MultiscaleInput, scales: torch.Tensor
-    ) -> Dict[str, torch.Tensor]:
+    ) -> tuple[Dict[str, torch.Tensor], List[LoadBalancingLosses]]:
         ctx = batch.ctx
         zero_time = batch.zero_time
         trg_timedelta_hours = batch.trg_timedelta_hours
@@ -182,7 +183,7 @@ class BaseModel(torch.nn.Module):
             f"{tuple(ctx.shape[1:3])}"
         )
 
-        prd = self.rollout(
+        prd, load_balancing_losses_list = self.rollout(
             ctx=ctx,
             zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
@@ -193,7 +194,7 @@ class BaseModel(torch.nn.Module):
         prd = prd + self.trg_mean
         assert isinstance(prd, torch.Tensor)  # Assert to silence mypy
 
-        return dict(mean=prd)
+        return dict(mean=prd), load_balancing_losses_list
 
     def rollout(
         self,
@@ -201,8 +202,9 @@ class BaseModel(torch.nn.Module):
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
         num_rollout_steps: int,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, List[LoadBalancingLosses]]:
         predictions: List[torch.Tensor] = list()
+        load_balancing_losses_list: List[LoadBalancingLosses] = list()
         for i in range(num_rollout_steps):
             # Get residual connection from context data. The dimension size
             # res_var_and_level refers to the number of variables that are
@@ -240,9 +242,12 @@ class BaseModel(torch.nn.Module):
                 [ctx_reshaped, time_embedding], dim=-1
             )
 
-            prediction = residual + self.backbone_network(
+            prediction, load_balancing_losses = self.backbone_network(
                 ctx_with_time_embedding
             )  # (batch, lat, lon, trg_var_and_level)
+            prediction = residual + prediction
+            if load_balancing_losses is not None:
+                load_balancing_losses_list.append(load_balancing_losses)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prediction)
@@ -257,7 +262,7 @@ class BaseModel(torch.nn.Module):
 
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
-        return torch.stack(predictions, dim=-2)
+        return torch.stack(predictions, dim=-2), load_balancing_losses_list
 
 
 def make_base_model(
