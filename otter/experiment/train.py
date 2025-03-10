@@ -17,7 +17,6 @@ from tqdm import tqdm
 
 import wandb
 from otter.experiment.utils import (
-    create_optimizer_and_lr_scheduler,
     initialize_experiment,
     log_code_to_wandb,
     log_loss_info_to_wandb,
@@ -225,12 +224,6 @@ def main() -> None:
     experiment = initialize_experiment(device, experiment_name=wandb.run.name)
     experiment.model = experiment.model.to(device)
 
-    optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
-        module=experiment.model,
-        optimizer_kwargs=experiment.optimizer_kwargs,
-        lr_scheduler_kwargs=experiment.lr_scheduler_kwargs,
-    )
-
     if experiment.constants.load_weights_from_experiment:
         load_checkpointed_weights_from_experiment(
             model=experiment.model,
@@ -259,8 +252,8 @@ def main() -> None:
                     loss_fn=experiment.loss_fn,
                     model=experiment.model,
                     train_loader=train_loader,
-                    optimizer=optimizer,
-                    lr_scheduler=lr_scheduler,
+                    optimizer=experiment.optimizer,
+                    lr_scheduler=experiment.lr_scheduler,
                     step_number=step,
                     device=device,
                     scaler=scaler,
