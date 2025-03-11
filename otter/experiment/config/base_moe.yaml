@@ -1,5 +1,5 @@
 defaults:
-  - deterministic  # Load a base config
+  - base  # Extend the base.yaml config
   - _self_
 
 # TODO(sasha, stratis): we haven't explored the paramters for k, num_experts,

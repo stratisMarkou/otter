@@ -15,22 +15,23 @@ from typing import (
 )
 
 import git
+import hydra
 import torch
 import xarray as xr
 import yaml
-import hydra
-import wandb
-from hydra import compose
 from distributed_shampoo import (  # type: ignore[import-untyped]
     AdaptiveAmortizedComputationFrequencyConfig,
     DistributedShampoo,
     EigenvalueCorrectedShampooPreconditionerConfig,
 )
+from hydra import compose
 from hydra.utils import instantiate
 from omegaconf import (
     DictConfig,
     OmegaConf,
 )
+
+import wandb
 
 Experiment = DictConfig
 
@@ -258,6 +259,8 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
         re.compile(r"wandb.*"),
         # matches all paths containing "otter.egg-info"
         re.compile(r"otter.egg-info.*"),
+        # matches the "tests" directory
+        re.compile(r"tests.*"),
     ]
 
     return any(bool(pattern.match(path)) for pattern in patterns)

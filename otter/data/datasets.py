@@ -45,13 +45,20 @@ class ForecastingSample:
     """
 
     ctx: torch.Tensor
-    zero_time: npt.NDArray[np.float64] | np.datetime64
+    zero_time: npt.NDArray[np.datetime64]
     trg_timedelta_hours: npt.NDArray[np.int32]
     trg: torch.Tensor
 
     def pin_memory(self) -> "ForecastingSample":
         self.ctx = self.ctx.pin_memory()
         self.trg = self.trg.pin_memory()
+        return self
+
+    def to(
+        self, device: str, non_blocking: bool = False
+    ) -> "ForecastingSample":
+        self.ctx = self.ctx.to(device, non_blocking=non_blocking)
+        self.trg = self.trg.to(device, non_blocking=non_blocking)
         return self
 
 
@@ -187,7 +194,7 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
 
         return ForecastingSample(
             ctx=torch.tensor(ctx.data),
-            zero_time=zero_time,
+            zero_time=np.array(zero_time),
             trg_timedelta_hours=self.target_timedeltas.astype(np.int32),
             trg=torch.tensor(trg.data),
         )

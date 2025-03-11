@@ -41,6 +41,16 @@ valid_dataloader:
   pin_memory: true
   prefetch_factor: ${constants.data.prefetch_factor}
 
+train_scale_scheduler:
+  _target_: otter.models.architectures.schedulers.ScaleScheduler
+  # 128 > 121, corresponding to the complete target information erasure case.
+  data_scales: [128]
+  data_scale_probs: [1]
+  # During training, we have no rollout through scales.
+  rollout_scales: []
+
+inference_scale_scheduler: ${train_scale_scheduler}
+
 time_embedding:
   _target_: otter.models.architectures.embeddings.TimeEmbedding
   num_scales: 16
@@ -52,12 +62,12 @@ pos_embedding:
 
 backbone_network:
   _target_: otter.models.architectures.transformer.SwinTransformer
-  in_channels: ${eval:'174 + 2 * ${time_embedding.num_scales}'}
+  in_channels: ${constants.data.num_input_channels}
   height: 128
   width: 256
   patch_size: 2
   token_dimensions: [1024, 1024, 1024, 1024]
-  output_dimension: 82
+  output_dimension: ${constants.data.num_output_channels}
   window_size: 4
   num_heads: 8
   num_blocks_per_stage: [4, 4, 4]
@@ -71,7 +81,7 @@ feedforward_network:
   num_hidden_layers: 2
 
 model:
-  _target_: otter.models.deterministic_model.make_deterministic_model
+  _target_: otter.models.multiscale_model.make_multiscale_model
   backbone_network: ${backbone_network}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
   time_embedding: ${time_embedding}
@@ -132,6 +142,11 @@ constants:
     num_context_frames: 2
     train_num_target_frames: 1
     valid_num_target_frames: 4
+    num_ctx_variables: 87
+    num_trg_variables: 82
+    num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
+    num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${time_embedding.num_scales} + ${constants.data.num_trg_variables}'}
+    num_output_channels: ${constants.data.num_trg_variables}
     batch_size: 4
     num_workers: 6
     prefetch_factor: 4
@@ -155,7 +170,6 @@ constants:
     mixed_precision_dtype: ${get_module_attr:torch.float16}
   load_weights_from_experiment: null
 
-
 info:
   root_results: _results
-  wandb_project: otter-deterministic
+  wandb_project: otter-base

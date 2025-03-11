@@ -19,12 +19,9 @@ TEST_DATASET = "era5_240x121"
 )
 @pytest.mark.parametrize(
     "config_name",
-    [
-        "deterministic",
-        "deterministic_moe",
-    ],
+    ["base", "base_moe", "multiscale"],
 )
-def test_deterministic_config(config_name: str) -> None:
+def test_config(config_name: str) -> None:
     with TemporaryDirectory() as temp_dir:
         download_zarr_and_store(
             dataset=TEST_DATASET,

@@ -1,0 +1,20 @@
+defaults:
+  - base  # Extend the base.yaml config
+  - _self_
+
+
+train_scale_scheduler:
+  _target_: otter.models.architectures.schedulers.ScaleScheduler
+  # 128 > 121, corresponding to the complete target information erasure case.
+  data_scales: [2, 4, 8, 16, 32, 64, 128]
+  data_scale_probs: [1, 1, 1, 1, 1, 1, 1]
+  # During training, we have no rollout through scales.
+  rollout_scales: []
+
+inference_scale_scheduler:
+  _target_: otter.models.architectures.schedulers.ScaleScheduler
+  # During inference, we want to erase all real information.
+  data_scales: [128]
+  data_scale_probs: [1]
+  # During rollout, go from the coarsest to the finest scale.
+  rollout_scales: [64, 32, 16, 8, 4, 2]
