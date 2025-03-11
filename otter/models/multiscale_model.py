@@ -26,6 +26,7 @@ from otter.data.utils import (
 )
 from otter.experiment.downsample import downsample
 from otter.models.architectures.embeddings import TimeEmbedding
+from otter.models.architectures.moe import LoadBalancingLosses
 
 
 def _get_variable_and_level_list(
@@ -175,7 +176,7 @@ class MultiscaleModel(torch.nn.Module):
 
     def forward(
         self, batch: MultiscaleInput, scales: torch.Tensor
-    ) -> Dict[str, torch.Tensor]:
+    ) -> tuple[Dict[str, torch.Tensor], List[LoadBalancingLosses]]:
         ctx = batch.ctx
         zero_time = batch.zero_time
         downsampled_trg = batch.downsampled_trg
@@ -204,7 +205,7 @@ class MultiscaleModel(torch.nn.Module):
             f"{tuple(ctx.shape[1:3])}"
         )
 
-        prd = self.time_rollout(
+        prd, load_balancing_losses = self.time_rollout(
             ctx=ctx,
             zero_time=zero_time,
             downsampled_trg=downsampled_trg,
@@ -215,14 +216,14 @@ class MultiscaleModel(torch.nn.Module):
         prd = prd * self.trg_std
         prd = prd + self.trg_mean
 
-        return dict(mean=prd)
+        return dict(mean=prd), load_balancing_losses
 
     def single_scale_forward(
         self,
         ctx: torch.Tensor,
         downsampled_trg: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         residual = ctx[
             ..., 0, self.idx_residual
         ]  # (batch, lat, lon, time_idx, res_var_and_level)
@@ -257,13 +258,14 @@ class MultiscaleModel(torch.nn.Module):
             [ctx_and_downsampled_trg, time_embedding], dim=-1
         )
 
-        prediction: torch.Tensor = residual + self.backbone_network(
+        prediction, load_balancing_losses = self.backbone_network(
             ctx_with_time_embedding
         )  # (batch, lat, lon, trg_var_and_level)
 
-        return prediction[
-            ..., None, :
-        ]  # (batch, lat, lon, 1, trg_var_and_level)
+        prediction += residual
+        prediction = prediction[..., None, :]
+
+        return prediction, load_balancing_losses
 
     def multiscale_forward(
         self,
@@ -271,32 +273,40 @@ class MultiscaleModel(torch.nn.Module):
         downsampled_trg: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
         scales: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[LoadBalancingLosses]]:
         predictions = []
+        all_load_balancing_losses = []
 
-        prediction = self.single_scale_forward(
+        prediction, load_balancing_losses = self.single_scale_forward(
             ctx=ctx,
             downsampled_trg=downsampled_trg,
             zero_time=zero_time,
         )  # (batch, lat, lon, 1, trg_var_and_level)
         predictions.append(prediction)
+        if load_balancing_losses:
+            all_load_balancing_losses.append(load_balancing_losses)
 
         # Optionally refine the prediction via rollout through scales.
         for scale in scales:
             downsampled_trg = downsample(
-                prediction, scale
+                prediction,
+                int(scale),
             )  # (batch, lat, lon, 1, trg_var_and_level)
 
-            prediction = self.single_scale_forward(
+            prediction, load_balancing_losses = self.single_scale_forward(
                 ctx=ctx,
                 downsampled_trg=downsampled_trg,
                 zero_time=zero_time,
             )
             predictions.append(prediction)
+            if load_balancing_losses:
+                all_load_balancing_losses.append(load_balancing_losses)
 
-        return torch.stack(
+        prediction_tensor = torch.stack(
             predictions, dim=-2
-        )  # batch, lat, lon, 1, scale, trg_var_and_level
+        )  # (batch, lat, lon, 1, scale, trg_var_and_level)
+
+        return prediction_tensor, all_load_balancing_losses
 
     def time_rollout(
         self,
@@ -305,7 +315,7 @@ class MultiscaleModel(torch.nn.Module):
         downsampled_trg: torch.Tensor,
         scales: torch.Tensor,
         trg_timedelta_hours: npt.NDArray[np.int32],
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[LoadBalancingLosses]]:
         """
         Rolls out the model over time, predicting the target variables at
         each time step.
@@ -328,10 +338,11 @@ class MultiscaleModel(torch.nn.Module):
         )
 
         predictions: List[torch.Tensor] = list()
+        all_load_balancing_losses: List[LoadBalancingLosses] = list()
         for i in range(num_rollout_steps):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
-            prediction = self.multiscale_forward(
+            prediction, load_balancing_losses = self.multiscale_forward(
                 ctx,
                 downsampled_trg=downsampled_slice,
                 zero_time=zero_time + i * self.temporal_resolution_hours,
@@ -340,6 +351,7 @@ class MultiscaleModel(torch.nn.Module):
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prediction)
+            all_load_balancing_losses += load_balancing_losses
 
             # Using this prediction, update the context data for the next step.
             # NOTE: We can't simply assign the prediction e.g. using
@@ -358,7 +370,7 @@ class MultiscaleModel(torch.nn.Module):
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
         # Concat the time rollout steps along the time dimension
-        return torch.concat(predictions, dim=3)
+        return torch.concat(predictions, dim=3), all_load_balancing_losses
 
 
 def make_multiscale_model(

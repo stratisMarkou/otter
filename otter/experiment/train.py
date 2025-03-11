@@ -27,12 +27,14 @@ from otter.experiment.utils import (
 from otter.models.architectures.schedulers import ScaleScheduler
 from otter.models.losses.loss_fn import (
     LossInfo,
-    PredictionStatistics,
     gather_load_balancing_losses,
 )
 from otter.models.multiscale_model import MultiscaleInput
 
-LossFunction = Callable[[PredictionStatistics], Tuple[torch.Tensor, LossInfo]]
+LossFunction = Callable[
+    ...,
+    Tuple[torch.Tensor, LossInfo],
+]
 
 
 def assert_single_device() -> None:
@@ -159,8 +161,8 @@ def validation_epoch(
             scales = scale_scheduler.get_scales()
             # Test that the largest scale is greater than the number of lats,
             # ensuring the total erasure case is covered.
-            assert max(scales) > batch.trg.shape[1], (
-                f"Maximum scale {max(scales)} must be greater than the number "
+            assert torch.max(scales) > batch.trg.shape[1], (
+                f"Maximum scale {torch.max(scales)} must be greater than the number "
                 f"of lats {batch.trg.shape[1]}"
             )
             preprocessed_batch: MultiscaleInput = preprocess_batch(
@@ -174,9 +176,8 @@ def validation_epoch(
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
-                loss, loss_info = loss_fn(  # type: ignore
-                    prd_stats=prd_stats,
-                    trg=batch.trg,
+                loss, loss_info = loss_fn(
+                    trg=batch.trg, prd=prd_stats, scales=scales
                 )
 
                 if loss_name == "train_loss":

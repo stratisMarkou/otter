@@ -178,9 +178,7 @@ def make_loss_fn(
     model: torch.nn.Module,
     loss_fn: Callable[[torch.Tensor, PredictionStatistics], torch.Tensor],
     weighting_fns: Optional[Sequence[LossWeightingFunction]] = None,
-) -> Callable[
-    [torch.Tensor, PredictionStatistics], Tuple[torch.Tensor, LossInfo]
-]:
+) -> Callable[..., Tuple[torch.Tensor, LossInfo]]:
     return partial(
         apply_loss,
         loss_fn=loss_fn,
