@@ -105,7 +105,7 @@ val_loss_fns:
 optimizer:
   # Can also be set to `otter.experiment.utils.get_adamw_optimizer`.
   _target_: otter.experiment.utils.get_shampoo_optimizer
-  module: ${model}
+  _partial_: true
   optimizer_kwargs:
     lr: ${constants.training.initial_learning_rate}
     betas: ${constants.training.betas}
@@ -115,7 +115,7 @@ optimizer:
 
 lr_scheduler:
   _target_: otter.experiment.utils.get_cosine_lr_scheduler
-  optimizer: ${optimizer}
+  _partial_: true
   lr_scheduler_kwargs:
     T_max: ${constants.training.num_training_steps}  # Only for `get_cosine_lr_scheduler`.
     eta_min: 1e-6  # Only for `get_cosine_lr_scheduler`.

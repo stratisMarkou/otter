@@ -223,6 +223,8 @@ def main() -> None:
     assert wandb.run is not None
     experiment = initialize_experiment(device, experiment_name=wandb.run.name)
     experiment.model = experiment.model.to(device)
+    optimizer = experiment.optimizer(experiment.model)
+    lr_scheduler = experiment.lr_scheduler(optimizer)
 
     if experiment.constants.load_weights_from_experiment:
         load_checkpointed_weights_from_experiment(
@@ -252,8 +254,8 @@ def main() -> None:
                     loss_fn=experiment.loss_fn,
                     model=experiment.model,
                     train_loader=train_loader,
-                    optimizer=experiment.optimizer,
-                    lr_scheduler=experiment.lr_scheduler,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
                     step_number=step,
                     device=device,
                     scaler=scaler,
