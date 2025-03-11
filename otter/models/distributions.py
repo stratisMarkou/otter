@@ -23,6 +23,14 @@ class Distribution(ABC):
     def stack(dists: List[T], dim: int) -> T:
         pass
 
+    @abstractmethod
+    def __add__(self, other: torch.Tensor) -> Distribution:
+        pass
+
+    @abstractmethod
+    def __mul__(self, other: torch.Tensor) -> Distribution:
+        pass
+
 
 class Delta(Distribution):
     num_stats: int = 1
@@ -41,6 +49,12 @@ class Delta(Distribution):
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
         return Delta(mean)
 
+    def __add__(self, other: torch.Tensor) -> Delta:
+        return Delta(self.mean + other)
+
+    def __mul__(self, other: torch.Tensor) -> Delta:
+        return Delta(self.mean * other)
+
 
 class Gaussian(Distribution):
     num_stats: int = 2
@@ -53,7 +67,7 @@ class Gaussian(Distribution):
     ):
         self.mean = mean
         self.unconstrained_stddev = unconstrained_stddev
-        self.stddev = torch.nn.Softplus()(unconstrained_stddev) + eps
+        self.stddev = torch.exp(unconstrained_stddev) + eps
         self.dist = dist.Normal(self.mean, self.stddev)
 
     def sample(self) -> torch.Tensor:
@@ -68,6 +82,13 @@ class Gaussian(Distribution):
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
         stddev = torch.stack([dist.stddev for dist in dists], dim=dim)
         return Gaussian(mean, stddev)
+
+    def __add__(self, other: torch.Tensor) -> Gaussian:
+        return Gaussian(self.mean + other, self.unconstrained_stddev)
+
+    def __mul__(self, other: torch.Tensor) -> Gaussian:
+        unconstrained_stddev = torch.log(self.stddev * other)
+        return Gaussian(self.mean * other, unconstrained_stddev)
 
 
 def product_distribution(dists: List[T], dim: int) -> T:

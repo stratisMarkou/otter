@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import (
-    Dict,
     List,
     Optional,
     Sequence,
@@ -181,7 +180,7 @@ class MultiscaleModel(torch.nn.Module):
 
     def forward(
         self, batch: MultiscaleInput, scales: torch.Tensor
-    ) -> tuple[Dict[str, torch.Tensor], List[LoadBalancingLosses]]:
+    ) -> tuple[Distribution, List[LoadBalancingLosses]]:
         ctx = batch.ctx
         zero_time = batch.zero_time
         downsampled_trg = batch.downsampled_trg
@@ -210,7 +209,7 @@ class MultiscaleModel(torch.nn.Module):
             f"{tuple(ctx.shape[1:3])}"
         )
 
-        prd, load_balancing_losses = self.time_rollout(
+        prd_dist, load_balancing_losses = self.time_rollout(
             ctx=ctx,
             zero_time=zero_time,
             downsampled_trg=downsampled_trg,
@@ -218,10 +217,10 @@ class MultiscaleModel(torch.nn.Module):
             trg_timedelta_hours=trg_timedelta_hours,
         )  # (batch, lat, lon, trg_time_idx, scale, trg_var_and_level)
 
-        prd = prd * self.trg_std
-        prd = prd + self.trg_mean
+        prd_dist = prd_dist * self.trg_std
+        prd_dist = prd_dist + self.trg_mean
 
-        return dict(mean=prd), load_balancing_losses
+        return prd_dist, load_balancing_losses
 
     def single_scale_forward(
         self,
