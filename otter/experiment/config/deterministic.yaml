@@ -110,7 +110,7 @@ optimizer:
     lr: ${constants.training.initial_learning_rate}
     betas: ${constants.training.betas}
     weight_decay: ${constants.training.weight_decay}
-    max_preconditioner_dim: 8102  # Only for `get_shampoo_optimizer`.
+    max_preconditioner_dim: 8192  # Only for `get_shampoo_optimizer`.
     adaptive_amortized_computation_frequency_tolerance: 0.2  # Only for `get_shampoo_optimizer`.
 
 lr_scheduler:
