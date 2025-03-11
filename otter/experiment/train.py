@@ -31,10 +31,7 @@ from otter.models.losses.loss_fn import (
 )
 from otter.models.multiscale_model import MultiscaleInput
 
-LossFunction = Callable[
-    ...,
-    Tuple[torch.Tensor, LossInfo],
-]
+LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
 
 def assert_single_device() -> None:
@@ -177,7 +174,7 @@ def validation_epoch(
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
                 loss, loss_info = loss_fn(
-                    trg=batch.trg, prd=prd_stats, scales=scales
+                    trg=batch.trg, prd_stats=prd_stats, scales=scales
                 )
 
                 if loss_name == "train_loss":

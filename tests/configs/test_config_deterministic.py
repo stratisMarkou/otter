@@ -19,10 +19,7 @@ TEST_DATASET = "era5_240x121"
 )
 @pytest.mark.parametrize(
     "config_name",
-    [
-        "base",
-        "base_moe",
-    ],
+    ["base", "base_moe", "multiscale"],
 )
 def test_base_config(config_name: str) -> None:
     with TemporaryDirectory() as temp_dir:
