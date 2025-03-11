@@ -89,6 +89,7 @@ model:
   trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
   data_grid_num_lat: 121
   data_grid_num_lon: 240
+  distribution_type: ${get_module_attr:otter.models.distributions.Delta}
 
 loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
@@ -144,9 +145,13 @@ constants:
     valid_num_target_frames: 4
     num_ctx_variables: 87
     num_trg_variables: 82
+    # TODO(jonas, stratis): refactor these calculations in a python helper.
     num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
     num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${time_embedding.num_scales} + ${constants.data.num_trg_variables}'}
-    num_output_channels: ${constants.data.num_trg_variables}
+    num_output_channels: ${eval:'${constants.data.num_trg_variables} * ${constants.data.num_stats}'}
+    # Until we refactor the calculations in a python helper, we need to
+    # manually set the number of sufficient statistics for the output.
+    num_stats: 1
     batch_size: 4
     num_workers: 6
     prefetch_factor: 4
