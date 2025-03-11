@@ -11,7 +11,7 @@ T = TypeVar("T", bound="Distribution")
 class Distribution(ABC):
     num_stats: int
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     @abstractmethod
@@ -20,12 +20,7 @@ class Distribution(ABC):
 
     @staticmethod
     @abstractmethod
-    def stack(self, dists: List[T], dim: int) -> T:
-        pass
-
-    @property
-    @abstractmethod
-    def num_stats(self) -> int:
+    def stack(dists: List[T], dim: int) -> T:
         pass
 
 
@@ -58,14 +53,15 @@ class Gaussian(Distribution):
     ):
         self.mean = mean
         self.unconstrained_stddev = unconstrained_stddev
-        self.stddev = torch.nn.Softplus(unconstrained_stddev) + eps
+        self.stddev = torch.nn.Softplus()(unconstrained_stddev) + eps
         self.dist = dist.Normal(self.mean, self.stddev)
 
     def sample(self) -> torch.Tensor:
         return self.dist.rsample()
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        return self.dist.log_prob(x)
+        log_prob: torch.Tensor = self.dist.log_prob(x)
+        return log_prob
 
     @staticmethod
     def stack(dists: List[Gaussian], dim: int) -> Gaussian:
