@@ -28,30 +28,19 @@ class ScaleScheduler:
         self.rollout_scales = rollout_scales
         self.scale_probs = torch.tensor(data_scale_probs, dtype=torch.float32)
 
-    def _sample_data_scale(self) -> int:
+    def sample_data_scale(self) -> int:
+        """
+        Samples a scale for data preprocessing according to the distribution
+        defined via `data_scales` and `data_scale_probs`.
+        """
         # Sample according to scale probability
         return int(
             self.data_scales[torch.multinomial(self.scale_probs, 1)].item()
         )
 
-    def get_scales(self) -> torch.Tensor:
+    def get_rollout_scales(self) -> torch.Tensor:
         """
-        Returns the entire sequence of scales through which the target data
-        will be processed.
-
-        Here, the first scale is the scale by which the true target data is
-        downsampled, and the subsequent scales are the scales at which the
-        model will roll out predictions.
-
-        For example, during training, this function might return [32],
-        indicating that the true target data is downsampled by a factor of 32,
-        and the model will not roll out predictions.
-
-        During validation, we might return [128, 64, 32, 16, 8, 4, 2],
-        indicating that the true target data is downsampled by a factor of 128,
-        (i.e. erased), and the model will roll out predictions at scales 64,
-        32, 16, 8, 4, and 2.
+        Returns the scales through which the model's predictions will be
+        rolled out.
         """
-        true_trg_scale = self._sample_data_scale()
-        merged_scales = [true_trg_scale] + self.rollout_scales
-        return torch.tensor(merged_scales, dtype=torch.int32)
+        return torch.tensor(self.rollout_scales, dtype=torch.int32)

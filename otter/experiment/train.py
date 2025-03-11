@@ -60,14 +60,16 @@ def train_step(
         "batch.to", batch.to, device, non_blocking=True
     )
 
-    scales = scale_scheduler.get_scales()
+    data_scale = scale_scheduler.sample_data_scale()
     processed_batch = run_and_log_time_to_wandb(
         "preprocess_batch",
         preprocess_batch,
         batch=batch,
-        scale=scales[0],
+        scale=data_scale,
     )
     processed_batch = processed_batch.to(device)
+
+    rollout_scales = scale_scheduler.get_rollout_scales()
 
     # Do forward pass with AMP autocasting. Only forward pass needs to be
     # autocasted, as the backward is computed with matching dtypes to the
@@ -80,7 +82,7 @@ def train_step(
             "model.forward",
             model.forward,
             processed_batch,
-            scales=scales[1:],
+            scales=rollout_scales,
         )
 
         loss, loss_info = run_and_log_time_to_wandb(
@@ -88,7 +90,7 @@ def train_step(
             loss_fn,
             prd_stats=prd_stats,
             trg=batch.trg,
-            scales=scales,
+            scales=_combine_scales(data_scale, rollout_scales),
         )
 
         load_balancing_loss, load_balancing_loss_info = (
@@ -140,6 +142,16 @@ def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
     )
 
 
+def _combine_scales(
+    data_scale: int, rollout_scales: torch.Tensor
+) -> torch.Tensor:
+    """
+    Combine the data scale and rollout scales into a single tensor.
+    """
+    data_scale_tensor = torch.tensor([data_scale], dtype=torch.int32)
+    return torch.cat([data_scale_tensor, rollout_scales])
+
+
 def validation_epoch(
     model: torch.nn.Module,
     device: str,
@@ -155,26 +167,26 @@ def validation_epoch(
         loss_infos: Dict[str, List[LossInfo]] = defaultdict(list)
         for batch in tqdm(dataloader):
             batch = batch.to(device)
-            scales = scale_scheduler.get_scales()
+            data_scale = scale_scheduler.sample_data_scale()
+            rollout_scales = scale_scheduler.get_rollout_scales()
+            all_scales = _combine_scales(data_scale, rollout_scales)
             # Test that the largest scale is greater than the number of lats,
             # ensuring the total erasure case is covered.
-            assert torch.max(scales) > batch.trg.shape[1], (
-                f"Maximum scale {torch.max(scales)} must be greater than the number "
-                f"of lats {batch.trg.shape[1]}"
+            assert torch.max(all_scales) > batch.trg.shape[1], (
+                f"Maximum scale {torch.max(all_scales)} must be greater than "
+                f"the number of lats {batch.trg.shape[1]}"
             )
-            preprocessed_batch: MultiscaleInput = preprocess_batch(
-                batch, int(scales[0])
-            )
+            preprocessed_batch = preprocess_batch(batch, data_scale)
             preprocessed_batch = preprocessed_batch.to(device)
 
             prd_stats, load_balancing_losses = model(
-                preprocessed_batch, scales=scales[1:]
+                preprocessed_batch, scales=rollout_scales
             )
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
                 loss, loss_info = loss_fn(
-                    trg=batch.trg, prd_stats=prd_stats, scales=scales
+                    trg=batch.trg, prd_stats=prd_stats, scales=all_scales
                 )
 
                 if loss_name == "train_loss":

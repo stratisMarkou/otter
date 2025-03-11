@@ -21,7 +21,7 @@ TEST_DATASET = "era5_240x121"
     "config_name",
     ["base", "base_moe", "multiscale"],
 )
-def test_base_config(config_name: str) -> None:
+def test_config(config_name: str) -> None:
     with TemporaryDirectory() as temp_dir:
         download_zarr_and_store(
             dataset=TEST_DATASET,

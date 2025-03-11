@@ -211,7 +211,7 @@ class MultiscaleModel(torch.nn.Module):
             downsampled_trg=downsampled_trg,
             scales=scales,
             trg_timedelta_hours=trg_timedelta_hours,
-        )  # (batch, lat, lon, tgt_time_idx, scale, trg_var_and_level)
+        )  # (batch, lat, lon, trg_time_idx, scale, trg_var_and_level)
 
         prd = prd * self.trg_std
         prd = prd + self.trg_mean
@@ -362,10 +362,10 @@ class MultiscaleModel(torch.nn.Module):
 
             # Autoregressively update the context with the prediction of the
             # latest scale.
-            best_pred = prediction[
+            prediction = prediction[
                 ..., -1, :
             ]  # (batch, lat, lon, 1, trg_var_and_level)
-            ctx_next_time_frame[..., 0:1, self.idx_ctx_for_update] = best_pred
+            ctx_next_time_frame[..., 0:1, self.idx_ctx_for_update] = prediction
 
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
