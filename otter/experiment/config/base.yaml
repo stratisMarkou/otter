@@ -65,11 +65,11 @@ backbone_network:
   in_channels: ${constants.data.num_input_channels}
   height: 128
   width: 256
-  patch_size: 1
+  patch_size: 2
   token_dimensions: [1024, 1024, 1024, 1024]
   output_dimension: ${constants.data.num_output_channels}
   window_size: 4
-  num_heads: 8
+  num_heads: 32
   num_blocks_per_stage: [4, 4, 4]
   feedforward_network: ${feedforward_network}
   pos_embedding: ${pos_embedding}
