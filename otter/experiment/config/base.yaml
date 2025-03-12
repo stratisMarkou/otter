@@ -65,7 +65,7 @@ backbone_network:
   in_channels: ${constants.data.num_input_channels}
   height: 128
   width: 256
-  patch_size: 2
+  patch_size: 1
   token_dimensions: [1024, 1024, 1024, 1024]
   output_dimension: ${constants.data.num_output_channels}
   window_size: 4
