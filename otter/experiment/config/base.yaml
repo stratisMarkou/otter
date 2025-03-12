@@ -109,10 +109,12 @@ val_loss_fns:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+    weighting_coefficients_power: 1.0
   raw_lwrmse:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
+    weighting_coefficients_power: 1.0
 
 optimizer:
   # Can also be set to `otter.experiment.utils.get_adamw_optimizer`.
@@ -133,6 +135,7 @@ lr_scheduler:
     eta_min: 1e-6  # Only for `get_cosine_lr_scheduler`.
 
 constants:
+  num_stats: 1
   data:
     train_start_date: "1979-01-01 00:00:00"
     train_end_date: "2019-12-31 18:00:00"
@@ -149,10 +152,9 @@ constants:
     # TODO(jonas, stratis): refactor these calculations in a python helper.
     num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
     num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${time_embedding.num_scales} + ${constants.data.num_trg_variables}'}
-    num_output_channels: ${eval:'${constants.data.num_trg_variables} * ${constants.data.num_stats}'}
+    num_output_channels: ${eval:'${constants.data.num_trg_variables} * ${constants.num_stats}'}
     # Until we refactor the calculations in a python helper, we need to
     # manually set the number of sufficient statistics for the output.
-    num_stats: 1
     batch_size: 4
     num_workers: 6
     prefetch_factor: 4
