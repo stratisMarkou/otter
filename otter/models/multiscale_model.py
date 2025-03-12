@@ -270,12 +270,7 @@ class MultiscaleModel(torch.nn.Module):
         prediction = prediction.reshape(
             *prediction.shape[:-1], self.distribution_type.num_stats, -1
         )
-        prd_stats = list(
-            torch.unbind(
-                prediction,
-                dim=-1,
-            )
-        )
+        prd_stats = list(torch.unbind(prediction, dim=-1))
 
         # We always assume that the first statistic is a mean-like
         # statistic, and add the residual to it.
