@@ -77,7 +77,7 @@ def train_step(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):
-        prd_stats, load_balancing_losses = run_and_log_time_to_wandb(
+        prd_dist, load_balancing_losses = run_and_log_time_to_wandb(
             "model.forward",
             model.forward,
             processed_batch,
@@ -87,7 +87,7 @@ def train_step(
         loss, loss_info = run_and_log_time_to_wandb(
             "loss_fn",
             loss_fn,
-            prd_stats=prd_stats,
+            prd_dist=prd_dist,
             trg=batch.trg,
             scales=_combine_scales(data_scale, rollout_scales),
         )
