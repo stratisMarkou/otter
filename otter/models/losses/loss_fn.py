@@ -19,7 +19,9 @@ from otter.models.distributions import Distribution, Delta, Gaussian
 DistributionWithMean = Union[Delta, Gaussian]
 PredictionStatistics = Dict[str, torch.Tensor]
 LossInfo = Dict[str, float]
-LossWeightingFunction = Callable[[torch.Tensor, Sequence[str]], torch.Tensor]
+LossWeightingFunction = Callable[
+    [torch.Tensor, Sequence[str], float], torch.Tensor
+]
 
 DEFAULT_SURFACE_VARIABLE_WEIGHTS = {
     "2m_temperature": 1e0,
@@ -151,6 +153,7 @@ def apply_loss(
     trg: torch.Tensor,
     prd_dist: Distribution,
     loss_fn: Callable[[torch.Tensor, Distribution], torch.Tensor],
+    weighting_coefficients_power: float,
     weighting_fns: Optional[Sequence[LossWeightingFunction]],
     trg_variables_and_levels: Sequence[str],
     scales: Sequence[int],
@@ -166,6 +169,8 @@ def apply_loss(
         prd_dist: distribution of shape
             (batch, lat, lon, time_idx, scale, var_and_level)
         loss_fn: loss function to apply
+        weighting_coefficients_power: all weighting coefficients in the
+            weighting funcitons are raised to this power.
         weighting_fns: list of weighting functions to apply to the loss tensor
         trg_variables_and_levels: list of target variables and levels
         scales: list of scales corresponding to the scale dimension of the
@@ -179,7 +184,9 @@ def apply_loss(
     if weighting_fns is not None:
         for weighting_fn in weighting_fns:
             loss = weighting_fn(
-                loss, trg_variables_and_levels
+                loss,
+                trg_variables_and_levels,
+                weighting_coefficients_power,
             )  # (batch, time, scale, var_and_level)
 
     loss_per_time_var_scale = torch.mean(
@@ -215,11 +222,13 @@ def apply_loss(
 def make_loss_fn(
     model: torch.nn.Module,
     loss_fn: Callable[[torch.Tensor, Distribution], torch.Tensor],
+    weighting_coefficients_power: float,
     weighting_fns: Optional[Sequence[LossWeightingFunction]] = None,
 ) -> Callable[..., Tuple[torch.Tensor, LossInfo]]:
     return partial(
         apply_loss,
         loss_fn=loss_fn,
         weighting_fns=weighting_fns,
+        weighting_coefficients_power=weighting_coefficients_power,
         trg_variables_and_levels=model.trg_variables_and_levels,
     )

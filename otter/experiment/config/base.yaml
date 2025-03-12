@@ -95,6 +95,7 @@ loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
   model: ${model}
   loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+  weighting_coefficients_power: 1.0
   weighting_fns:
     - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
     - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}

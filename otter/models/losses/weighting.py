@@ -37,32 +37,39 @@ VAR_DIFF_STD_DATA_ARRAY = load_stacked_std_data_array(diff=True)
 def apply_division_by_variable_diff_std(
     tensor: torch.Tensor,
     variable_and_level: Sequence[str],
+    weighting_coefficients_power: float,
 ) -> torch.Tensor:
     std_array = VAR_STD_DATA_ARRAY.sel(
         variable_and_level=variable_and_level
     ).values
     std_tensor = torch.tensor(std_array).float().to(tensor.device)
-    std_tensor = std_tensor[None, None, :]
+    std_tensor = std_tensor[None, None, :] + 1e-12
 
-    return tensor / (std_tensor + 1e-12).to(tensor.device)
+    weighting_coefficient = torch.pow(std_tensor, weighting_coefficients_power)
+
+    return tensor / weighting_coefficient
 
 
 def apply_division_by_variable_std(
     tensor: torch.Tensor,
     variable_and_level: Sequence[str],
+    weighting_coefficients_power: float,
 ) -> torch.Tensor:
     std_array = VAR_DIFF_STD_DATA_ARRAY.sel(
         variable_and_level=variable_and_level
     ).values
     std_tensor = torch.tensor(std_array).float().to(tensor.device)
-    std_tensor = std_tensor[None, None, :]
+    std_tensor = std_tensor[None, None, :] + 1e-12
 
-    return tensor / (std_tensor + 1e-12).to(tensor.device)
+    weighting_coefficient = torch.pow(std_tensor, weighting_coefficients_power)
+
+    return tensor / weighting_coefficient
 
 
 def apply_surface_weighting(
     tensor: torch.Tensor,
     variable_and_level: Sequence[str],
+    weighting_coefficients_power: float,
     variable_to_weight: Dict[str, float] = DEFAULT_SURFACE_VARIABLE_WEIGHTS,
 ) -> torch.Tensor:
     """Create function to apply surface variable weighting.
@@ -70,6 +77,7 @@ def apply_surface_weighting(
         tensor: tensor of shape (batch, lat, lon, time_idx, var_and_level)
         variable_and_level: list of variable names and levels
         variable_to_weight: dictionary of surface variable name to weights
+        weighting_coefficients_power: weights are raised to this power
     Returns:
         callable: function that applies surface variable weighting to a tensor.
     """
@@ -83,6 +91,7 @@ def apply_surface_weighting(
 
     weight_tensor = torch.tensor(weights).float()
     weight_tensor = weight_tensor[None, None, :]
+    weight_tensor = torch.pow(weight_tensor, weighting_coefficients_power)
 
     return tensor * weight_tensor.to(tensor.device)
 
@@ -90,13 +99,8 @@ def apply_surface_weighting(
 def apply_pressure_weighting(
     tensor: torch.Tensor,
     variable_and_level: Sequence[str],
+    weighting_coefficients_power: float,
 ) -> torch.Tensor:
-    """Create function to apply pressure weighting.
-    Args:
-    Returns:
-        callable: function that applies pressure weighting to a tensor.
-    """
-
     pressure_levels = set()
     for var_and_level in variable_and_level:
         if "/level_" in var_and_level:
@@ -120,5 +124,6 @@ def apply_pressure_weighting(
 
     weight_tensor = torch.tensor(weights).float()
     weight_tensor = weight_tensor[None, None, :]
+    weight_tensor = torch.pow(weight_tensor, weighting_coefficients_power)
 
     return tensor * weight_tensor.to(tensor.device)
