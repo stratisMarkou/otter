@@ -6,6 +6,7 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
+    Union,
 )
 
 import numpy as np
@@ -13,7 +14,9 @@ import torch
 
 from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import aggregate_load_balancing_losses
+from otter.models.distributions import Distribution, Delta, Gaussian
 
+DistributionWithMean = Union[Delta, Gaussian]
 PredictionStatistics = Dict[str, torch.Tensor]
 LossInfo = Dict[str, float]
 LossWeightingFunction = Callable[[torch.Tensor, Sequence[str]], torch.Tensor]
@@ -53,14 +56,14 @@ def _apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
 
 def _rmse(
     trg: torch.Tensor,
-    prd_stats: PredictionStatistics,
+    prd_dist: DistributionWithMean,
     apply_latitude_weighting: bool,
 ) -> torch.Tensor:
     # Expand along the scale dimension to match the target tensor.
     trg = trg.unsqueeze(-2)  # (batch, lat, lon, time_idx, 1, var_and_level)
 
     error = torch.square(
-        prd_stats["mean"] - trg
+        prd_dist.mean - trg
     )  # (batch, lat, lon, time_idx, scale, var_and_level)
 
     if apply_latitude_weighting:
@@ -77,16 +80,16 @@ def _rmse(
 
 def rmse(
     trg: torch.Tensor,
-    prd_stats: PredictionStatistics,
+    prd_dist: DistributionWithMean,
 ) -> torch.Tensor:
-    return _rmse(trg, prd_stats, apply_latitude_weighting=False)
+    return _rmse(trg, prd_dist, apply_latitude_weighting=False)
 
 
 def lwrmse(
     trg: torch.Tensor,
-    prd_stats: PredictionStatistics,
+    prd_dist: DistributionWithMean,
 ) -> torch.Tensor:
-    return _rmse(trg, prd_stats, apply_latitude_weighting=True)
+    return _rmse(trg, prd_dist, apply_latitude_weighting=True)
 
 
 def gather_load_balancing_losses(
@@ -111,8 +114,8 @@ def gather_load_balancing_losses(
 
 def apply_loss(
     trg: torch.Tensor,
-    prd_stats: PredictionStatistics,
-    loss_fn: Callable[[torch.Tensor, PredictionStatistics], torch.Tensor],
+    prd_dist: Distribution,
+    loss_fn: Callable[[torch.Tensor, Distribution], torch.Tensor],
     weighting_fns: Optional[Sequence[LossWeightingFunction]],
     trg_variables_and_levels: Sequence[str],
     scales: Sequence[int],
@@ -125,8 +128,8 @@ def apply_loss(
 
     Args:
         trg: target tensor of shape (batch, lat, lon, time_idx, var_and_level)
-        prd_stats: dictionary of prediction statistics, each of which is a
-            tensor of shape (batch, lat, lon, time_idx, scale, var_and_level)
+        prd_dist: distribution of shape
+            (batch, lat, lon, time_idx, scale, var_and_level)
         loss_fn: loss function to apply
         weighting_fns: list of weighting functions to apply to the loss tensor
         trg_variables_and_levels: list of target variables and levels
@@ -135,7 +138,7 @@ def apply_loss(
     """
 
     # Calculate the squared error. We apply specified weightings to it below.
-    loss = loss_fn(trg, prd_stats)  # (batch, time, scale, var_and_level)
+    loss = loss_fn(trg, prd_dist)  # (batch, time, scale, var_and_level)
 
     # Apply the specified weightings to the loss tensor.
     if weighting_fns is not None:
@@ -176,7 +179,7 @@ def apply_loss(
 
 def make_loss_fn(
     model: torch.nn.Module,
-    loss_fn: Callable[[torch.Tensor, PredictionStatistics], torch.Tensor],
+    loss_fn: Callable[[torch.Tensor, Distribution], torch.Tensor],
     weighting_fns: Optional[Sequence[LossWeightingFunction]] = None,
 ) -> Callable[..., Tuple[torch.Tensor, LossInfo]]:
     return partial(

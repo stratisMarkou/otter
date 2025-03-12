@@ -178,14 +178,14 @@ def validation_epoch(
             preprocessed_batch = preprocess_batch(batch, data_scale)
             preprocessed_batch = preprocessed_batch.to(device)
 
-            prd_stats, load_balancing_losses = model(
+            prd_dist, load_balancing_losses = model(
                 preprocessed_batch, scales=rollout_scales
             )
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
                 loss, loss_info = loss_fn(
-                    trg=batch.trg, prd_stats=prd_stats, scales=all_scales
+                    trg=batch.trg, prd_dist=prd_dist, scales=all_scales
                 )
 
                 if loss_name == "train_loss":
