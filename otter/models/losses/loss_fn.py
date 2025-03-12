@@ -78,6 +78,27 @@ def _rmse(
     return error
 
 
+def _mean_neg_log_prob(
+    trg: torch.Tensor,
+    prd_dist: Gaussian,
+    apply_latitude_weighting: bool,
+) -> torch.Tensor:
+    # Expand along the scale dimension to match the target tensor.
+    trg = trg.unsqueeze(-2)  # (batch, lat, lon, time_idx, 1, var_and_level)
+
+    neg_log_prob = -prd_dist.log_prob(trg)
+
+    if apply_latitude_weighting:
+        neg_log_prob = _apply_latitude_weighting(neg_log_prob)
+
+    # Compute the root mean squared error.
+    neg_log_prob = torch.mean(neg_log_prob, dim=[1, 2])
+
+    assert isinstance(neg_log_prob, torch.Tensor)
+
+    return neg_log_prob
+
+
 def rmse(
     trg: torch.Tensor,
     prd_dist: DistributionWithMean,
@@ -90,6 +111,20 @@ def lwrmse(
     prd_dist: DistributionWithMean,
 ) -> torch.Tensor:
     return _rmse(trg, prd_dist, apply_latitude_weighting=True)
+
+
+def mean_neg_log_prob(
+    trg: torch.Tensor,
+    prd_dist: Gaussian,
+) -> torch.Tensor:
+    return _mean_neg_log_prob(trg, prd_dist, apply_latitude_weighting=False)
+
+
+def lw_mean_neg_log_prob(
+    trg: torch.Tensor,
+    prd_dist: Gaussian,
+) -> torch.Tensor:
+    return _mean_neg_log_prob(trg, prd_dist, apply_latitude_weighting=True)
 
 
 def gather_load_balancing_losses(
