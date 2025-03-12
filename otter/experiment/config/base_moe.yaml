@@ -9,7 +9,7 @@ feedforward_network:
   _partial_: true
   num_experts: 10
   k: 2
-  hidden_features: 4096
+  hidden_features: 1024
   num_hidden_layers: 2
   use_gating_bias: False
   apply_softmax_before_top_k: False
