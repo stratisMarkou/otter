@@ -267,10 +267,14 @@ class MultiscaleModel(torch.nn.Module):
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
-        prd_stats = torch.split(
-            prediction,
-            self.distribution_type.num_stats,
-            dim=-1,
+        prediction = prediction.reshape(
+            *prediction.shape[:-1], self.distribution_type.num_stats, -1
+        )
+        prd_stats = list(
+            torch.unbind(
+                prediction,
+                dim=-1,
+            )
         )
 
         # We always assume that the first statistic is a mean-like

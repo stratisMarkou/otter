@@ -20,4 +20,4 @@ val_loss_fns:
     weighting_coefficients_power: 2.0
 
 constants:
-  num_stats: 1
+  num_stats: 2
