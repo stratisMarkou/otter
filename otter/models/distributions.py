@@ -40,9 +40,6 @@ class Delta(Distribution):
     def sample(self) -> torch.Tensor:
         return self.mean
 
-    def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
     @classmethod
     def stack(cls, dists: List[Self], dim: int) -> Self:
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
