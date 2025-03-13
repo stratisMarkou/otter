@@ -84,7 +84,7 @@ def initialize_experiment(
     """
 
     args, extra_args = _parse_args(args_list)
-    config = _get_config(args.config_module, args.config, extra_args)
+    config = _get_config(args.config_module, args.config_name, extra_args)
 
     experiment_name = (
         args.resume_experiment
