@@ -158,6 +158,26 @@ def validation_epoch(
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
 ) -> None:
+    # Run the validation epoch
+    losses, losses_info = run_validation_epoch(
+        model=model,
+        device=device,
+        dataloader=dataloader,
+        loss_fns=loss_fns,
+        scale_scheduler=scale_scheduler,
+    )
+
+    # Log metrics to wandb
+    log_validation_metrics_to_wandb(losses, losses_info)
+
+
+def run_validation_epoch(
+    model: torch.nn.Module,
+    device: str,
+    dataloader: Iterable[ForecastingSample],
+    loss_fns: Dict[str, LossFunction],
+    scale_scheduler: ScaleScheduler,
+) -> Tuple[Dict[str, List[float]], Dict[str, List[LossInfo]]]:
     # Ensure model is in evaluation mode.
     model = model.eval()
 
@@ -200,6 +220,16 @@ def validation_epoch(
                 losses[loss_name].append(loss.item())
                 loss_infos[loss_name].append(loss_info)
 
+    # Ensure model is back in training mode after validation.
+    model.train()
+
+    return losses, loss_infos
+
+
+def log_validation_metrics_to_wandb(
+    losses: Dict[str, List[float]],
+    loss_infos: Dict[str, List[LossInfo]],
+) -> None:
     # Average the losses over the validation set.
     for loss_name, loss_values in losses.items():
         mean_loss = np.mean(np.stack(loss_values, axis=0), axis=0)
@@ -219,9 +249,6 @@ def validation_epoch(
                 {f"val/{loss_name}/{var}": mean_info},
                 commit=False,
             )
-
-    # Ensure model is back in training mode after validation.
-    model.train()
 
 
 def load_checkpointed_weights_from_experiment(
