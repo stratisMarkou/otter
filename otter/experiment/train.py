@@ -1,7 +1,7 @@
 import logging
 import os
+from collections import defaultdict
 from typing import (
-    Any,
     Callable,
     Dict,
     Iterable,
@@ -11,31 +11,32 @@ from typing import (
 )
 
 import numpy as np
-import numpy.typing as npt
 import torch
+from omegaconf import DictConfig
 from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
 import wandb
+from otter.data.datasets import ForecastingSample
+from otter.experiment.downsample import downsample
 from otter.experiment.run_state import (
     TrainState,
     load_initial_state,
     save_run_state,
 )
 from otter.experiment.utils import (
-    create_optimizer_and_lr_scheduler,
     initialize_experiment,
     log_loss_info_to_wandb,
     run_and_log_time_to_wandb,
 )
+from otter.models.architectures.schedulers import ScaleScheduler
 from otter.models.losses.loss_fn import (
     LossInfo,
-    PredictionStatistics,
+    gather_load_balancing_losses,
 )
+from otter.models.multiscale_model import MultiscaleInput
 
-LossFunction = Callable[
-    [torch.Tensor, PredictionStatistics], Tuple[torch.Tensor, LossInfo]
-]
+LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
 
 def assert_single_device() -> None:
@@ -50,21 +51,30 @@ def assert_single_device() -> None:
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
-    train_loader: Iterable[Any],
+    train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     step_number: int,
     scaler: GradScaler,
+    scale_scheduler: ScaleScheduler,
     mixed_precision_dtype: torch.dtype,
     device: str = "cuda",
 ) -> int:
     batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    ctx = run_and_log_time_to_wandb(
-        "batch.ctx.to", batch.ctx.to, device, non_blocking=True
+    batch = run_and_log_time_to_wandb(
+        "batch.to", batch.to, device, non_blocking=True
     )
-    trg = run_and_log_time_to_wandb(
-        "batch.trg.to", batch.trg.to, device, non_blocking=True
+
+    data_scale = scale_scheduler.sample_data_scale()
+    processed_batch = run_and_log_time_to_wandb(
+        "preprocess_batch",
+        preprocess_batch,
+        batch=batch,
+        scale=data_scale,
     )
+    processed_batch = processed_batch.to(device)
+
+    rollout_scales = scale_scheduler.get_rollout_scales()
 
     # Do forward pass with AMP autocasting. Only forward pass needs to be
     # autocasted, as the backward is computed with matching dtypes to the
@@ -73,20 +83,34 @@ def train_step(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):
-        prd_stats = run_and_log_time_to_wandb(
+        prd_stats, load_balancing_losses = run_and_log_time_to_wandb(
             "model.forward",
             model.forward,
-            ctx=ctx,
-            zero_time=batch.zero_time,
-            trg_timedelta_hours=batch.trg_timedelta_hours,
+            processed_batch,
+            scales=rollout_scales,
         )
 
         loss, loss_info = run_and_log_time_to_wandb(
             "loss_fn",
             loss_fn,
             prd_stats=prd_stats,
-            trg=trg,
+            trg=batch.trg,
+            scales=_combine_scales(data_scale, rollout_scales),
         )
+
+        load_balancing_loss, load_balancing_loss_info = (
+            run_and_log_time_to_wandb(
+                "gather_load_balancing_losses",
+                gather_load_balancing_losses,
+                load_balancing_losses=load_balancing_losses,
+            )
+        )
+
+        if load_balancing_loss is not None:
+            loss += load_balancing_loss
+
+        if load_balancing_loss_info is not None:
+            loss_info.update(load_balancing_loss_info)
 
     scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("scaled_loss.backward", scaled_loss.backward)
@@ -100,13 +124,6 @@ def train_step(
         prefix="train",
     )
 
-    # Loss.item requires all async GPU operations to be completed. This
-    # synchronization takes non-trivial time and corresponds to any of the
-    # above operations that are performed on the GPU. It is profiled here so
-    # that the individual timings sum to the whole training step timing.
-    loss_value = run_and_log_time_to_wandb("synchronise", loss.item)
-    wandb.log({"train/loss": loss_value}, commit=False)
-
     current_lr = lr_scheduler.get_last_lr()[0]
     wandb.log({"misc/learning_rate": current_lr}, commit=False)
     wandb.log({"misc/gradient_step": step_number}, commit=True)
@@ -114,26 +131,61 @@ def train_step(
     return step_number + 1
 
 
+def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
+    """
+    Preprocess a batch of forecasting samples for input to the multiscale
+    model.
+    """
+    downsampled_trg = downsample(batch.trg, scale)
+
+    return MultiscaleInput(
+        ctx=batch.ctx,
+        zero_time=batch.zero_time,
+        downsampled_trg=downsampled_trg,
+        scale=scale,
+        trg_timedelta_hours=batch.trg_timedelta_hours,
+    )
+
+
+def _combine_scales(
+    data_scale: int, rollout_scales: torch.Tensor
+) -> torch.Tensor:
+    """
+    Combine the data scale and rollout scales into a single tensor.
+    """
+    data_scale_tensor = torch.tensor([data_scale], dtype=torch.int32)
+    return torch.cat([data_scale_tensor, rollout_scales])
+
+
 def validation_epoch(
     model: torch.nn.Module,
     device: str,
-    dataloader: Iterable[Any],
+    dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
+    scale_scheduler: ScaleScheduler,
 ) -> None:
     # Ensure model is in evaluation mode.
     model = model.eval()
 
     with torch.no_grad():
-        losses: Dict[str, List[npt.NDArray[np.float32]]] = dict()
-        loss_infos: Dict[str, List[Dict[str, npt.NDArray[np.float32]]]] = (
-            dict()
-        )
+        losses: Dict[str, List[float]] = defaultdict(list)
+        loss_infos: Dict[str, List[LossInfo]] = defaultdict(list)
         for batch in tqdm(dataloader):
-            ctx, trg = batch.ctx.to(device), batch.trg.to(device)
-            prd_stats = model(
-                ctx=ctx,
-                zero_time=batch.zero_time,
-                trg_timedelta_hours=batch.trg_timedelta_hours,
+            batch = batch.to(device)
+            data_scale = scale_scheduler.sample_data_scale()
+            rollout_scales = scale_scheduler.get_rollout_scales()
+            all_scales = _combine_scales(data_scale, rollout_scales)
+            # Test that the largest scale is greater than the number of lats,
+            # ensuring the total erasure case is covered.
+            assert torch.max(all_scales) > batch.trg.shape[1], (
+                f"Maximum scale {torch.max(all_scales)} must be greater than "
+                f"the number of lats {batch.trg.shape[1]}"
+            )
+            preprocessed_batch = preprocess_batch(batch, data_scale)
+            preprocessed_batch = preprocessed_batch.to(device)
+
+            prd_stats, load_balancing_losses = model(
+                preprocessed_batch, scales=rollout_scales
             )
 
             # Compute the loss for each loss function and store results.
@@ -142,9 +194,20 @@ def validation_epoch(
                     losses[loss_name] = []
                     loss_infos[loss_name] = []
 
-                loss, loss_info = loss_fn(trg, prd_stats)
+                loss, loss_info = loss_fn(
+                    trg=batch.trg, prd_stats=prd_stats, scales=all_scales
+                )
 
-                losses[loss_name].append(loss.cpu().detach().numpy())
+                if loss_name == "train_loss":
+                    load_loss, load_loss_info = gather_load_balancing_losses(
+                        load_balancing_losses=load_balancing_losses
+                    )
+                    if load_loss is not None:
+                        loss += load_loss
+                    if load_loss_info is not None:
+                        loss_info.update(load_loss_info)
+
+                losses[loss_name].append(loss.item())
                 loss_infos[loss_name].append(loss_info)
 
     # Average the losses over the validation set.
@@ -200,13 +263,15 @@ def main() -> None:
     experiment = initialize_experiment(device)
     logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
-    experiment.model = experiment.model.to(device)
+    optimizer = experiment.optimizer(experiment.model)
+    lr_scheduler = experiment.lr_scheduler(optimizer)
 
-    optimizer, lr_scheduler = create_optimizer_and_lr_scheduler(
-        module=experiment.model,
-        optimizer_kwargs=experiment.optimizer_kwargs,
-        lr_scheduler_kwargs=experiment.lr_scheduler_kwargs,
-    )
+    if experiment.constants.load_weights_from_experiment:
+        load_checkpointed_weights_from_experiment(
+            model=experiment.model,
+            experiment_name=experiment.constants.load_weights_from_experiment,
+        )
+
     scaler = GradScaler(device=device)
 
     if experiment.info.start_from_checkpoint:
@@ -239,7 +304,7 @@ def main() -> None:
 def train_loop(
     start_epoch: int,
     step: int,
-    experiment: Any,
+    experiment: DictConfig,
     device: str,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
@@ -259,6 +324,7 @@ def train_loop(
                     device=device,
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
+                    scale_scheduler=experiment.inference_scale_scheduler,
                 )
 
             try:
@@ -273,6 +339,7 @@ def train_loop(
                     step_number=step,
                     device=device,
                     scaler=scaler,
+                    scale_scheduler=experiment.train_scale_scheduler,
                     mixed_precision_dtype=mixed_precision_dtype,
                 )
             except StopIteration:

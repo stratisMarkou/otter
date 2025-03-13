@@ -16,9 +16,16 @@ from typing import (
 )
 
 import git
+import hydra
 import torch
 import xarray as xr
 import yaml
+from distributed_shampoo import (  # type: ignore[import-untyped]
+    AdaptiveAmortizedComputationFrequencyConfig,
+    DistributedShampoo,
+    EigenvalueCorrectedShampooPreconditionerConfig,
+)
+from hydra import compose
 from hydra.utils import instantiate
 from omegaconf import (
     DictConfig,
@@ -77,7 +84,7 @@ def initialize_experiment(
     """
 
     args, extra_args = _parse_args(args_list)
-    config = _get_config(args.config, extra_args)
+    config = _get_config(args.config_module, args.config, extra_args)
 
     experiment_name = (
         args.resume_experiment
@@ -98,6 +105,7 @@ def initialize_experiment(
     config.info.experiment_name = experiment_name
     config.info.experiment_path = experiment_path
     config.info.start_from_checkpoint = bool(args.resume_experiment)
+
     config.model.device = device
 
     _write_config(config, experiment_path, repo)
@@ -122,7 +130,6 @@ def _parse_args(
         extra_args: Additional arguments to be logged/stored.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument(
         "--resume_experiment",
@@ -130,6 +137,11 @@ def _parse_args(
         required=False,
         help="Resume the experiment with the provided given name",
     )
+    parser.add_argument(
+        "--config_module", type=str, default="otter.experiment.config"
+    )
+    parser.add_argument("--config_name", type=str)
+
     return parser.parse_known_args(args=args_list)
 
 
@@ -225,18 +237,32 @@ def _has_commits_ahead(repo: git.Repo) -> bool:
         return len(commits) > 0
 
 
-def _get_config(config_name: str, extra_args: list[str]) -> DictConfig:
+def _get_config(
+    config_module: str, config_name: str, extra_args: list[str]
+) -> DictConfig:
     """
     Reads the config file, evaluates expressions, and merges it with overrides.
     """
-    # Initialize experiment, make path and writer
-    OmegaConf.register_new_resolver("eval", eval)
-    OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
-    config = OmegaConf.load(config_name)
-    config_changes = OmegaConf.from_cli(extra_args)
+    # Register custom resolvers if not already registered.
+    if not OmegaConf.has_resolver("eval"):
+        OmegaConf.register_new_resolver("eval", eval)
 
-    config = OmegaConf.merge(config, config_changes)
-    assert type(config) is DictConfig  # Silence mypy
+    if not OmegaConf.has_resolver("get_module_attr"):
+        OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+
+    # Initialize experiment.
+    with hydra.initialize_config_module(
+        config_module=config_module, version_base="1.3"
+    ):
+        config_yaml = compose(config_name=config_name)
+
+    cli_overrides = OmegaConf.from_cli(extra_args)
+
+    config = OmegaConf.merge(config_yaml, cli_overrides)
+    assert type(config) is DictConfig  # Check this to silence mypy.
+
+    OmegaConf.set_struct(config, False)
+
     return config
 
 
@@ -339,6 +365,8 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
         re.compile(r"wandb.*"),
         # matches all paths containing "otter.egg-info"
         re.compile(r"otter.egg-info.*"),
+        # matches the "tests" directory
+        re.compile(r"tests.*"),
     ]
 
     return any(bool(pattern.match(path)) for pattern in patterns)
@@ -403,16 +431,59 @@ def log_per_variable_per_lead_time_losses_to_wandb(
             )
 
 
-def create_optimizer_and_lr_scheduler(
-    module: torch.nn.Module,
-    optimizer_kwargs: Dict[str, Any],
-    lr_scheduler_kwargs: Dict[str, Any],
-) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
-    optimizer = torch.optim.AdamW(
-        params=module.parameters(), **optimizer_kwargs
+def get_adamw_optimizer(
+    module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
+) -> torch.optim.AdamW:
+    return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
+
+
+def get_shampoo_optimizer(
+    module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
+) -> DistributedShampoo:
+    """Instantiate Shampoo optimizer with eigenvalue-corrected preconditioner.
+
+    See the docstring of the DistributedShampoo class for more information:
+    https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/distributed_shampoo.py#L101-L294
+
+    Mmemory overhead:
+    For a parameter W with shape (m, n), Adam uses an additional buffer of size m*n.
+    On top of this, eigenvalue-corrected Shampoo uses buffers of sizes 2 * m**2  and 2 * n**2, which increases its memory requirements.
+    However, if max(m, n) > max_preconditioner_dim, the preconditioner will be blocked such that the largest dimension is max_preconditioner_dim.
+
+    Computational overhead:
+    The most significant overhead is caused by the eigendecompositions of the Kronecker factor matrices.
+    Instead of computing them at a fixed frequency, we use an adaptive strategy that computes them only when the previously computed eigenbasis is no longer accurate enough.
+    This strategy is controlled by the tolerance parameter of the AdaptiveAmortizedComputationFrequencyConfig class, i.e. the smaller the tolerance, the more frequently the eigendecompositions are computed.
+
+    Arguments:
+        module: Module to optimize.
+        optimizer_kwargs: Optimizer arguments.
+
+    Returns:
+        DistributedShampoo optimizer instance.
+    """
+    # See the following docstring for more explanation on the eigenvalue correction:
+    # https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/distributed_shampoo.py#L238-L246
+    preconditioner_config = EigenvalueCorrectedShampooPreconditionerConfig(
+        amortized_computation_frequency_config=AdaptiveAmortizedComputationFrequencyConfig(
+            # Determines how frequently eigendecompositions are computed and hence also
+            # the average step time. See the following docstring for an explanation:
+            # https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/shampoo_types.py#L105-L112
+            tolerance=optimizer_kwargs.pop(
+                "adaptive_amortized_computation_frequency_tolerance"
+            ),
+        )
     )
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optimizer, **lr_scheduler_kwargs
+    return DistributedShampoo(
+        params=module.parameters(),
+        preconditioner_config=preconditioner_config,
+        **optimizer_kwargs,
     )
 
-    return optimizer, lr_scheduler
+
+def get_cosine_lr_scheduler(
+    optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
+) -> torch.optim.lr_scheduler.CosineAnnealingLR:
+    return torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer=optimizer, **lr_scheduler_kwargs
+    )

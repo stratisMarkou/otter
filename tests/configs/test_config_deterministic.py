@@ -17,7 +17,11 @@ TEST_DATASET = "era5_240x121"
     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
 )
-def test_deterministic_config() -> None:
+@pytest.mark.parametrize(
+    "config_name",
+    ["base", "base_moe", "multiscale"],
+)
+def test_config(config_name: str) -> None:
     with TemporaryDirectory() as temp_dir:
         download_zarr_and_store(
             dataset=TEST_DATASET,
@@ -45,10 +49,15 @@ def test_deterministic_config() -> None:
             "cpu",
             args_list=[
                 "--debug",
-                "--config",
-                "otter/experiment/config/deterministic.yaml",
+                "--config_module",
+                "otter.experiment.config",
+                "--config_name",
+                config_name,
                 f"constants.data.path_to_labelled_array={path}",
                 # Use a small MLP to keep test fast and prevent OOMs.
-                "backbone_network.mlp_num_hidden=256",
+                "backbone_network.feedforward_network.hidden_features=32",
+                # Reduce model size to keep test fast and prevent OOMs.
+                "backbone_network.num_blocks_per_stage=[1,1,1]",
+                "backbone_network.token_dimensions=[16,16,16,16]",
             ],
         )
