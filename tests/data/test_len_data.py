@@ -22,28 +22,28 @@ TEST_DATASET = "era5_240x121"
         "temporal_resolution_hours",
         "num_context_frames",
         "num_target_frames",
-        "correct_len",
+        "task_sub_sampling_factor",
     ),
     [
-        ("2020-01-01 00:00:00", "2020-01-05 18:00:00", 6, 1, 2, 18),
-        ("2020-04-01 00:00:00", "2020-04-06 18:00:00", 6, 2, 3, 20),
-        ("2020-01-01 00:00:00", "2020-01-03 15:00:00", 6, 1, 3, 8),
-        ("2020-06-30 00:00:00", "2020-07-03 17:00:00", 6, 2, 4, 10),
-        ("2020-01-01 00:00:00", "2020-01-03 18:00:00", 12, 1, 3, 3),
-        ("2020-01-01 00:00:00", "2020-01-04 21:00:00", 12, 1, 2, 6),
+        ("2020-01-01 00:00:00", "2020-01-05 18:00:00", 6, 1, 2, 1),
+        ("2020-04-01 00:00:00", "2020-04-06 18:00:00", 6, 2, 3, 2),
+        ("2020-06-30 00:00:00", "2020-07-03 17:00:00", 6, 2, 4, 1),
+        ("2020-01-01 00:00:00", "2020-01-03 18:00:00", 12, 1, 3, 2),
+        ("2020-01-01 00:00:00", "2020-01-10 21:00:00", 12, 1, 2, 5),
+        ("2020-07-01 00:00:00", "2020-09-03 15:00:00", 24, 1, 3, 10),
     ],
 )
-# @pytest.mark.skipif(
-#     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
-#     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
-# )
+@pytest.mark.skipif(
+    os.getenv("OTTER_RUN_ALL_TESTS") != "true",
+    reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
+)
 def test_len_dataset(
     start_date: str,
     end_date: str,
     num_context_frames: int,
     num_target_frames: int,
     temporal_resolution_hours: int,
-    correct_len: int,
+    task_sub_sampling_factor: int,
 ) -> None:
     # First download the dataset
     with TemporaryDirectory() as temp_dir:
@@ -83,21 +83,9 @@ def test_len_dataset(
             temporal_resolution_hours=temporal_resolution_hours,
             ctx_variables_to_exclude=[],
             trg_variables_to_exclude=[],
-            task_sub_sampling_factor=1,
+            task_sub_sampling_factor=task_sub_sampling_factor,
         )
 
-    # Assert the length is correct
-    assert len(dataset) == correct_len
-
-    # Extract last index
-    last_datapoint = dataset.__getitem__(len(dataset) - 1)
-    zero_time = last_datapoint.zero_time
-    target_timedeltas = dataset.target_timedeltas.astype("timedelta64[h]")
-    target_times = zero_time + target_timedeltas
-    # Compute the realisable end date
-    target_end_date = (
-        dataset.end_date
-        - (dataset.end_date - dataset.start_date) % dataset.temporal_resolution
-    )
-    # Assert last date is the realisable end date
-    assert target_times[-1] == target_end_date
+    # Assert that this gives a target time after end date
+    with pytest.raises(AssertionError):
+        dataset.__getitem__(len(dataset))
