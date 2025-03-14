@@ -56,8 +56,8 @@ def softplus(x: torch.Tensor) -> torch.Tensor:
     return torch.log(1 + torch.exp(x))
 
 
-def inv_softplus(x: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
-    return torch.log(torch.exp(x) - 1 + eps)
+def inv_softplus(x: torch.Tensor) -> torch.Tensor:
+    return torch.log(torch.exp(x) - 1)
 
 
 class Gaussian(Distribution):
@@ -70,9 +70,11 @@ class Gaussian(Distribution):
         eps: float = 1e-12,
     ):
         self.mean = mean
-        self.unconstrained_stddev = unconstrained_stddev
-        self.stddev = softplus(unconstrained_stddev) + eps
-        self.dist = dist.Normal(self.mean, self.stddev)  # type: ignore
+        self.unconstrained_stddev = unconstrained_stddev * 1e-2
+        self.stddev = softplus(
+            unconstrained_stddev
+        )  # torch.ones_like(softplus(unconstrained_stddev) + eps)
+        self.dist = dist.Normal(self.mean, self.stddev + eps)  # type: ignore
 
     def sample(self) -> torch.Tensor:
         return self.dist.rsample()
