@@ -281,7 +281,7 @@ class MultiscaleModel(torch.nn.Module):
 
         # We always assume that the first statistic is a mean-like
         # statistic, and add the residual to it.
-        prd_stats[0] += residual
+        prd_stats[0] = prd_stats[0] + residual
 
         return self.distribution_type(*prd_stats), load_balancing_losses
 
