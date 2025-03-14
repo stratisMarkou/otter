@@ -32,6 +32,8 @@ ALL_TRG_VARIABLES = (
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES + ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES
 )
 
+BASE_TEMPORAL_RESOLUTION = np.timedelta64(6, "h")
+
 
 @dataclass
 class ForecastingSample:
@@ -171,19 +173,21 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         # parameters specified for the task.
         length = int(
             (self.end_date - self.start_date - trailing_time_interval)
-            // self.temporal_resolution
+            // BASE_TEMPORAL_RESOLUTION
         )
 
         return length // self.task_sub_sampling_factor
 
     def __getitem__(self, idx: int) -> ForecastingSample:
         idx = idx * self.task_sub_sampling_factor
-        zero_time = self.first_zero_time + idx * self.temporal_resolution
+        zero_time = self.first_zero_time + idx * BASE_TEMPORAL_RESOLUTION
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
         assert all(ctx_time >= self.start_date for ctx_time in context_times)
-        assert all(trg_time <= self.end_date for trg_time in target_times)
+        assert all(trg_time <= self.end_date for trg_time in target_times), (
+            f"{target_times=}"
+        )
 
         ctx = self.dataset.sel(time=context_times).sel(
             variable_and_level=self.ctx_variables_and_levels
