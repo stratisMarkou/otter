@@ -267,10 +267,17 @@ class MultiscaleModel(torch.nn.Module):
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
-        prediction = prediction.reshape(
-            *prediction.shape[:-1], self.distribution_type.num_stats, -1
+        # prediction = prediction.reshape(
+        #     *prediction.shape[:-1], self.distribution_type.num_stats, -1
+        # )
+        # prd_stats = list(torch.unbind(prediction, dim=-1))
+        prd_stats = list(
+            torch.split(
+                prediction,
+                prediction.shape[-1] // self.distribution_type.num_stats,
+                dim=-1,
+            )
         )
-        prd_stats = list(torch.unbind(prediction, dim=-1))
 
         # We always assume that the first statistic is a mean-like
         # statistic, and add the residual to it.
@@ -378,10 +385,12 @@ class MultiscaleModel(torch.nn.Module):
             # TODO(jonas, stratis): This samples distribution over all scales
             # and then selects the last scale, which is inefficient. We should
             # first slice the distribution and then sample.
-            prd_sample = last_prd_dist.sample()
-            prd_sample = prd_sample[
-                ..., -1, :
-            ]  # (batch, lat, lon, 1, trg_var_and_level)
+            prd_sample = (
+                last_prd_dist.sample()
+            )  # (batch, lat, lon, trg_var_and_level)
+            prd_sample = prd_sample.unsqueeze(
+                -2
+            )  # (batch, lat, lon, 1, trg_var_and_level)
             ctx_next_time_frame[..., 0:1, self.idx_ctx_for_update] = prd_sample
 
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
