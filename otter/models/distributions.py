@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import List
-from typing_extensions import Self
 
 import torch
 import torch.distributions as dist
+from typing_extensions import Self
 
 
 class Distribution(ABC):
@@ -52,12 +53,8 @@ class Delta(Distribution):
         return Delta(self.mean * other)
 
 
-def softplus(x: torch.Tensor) -> torch.Tensor:
-    return torch.log(1 + torch.exp(x))
-
-
 def inv_softplus(x: torch.Tensor) -> torch.Tensor:
-    return torch.log(torch.exp(x) - 1)
+    return x + torch.log(-torch.expm1(-x))
 
 
 class Gaussian(Distribution):
@@ -70,8 +67,8 @@ class Gaussian(Distribution):
         eps: float = 1e-12,
     ):
         self.mean = mean
-        self.unconstrained_stddev = unconstrained_stddev * 1e-2
-        self.stddev = softplus(
+        self.unconstrained_stddev = unconstrained_stddev
+        self.stddev = torch.nn.functional.softplus(
             unconstrained_stddev
         )  # torch.ones_like(softplus(unconstrained_stddev) + eps)
         self.dist = dist.Normal(self.mean, self.stddev + eps)  # type: ignore

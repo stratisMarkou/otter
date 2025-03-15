@@ -70,44 +70,38 @@ def train_step(
 
     rollout_scales = scale_scheduler.get_rollout_scales()
 
-    # Do forward pass with AMP autocasting. Only forward pass needs to be
-    # autocasted, as the backward is computed with matching dtypes to the
-    # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
-    with torch.amp.autocast(  # type: ignore
-        device_type=device,
-        dtype=mixed_precision_dtype,
-    ):
-        prd_dist, load_balancing_losses = run_and_log_time_to_wandb(
-            "model.forward",
-            model.forward,
-            processed_batch,
-            scales=rollout_scales,
-        )
+    prd_dist, load_balancing_losses = run_and_log_time_to_wandb(
+        "model.forward",
+        model.forward,
+        processed_batch,
+        scales=rollout_scales,
+    )
 
-        loss, loss_info = run_and_log_time_to_wandb(
-            "loss_fn",
-            loss_fn,
-            prd_dist=prd_dist,
-            trg=batch.trg,
-            scales=_combine_scales(data_scale, rollout_scales),
-        )
+    loss, loss_info = run_and_log_time_to_wandb(
+        "loss_fn",
+        loss_fn,
+        prd_dist=prd_dist,
+        trg=batch.trg,
+        scales=_combine_scales(data_scale, rollout_scales),
+    )
 
-        load_balancing_loss, load_balancing_loss_info = (
-            run_and_log_time_to_wandb(
-                "gather_load_balancing_losses",
-                gather_load_balancing_losses,
-                load_balancing_losses=load_balancing_losses,
-            )
-        )
+    load_balancing_loss, load_balancing_loss_info = run_and_log_time_to_wandb(
+        "gather_load_balancing_losses",
+        gather_load_balancing_losses,
+        load_balancing_losses=load_balancing_losses,
+    )
 
-        if load_balancing_loss is not None:
-            loss += load_balancing_loss
+    if load_balancing_loss is not None:
+        loss += load_balancing_loss
 
-        if load_balancing_loss_info is not None:
-            loss_info.update(load_balancing_loss_info)
+    if load_balancing_loss_info is not None:
+        loss_info.update(load_balancing_loss_info)
 
     scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("scaled_loss.backward", scaled_loss.backward)
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
     run_and_log_time_to_wandb("scaler.step", scaler.step, optimizer)
     run_and_log_time_to_wandb("scaler.update", scaler.update)
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
