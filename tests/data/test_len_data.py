@@ -1,10 +1,14 @@
 import os
 from tempfile import TemporaryDirectory
+import numpy as np
 
 import pytest
 import xarray as xr
 
-from otter.data.datasets import make_gridded_weather_task
+from otter.data.datasets import (
+    BASE_TEMPORAL_RESOLUTION,
+    make_gridded_weather_task,
+)
 from otter.data.source.utils import (
     download_zarr_and_store,
 )
@@ -86,6 +90,28 @@ def test_len_dataset(
             task_sub_sampling_factor=task_sub_sampling_factor,
         )
 
-    # Assert that this gives a target time after end date
+    # Assert that first datapoint has the right first date
+    first_datapoint = dataset.__getitem__(0)
+    first_target_date = (
+        first_datapoint.zero_time
+        + dataset.target_timedeltas.astype("timedelta64[h]")
+    )[0]
+    true_first_target_date = np.datetime64(start_date) + np.timedelta64(
+        (num_context_frames) * temporal_resolution_hours, "h"
+    )
+    assert first_target_date == true_first_target_date, (
+        "Not picking the correct first date"
+    )
+
+    # Assert that the temporal resolution is the data resolution (6h)
+    for _idx in range(1, len(dataset)):
+        datapoint1 = dataset.__getitem__(_idx - 1)
+        datapoint2 = dataset.__getitem__(_idx)
+        assert (
+            datapoint2.zero_time - datapoint1.zero_time
+            == BASE_TEMPORAL_RESOLUTION * task_sub_sampling_factor
+        )
+
+    # Assert that extending the dataset by 1 gives out-of-range date
     with pytest.raises(AssertionError):
         dataset.__getitem__(len(dataset))
