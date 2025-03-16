@@ -163,20 +163,21 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         self.task_sub_sampling_factor = task_sub_sampling_factor
 
     def __len__(self) -> int:
-        # Return the number of full tasks that can be formed with the
-        # parameters specified for the task.
-        length = (
-            int(
-                (
-                    self.end_date
-                    - self.start_date
-                    - self.single_task_time_window
-                )
-                // BASE_TEMPORAL_RESOLUTION
-            )
-            // self.task_sub_sampling_factor
-            + 1
+        # Time interval for the specified dates from which we subtract the time needed to form a full task.
+        total_time_interval = (
+            self.end_date - self.start_date - self.single_task_time_window
         )
+
+        # Number of datapoints within this time interval given the
+        # resolution of the data.
+        # NOTE: we cast to int as mypy infers np.int64
+        num_datapoints = int(total_time_interval // BASE_TEMPORAL_RESOLUTION)
+
+        # Number of subsampled tasks according to task_sub_sampling_factor.
+        # NOTE: We add 1 because we start the numbering from 0. For example,
+        # if num_datapoints is 9 and task_sub_sampling factor=2, we will use
+        # datapoints [0, 2, 4, 6, 8], hence 9 // 2 + 1.
+        length = num_datapoints // self.task_sub_sampling_factor + 1
 
         return length
 

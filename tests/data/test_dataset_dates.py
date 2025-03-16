@@ -27,29 +27,87 @@ TEST_DATASET = "era5_240x121"
         "num_context_frames",
         "num_target_frames",
         "task_sub_sampling_factor",
+        "correct_len",
+        "true_last_target_date",
     ),
     [
-        ("2020-01-01 00:00:00", "2020-01-05 18:00:00", 6, 1, 2, 1),
-        ("2020-04-01 00:00:00", "2020-04-06 18:00:00", 6, 2, 3, 2),
-        ("2020-06-30 00:00:00", "2020-07-03 17:00:00", 6, 2, 4, 1),
-        ("2020-01-01 00:00:00", "2020-01-03 18:00:00", 12, 1, 3, 2),
-        ("2020-01-01 00:00:00", "2020-01-10 21:00:00", 12, 1, 2, 5),
-        ("2020-07-01 00:00:00", "2020-09-03 15:00:00", 24, 1, 3, 10),
+        (
+            "2020-01-01 00:00:00",
+            "2020-01-05 18:00:00",
+            6,
+            1,
+            2,
+            1,
+            18,
+            "2020-01-05 18:00:00",
+        ),
+        (
+            "2020-04-01 00:00:00",
+            "2020-04-06 18:00:00",
+            6,
+            2,
+            3,
+            2,
+            10,
+            "2020-04-06 12:00:00",
+        ),
+        (
+            "2020-06-30 00:00:00",
+            "2020-07-03 17:00:00",
+            6,
+            2,
+            4,
+            1,
+            10,
+            "2020-07-03 12:00:00",
+        ),
+        (
+            "2020-01-01 00:00:00",
+            "2020-01-03 18:00:00",
+            12,
+            1,
+            3,
+            2,
+            3,
+            "2020-01-03 12:00:00",
+        ),
+        (
+            "2020-01-01 00:00:00",
+            "2020-01-10 21:00:00",
+            12,
+            1,
+            2,
+            5,
+            8,
+            "2020-01-10 18:00:00",
+        ),
+        (
+            "2020-07-01 00:00:00",
+            "2020-09-03 15:00:00",
+            24,
+            1,
+            3,
+            10,
+            25,
+            "2020-09-02 00:00:00",
+        ),
     ],
 )
 @pytest.mark.skipif(
     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
 )
-def test_len_dataset(
+def test_dataset_dates(
     start_date: str,
     end_date: str,
     num_context_frames: int,
     num_target_frames: int,
     temporal_resolution_hours: int,
     task_sub_sampling_factor: int,
+    correct_len: int,
+    true_last_target_date: str,
 ) -> None:
-    # First download the dataset
+    # First download the dataset.
     with TemporaryDirectory() as temp_dir:
         download_zarr_and_store(
             dataset=TEST_DATASET,
@@ -77,7 +135,7 @@ def test_len_dataset(
 
         path = os.path.join(temp_dir, f"{TEST_DATASET}_single_array")
 
-        # Construct dataset
+        # Construct dataset.
         dataset = make_gridded_weather_task(
             path_to_labelled_array=path,
             start_date=start_date,
@@ -90,8 +148,13 @@ def test_len_dataset(
             task_sub_sampling_factor=task_sub_sampling_factor,
         )
 
-    # Assert that first datapoint has the right first date
-    first_datapoint = dataset.__getitem__(0)
+    # Assert that the length of the dataset is the expected one.
+    assert len(dataset) == correct_len, (
+        "Dataset does not have the correct length."
+    )
+
+    # Assert that the first target datapoint has the right first date.
+    first_datapoint = dataset[0]
     first_target_date = (
         first_datapoint.zero_time
         + dataset.target_timedeltas.astype("timedelta64[h]")
@@ -100,18 +163,29 @@ def test_len_dataset(
         (num_context_frames) * temporal_resolution_hours, "h"
     )
     assert first_target_date == true_first_target_date, (
-        "Not picking the correct first date"
+        "Not picking the correct first target date."
     )
 
-    # Assert that the temporal resolution is the data resolution (6h)
+    # Assert that the last target datapoint has the right end date.
+    last_datapoint = dataset[len(dataset) - 1]
+    last_target_date = (
+        last_datapoint.zero_time
+        + dataset.target_timedeltas.astype("timedelta64[h]")
+    )[-1]
+    assert last_target_date == np.datetime64(true_last_target_date), (
+        "Not picking the correct last target date."
+    )
+
+    # Assert that the spacing between consecutive examples has the data resolution.
     for _idx in range(1, len(dataset)):
-        datapoint1 = dataset.__getitem__(_idx - 1)
-        datapoint2 = dataset.__getitem__(_idx)
+        datapoint1 = dataset[_idx - 1]
+        datapoint2 = dataset[_idx]
         assert (
             datapoint2.zero_time - datapoint1.zero_time
             == BASE_TEMPORAL_RESOLUTION * task_sub_sampling_factor
         )
 
-    # Assert that extending the dataset by 1 gives out-of-range date
+    # Assert that extending the dataset by 1 over the correct length
+    # gives out-of-range date.
     with pytest.raises(AssertionError):
-        dataset.__getitem__(len(dataset))
+        dataset[correct_len]
