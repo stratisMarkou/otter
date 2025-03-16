@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -91,7 +92,7 @@ class RunState:
         scaler.load_state_dict(self.scaler_state)
 
 
-def load_initial_state(
+def load_run_state_from_latest_checkpoint(
     experiment: Any,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
@@ -101,7 +102,6 @@ def load_initial_state(
     Load the initial state of the run from the given experiment_name.
 
     Args:
-        experiment_name: The name of the experiment to load the state from.
         experiment: The experiment object, loaded from the yaml config.
         optimizer: The torch optimizer.
         lr_scheduler: The torch learning rate scheduler.
@@ -122,7 +122,7 @@ def load_initial_state(
     )
     step = run_state.step
     epoch = run_state.epoch
-    print(f"Successfully restored state from {path} at step {step}")
+    logging.info(f"Successfully restored state from {path} at step {step}")
 
     return TrainState(epoch=epoch, step=step)
 
@@ -133,7 +133,7 @@ def get_checkpoint_dir(experiment: Any) -> Path:
 
 def get_latest_checkpoint(path: Path) -> Path:
     """Get the latest checkpoint file in the given directory."""
-    checkpoints = path.glob("*.pt")
+    checkpoints = list(path.glob("*.pt"))
     if not checkpoints:
         raise FileNotFoundError(f"No checkpoint files found in {path}")
     return max(checkpoints, key=lambda x: str(x))
@@ -156,5 +156,5 @@ def save_run_state(
         epoch=epoch,
         step=step,
     )
-    path = get_checkpoint_dir(experiment) / f"step_{step}.pt"
+    path = get_checkpoint_dir(experiment) / f"step_{step:08d}.pt"
     run_state.save(path)

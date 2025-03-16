@@ -92,7 +92,7 @@ def initialize_experiment(
         else _generate_experiment_name()
     )
 
-    _initalize_wandb(experiment_name)
+    _initialize_wandb(experiment_name)
 
     repo = git.Repo(search_parent_directories=True)
     # Check that the repo is clean, and up to date with remote branch,
@@ -170,6 +170,7 @@ def _generate_experiment_name() -> str:
     ]
 
     animals = [
+        "aardvark",
         "tiger",
         "eagle",
         "wolf",
@@ -196,15 +197,16 @@ def _generate_experiment_name() -> str:
     animal = random.choice(animals)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    return f"{adjective}-{animal}-{timestamp}"
+    return f"{timestamp}-{adjective}-{animal}"
 
 
-def _initalize_wandb(experiment_name: str) -> None:
+def _initialize_wandb(experiment_name: str) -> None:
     wandb.init(
         project="otter-deterministic",
         entity="otter-weather",
         name=experiment_name,
         id=experiment_name,
+        resume="allow",
     )
 
 

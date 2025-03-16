@@ -1,12 +1,10 @@
 import logging
-import os
 from collections import defaultdict
 from typing import (
     Callable,
     Dict,
     Iterable,
     List,
-    Optional,
     Tuple,
 )
 
@@ -21,7 +19,7 @@ from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
 from otter.experiment.run_state import (
     TrainState,
-    load_initial_state,
+    load_run_state_from_latest_checkpoint,
     save_run_state,
 )
 from otter.experiment.utils import (
@@ -234,25 +232,6 @@ def validation_epoch(
     model.train()
 
 
-def load_checkpointed_weights_from_experiment(
-    model: torch.nn.Module,
-    experiment_name: str,
-    experiments_path: str = "./_results",
-    checkpoint_name: Optional[str] = None,
-) -> None:
-    # Get list of all files in the directory.
-    experiment_path = os.path.join(experiments_path, experiment_name)
-    assert os.path.exists(experiment_path)
-    checkpoints_path = os.path.join(experiment_path, "checkpoints")
-
-    if checkpoint_name is None:
-        # Get latest checkpoint.
-        checkpoint_name = sorted(os.listdir(checkpoints_path))[-1]
-
-    checkpoint_path = os.path.join(checkpoints_path, checkpoint_name)
-    model.load_state_dict(torch.load(checkpoint_path))
-
-
 def main() -> None:
     torch.set_float32_matmul_precision("high")
     # Ensure that only one device is available.
@@ -267,17 +246,11 @@ def main() -> None:
     optimizer = experiment.optimizer(experiment.model)
     lr_scheduler = experiment.lr_scheduler(optimizer)
 
-    if experiment.constants.load_weights_from_experiment:
-        load_checkpointed_weights_from_experiment(
-            model=experiment.model,
-            experiment_name=experiment.constants.load_weights_from_experiment,
-        )
-
     scaler = GradScaler(device=device)
 
     if experiment.info.start_from_checkpoint:
         logging.info("Loading initial state from checkpoint.")
-        initial_state = load_initial_state(
+        initial_state = load_run_state_from_latest_checkpoint(
             experiment=experiment,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
@@ -349,7 +322,6 @@ def train_loop(
 
             if step % experiment.constants.training.save_checkpoint_every == 0:
                 logging.info("Saving checkpoint.")
-                # Save complete run state
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,

@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import StepLR
 
 from otter.experiment.run_state import (
     RunState,
-    load_initial_state,
+    load_run_state_from_latest_checkpoint,
     save_run_state,
 )
 
@@ -238,20 +238,22 @@ def test_get_latest_checkpoint(
 
         # Second state
         save_run_state(
-            experiment, optimizer, scheduler, scaler, epoch=1, step=100
+            experiment, optimizer, scheduler, scaler, epoch=1, step=300
         )
 
         # Third state
         save_run_state(
-            experiment, optimizer, scheduler, scaler, epoch=1, step=300
+            experiment, optimizer, scheduler, scaler, epoch=1, step=1000
         )
 
         # Ensure all checkpoints are saved:
-        assert (path / "checkpoints" / "step_0.pt").exists()
-        assert (path / "checkpoints" / "step_100.pt").exists()
-        assert (path / "checkpoints" / "step_300.pt").exists()
+        assert (path / "checkpoints" / "step_00000000.pt").exists()
+        assert (path / "checkpoints" / "step_00000300.pt").exists()
+        assert (path / "checkpoints" / "step_00001000.pt").exists()
 
         # This method should find and load the latest checkpoint
-        state = load_initial_state(experiment, optimizer, scheduler, scaler)
+        state = load_run_state_from_latest_checkpoint(
+            experiment, optimizer, scheduler, scaler
+        )
         assert state.epoch == 1
-        assert state.step == 300
+        assert state.step == 1000
