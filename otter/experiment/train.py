@@ -24,6 +24,7 @@ from otter.experiment.run_state import (
 )
 from otter.experiment.utils import (
     initialize_experiment,
+    initialize_wandb,
     log_loss_info_to_wandb,
     run_and_log_time_to_wandb,
 )
@@ -240,6 +241,7 @@ def main() -> None:
 
     logging.info("Initializing experiment.")
     experiment = initialize_experiment(device)
+    initialize_wandb(experiment.info.experiment_name)
     logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
     experiment.model = experiment.model.to(device)

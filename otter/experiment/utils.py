@@ -92,8 +92,6 @@ def initialize_experiment(
         else _generate_experiment_name()
     )
 
-    _initialize_wandb(experiment_name)
-
     repo = git.Repo(search_parent_directories=True)
     # Check that the repo is clean, and up to date with remote branch,
     # if not in debug mode.
@@ -200,13 +198,12 @@ def _generate_experiment_name() -> str:
     return f"{timestamp}-{adjective}-{animal}"
 
 
-def _initialize_wandb(experiment_name: str) -> None:
+def initialize_wandb(experiment_name: str) -> None:
     wandb.init(
         project="otter-deterministic",
         entity="otter-weather",
         name=experiment_name,
         id=experiment_name,
-        resume="allow",
     )
 
 
