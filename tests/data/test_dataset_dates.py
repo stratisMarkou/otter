@@ -18,7 +18,11 @@ from otter.data.utils import save_xarray_dataset_as_memmap
 TEST_DATASET = "era5_240x121"
 
 
-# Tests that th length of the dataset is correct
+# Tests that the length of the dataset is correct, checks the date of the
+# first and last target dates, tests that the spacing between datapoints
+# is the base data resolution (6h).
+
+
 @pytest.mark.parametrize(
     (
         "start_date",
@@ -176,7 +180,7 @@ def test_dataset_dates(
         "Not picking the correct last target date."
     )
 
-    # Assert that the spacing between consecutive examples is the data resolution (6h).
+    # Assert that the temporal resolution is the data resolution (6h).
     for _idx in range(1, len(dataset)):
         datapoint1 = dataset[_idx - 1]
         datapoint2 = dataset[_idx]
