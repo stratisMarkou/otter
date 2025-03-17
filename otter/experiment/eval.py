@@ -19,7 +19,6 @@ from omegaconf import (
 
 from otter.experiment.train import (
     assert_single_device,
-    load_checkpointed_weights_from_experiment,
     run_validation_epoch,
 )
 from otter.experiment.utils import get_module_attr
@@ -165,11 +164,11 @@ def get_validation_metrics(
         lead_time=lead_time,
     )
     experiment.model = experiment.model.to(device)
-    load_checkpointed_weights_from_experiment(
-        model=experiment.model,
-        experiment_name=experiment_name,
-        checkpoint_name=checkpoint_name,
-    )
+    # load_checkpointed_weights_from_experiment(
+    #     model=experiment.model,
+    #     experiment_name=experiment_name,
+    #     checkpoint_name=checkpoint_name,
+    # )
 
     # Perform validation.
     _, validation_metrics = run_validation_epoch(
