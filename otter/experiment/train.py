@@ -24,6 +24,7 @@ from otter.experiment.utils import (
     run_and_log_time_to_wandb,
 )
 from otter.models.architectures.schedulers import ScaleScheduler
+from otter.models.distributions import Gaussian
 from otter.models.losses.loss_fn import (
     LossInfo,
     gather_load_balancing_losses,
@@ -77,6 +78,19 @@ def train_step(
         scales=rollout_scales,
     )
 
+    if isinstance(prd_dist, Gaussian):
+        stds = prd_dist.stddev
+        lowest_std = stds.min()
+        hist = wandb.Histogram(stds.flatten().log10().cpu().detach().numpy())  # type: ignore
+        wandb.log({"pred_stddev_log10": hist}, commit=False)
+        wandb.log({"lowest_pred_stddev": lowest_std}, commit=False)
+
+        for i, var in enumerate(model.trg_variables_and_levels):
+            var_stds = stds[..., i]
+            wandb.log(
+                {f"lowest_pred_stddev/{var}": var_stds.min()}, commit=False
+            )
+
     loss, loss_info = run_and_log_time_to_wandb(
         "loss_fn",
         loss_fn,
@@ -100,17 +114,20 @@ def train_step(
     scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
     run_and_log_time_to_wandb("scaled_loss.backward", scaled_loss.backward)
 
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    scaler.unscale_(optimizer)
+
+    norm = 0.0
+    for param in model.parameters():
+        norm += param.grad.norm(2) ** 2  # type: ignore
+    norm = norm**0.5
+    wandb.log({"misc/gradient_norm": norm}, commit=False)
 
     run_and_log_time_to_wandb("scaler.step", scaler.step, optimizer)
     run_and_log_time_to_wandb("scaler.update", scaler.update)
     run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
     run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
 
-    log_loss_info_to_wandb(
-        loss_info=loss_info,
-        prefix="train",
-    )
+    log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
 
     current_lr = lr_scheduler.get_last_lr()[0]
     wandb.log({"misc/learning_rate": current_lr}, commit=False)
@@ -259,6 +276,12 @@ def main() -> None:
             model=experiment.model,
             experiment_name=experiment.constants.load_weights_from_experiment,
         )
+
+    wandb.watch(
+        experiment.model,
+        log_freq=experiment.constants.training.log_gradients_every,
+        log="all",
+    )
 
     scaler = GradScaler(device=device)
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype

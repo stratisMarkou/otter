@@ -7,7 +7,11 @@ model:
 
 loss_fn:
   loss_fn: ${get_module_attr:otter.models.losses.loss_fn.mean_neg_log_prob}
-  weighting_coefficients_power: 0.0
+  weighting_coefficients_power: 1.0
+  weighting_fns:
+    # No std weighting, because the NLL already divides by the std.
+    - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
+    - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}
 
 val_loss_fns:
   # Always include the training loss function in the validation loss functions.
@@ -17,7 +21,7 @@ val_loss_fns:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.mean_neg_log_prob}
-    weighting_coefficients_power: 0.0
+    weighting_coefficients_power: 1.0
 
 constants:
   num_stats: 2

@@ -95,7 +95,7 @@ loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
   model: ${model}
   loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
-  weighting_coefficients_power: 1.0
+  weighting_coefficients_power: 0.5
   weighting_fns:
     - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
     - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}
@@ -109,12 +109,12 @@ val_loss_fns:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
-    weighting_coefficients_power: 1.0
+    weighting_coefficients_power: 0.5
   raw_lwrmse:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
-    weighting_coefficients_power: 1.0
+    weighting_coefficients_power: 0.5
 
 optimizer:
   # Can also be set to `otter.experiment.utils.get_shampoo_optimizer`.
@@ -177,7 +177,9 @@ constants:
       dataloader: ${train_dataloader}
     validate_every: 5000
     save_checkpoint_every: 10_000
+    log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float32}
+    max_grad_norm: 30.0
   load_weights_from_experiment: null
 
 info:

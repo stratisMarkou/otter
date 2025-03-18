@@ -45,9 +45,11 @@ def apply_division_by_variable_diff_std(
     std_tensor = torch.tensor(std_array).float().to(tensor.device)
     std_tensor = std_tensor[None, None, :] + 1e-12
 
-    weighting_coefficient = torch.pow(std_tensor, weighting_coefficients_power)
+    weighting_coefficient = torch.pow(
+        std_tensor, -weighting_coefficients_power
+    )
 
-    return tensor / weighting_coefficient
+    return tensor * weighting_coefficient
 
 
 def apply_division_by_variable_std(
