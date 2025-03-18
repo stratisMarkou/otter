@@ -1,25 +1,30 @@
-import os
+import logging
 from collections import defaultdict
 from typing import (
     Callable,
     Dict,
     Iterable,
     List,
-    Optional,
     Tuple,
 )
 
 import numpy as np
 import torch
+from omegaconf import DictConfig
 from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
 import wandb
 from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
+from otter.experiment.run_state import (
+    TrainState,
+    load_run_state_from_latest_checkpoint,
+    save_run_state,
+)
 from otter.experiment.utils import (
     initialize_experiment,
-    log_code_to_wandb,
+    initialize_wandb,
     log_loss_info_to_wandb,
     run_and_log_time_to_wandb,
 )
@@ -173,7 +178,7 @@ def validation_epoch(
     model = model.eval()
 
     with torch.no_grad():
-        losses = defaultdict(list)
+        losses: Dict[str, List[float]] = defaultdict(list)
         loss_infos: Dict[str, List[LossInfo]] = defaultdict(list)
         for batch in tqdm(dataloader):
             batch = batch.to(device)
@@ -195,6 +200,10 @@ def validation_epoch(
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
+                if loss_name not in losses:
+                    losses[loss_name] = []
+                    loss_infos[loss_name] = []
+
                 loss, loss_info = loss_fn(
                     trg=batch.trg, prd_dist=prd_dist, scales=all_scales
                 )
@@ -235,47 +244,20 @@ def validation_epoch(
     model.train()
 
 
-def load_checkpointed_weights_from_experiment(
-    model: torch.nn.Module,
-    experiment_name: str,
-    experiments_path: str = "./_results",
-    checkpoint_name: Optional[str] = None,
-) -> None:
-    # Get list of all files in the directory.
-    experiment_path = os.path.join(experiments_path, experiment_name)
-    assert os.path.exists(experiment_path)
-    checkpoints_path = os.path.join(experiment_path, "checkpoints")
-
-    if checkpoint_name is None:
-        # Get latest checkpoint.
-        checkpoint_name = sorted(os.listdir(checkpoints_path))[-1]
-
-    checkpoint_path = os.path.join(checkpoints_path, checkpoint_name)
-    model.load_state_dict(torch.load(checkpoint_path))
-
-
 def main() -> None:
     torch.set_float32_matmul_precision("high")
     # Ensure that only one device is available.
     assert_single_device()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Initialize wandb.
-    wandb.init(project="otter-deterministic", entity="otter-weather")
-    log_code_to_wandb()
+    logging.info("Initializing experiment.")
+    experiment = initialize_experiment(device)
+    initialize_wandb(experiment.info.experiment_name)
+    logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
-    # Initialize experiment, including data loaders, model, and optimizer.
-    assert wandb.run is not None
-    experiment = initialize_experiment(device, experiment_name=wandb.run.name)
     experiment.model = experiment.model.to(device)
     optimizer = experiment.optimizer(experiment.model)
     lr_scheduler = experiment.lr_scheduler(optimizer)
-
-    if experiment.constants.load_weights_from_experiment:
-        load_checkpointed_weights_from_experiment(
-            model=experiment.model,
-            experiment_name=experiment.constants.load_weights_from_experiment,
-        )
 
     wandb.watch(
         experiment.model,
@@ -284,9 +266,48 @@ def main() -> None:
     )
 
     scaler = GradScaler(device=device)
+
+    if experiment.info.start_from_checkpoint:
+        logging.info("Loading initial state from checkpoint.")
+        initial_state = load_run_state_from_latest_checkpoint(
+            experiment=experiment,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            scaler=scaler,
+        )
+        logging.info("Successfully loaded initial state.")
+    else:
+        initial_state = TrainState(epoch=0, step=0)
+
+    logging.info(f"Starting from: {initial_state}")
+
+    train_loop(
+        start_epoch=initial_state.epoch,
+        step=initial_state.step,
+        experiment=experiment,
+        device=device,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+        scaler=scaler,
+    )
+
+    wandb.finish()
+
+
+def train_loop(
+    start_epoch: int,
+    step: int,
+    experiment: DictConfig,
+    device: str,
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    scaler: GradScaler,
+) -> None:
+    """
+    The main training loop for the experiment.
+    """
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
-    step = 0
-    for _ in range(experiment.constants.training.epochs):
+    for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
         while True:
@@ -319,15 +340,18 @@ def main() -> None:
             step = step + 1
 
             if step % experiment.constants.training.save_checkpoint_every == 0:
-                checkpoint_path = f"{experiment.info.path_results}/checkpoints"
-                os.makedirs(checkpoint_path, exist_ok=True)
-                torch.save(
-                    experiment.model.state_dict(),
-                    f"{checkpoint_path}/step={step:07d}",
+                logging.info("Saving checkpoint.")
+                save_run_state(
+                    experiment=experiment,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
+                    scaler=scaler,
+                    epoch=epoch,
+                    step=step,
                 )
-
-    wandb.finish()
+                logging.info("Checkpoint saved.")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
