@@ -169,6 +169,8 @@ def save_run_state(
         step=step,
         best_val_loss=best_val_loss,
     )
+    assert latest_run_state and best_run_state
+
     if latest_run_state:
         path = get_checkpoint_dir(experiment) / "latest.pt"
     elif best_run_state:
