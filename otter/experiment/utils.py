@@ -305,7 +305,7 @@ def _create_experiment_path(config: DictConfig, experiment_name: str) -> str:
 
 def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
     # Write config to file together with commit hash
-    path = f"{path}/config.yml"
+    path = f"{path}/config.yaml"
     logging.info(f"Writing reified config to {path}.")
     with open(path, "w") as file:
         hash = _get_current_commit_hash(repo)
