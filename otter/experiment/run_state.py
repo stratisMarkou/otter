@@ -159,6 +159,7 @@ def save_run_state(
     best_val_loss: float = float("inf"),
 ) -> None:
     """Save the complete run state to disk."""
+    logging.info(f"Saving checkpoint {checkpoint_name} at step {step}")
     run_state = RunState.from_objects(
         model=experiment.model,
         optimizer=optimizer,
@@ -168,6 +169,7 @@ def save_run_state(
         step=step,
         best_val_loss=best_val_loss,
     )
+    logging.info("Checkpoint saved.")
 
     path = get_checkpoint_dir(experiment) / checkpoint_name
     run_state.save(path)
