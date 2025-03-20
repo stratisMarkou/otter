@@ -169,9 +169,8 @@ def validation_epoch(
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
-    step: int,
-) -> None:
-    # Ensure model is in evaluation mode.
+    wandb_logger: WandbLogger,
+) -> float:
     model = model.eval()
 
     with torch.no_grad():
@@ -220,7 +219,7 @@ def validation_epoch(
     # Average the losses over the validation set.
     for loss_name, loss_values in losses.items():
         mean_loss = np.mean(np.stack(loss_values, axis=0), axis=0)
-        wandb.log({f"val/{loss_name}": mean_loss}, commit=False, step=step)
+        wandb_logger.log({f"val/{loss_name}": mean_loss})
 
     # Average the loss info over the validation set.
     for loss_name, info in loss_infos.items():
@@ -232,12 +231,16 @@ def validation_epoch(
                 ),
                 axis=0,
             )
-            wandb.log(
-                {f"val/{loss_name}/{var}": mean_info}, commit=False, step=step
-            )
+            wandb_logger.log({f"val/{loss_name}/{var}": mean_info})
 
     # Ensure model is back in training mode after validation.
     model.train()
+
+    train_val_loss: float = np.mean(
+        np.stack(losses["train_loss"], axis=0), axis=0
+    ).item()
+
+    return train_val_loss
 
 
 def main() -> None:
@@ -284,6 +287,7 @@ def main() -> None:
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        best_val_loss=initial_state.best_val_loss,
     )
 
     wandb.finish()
@@ -297,6 +301,7 @@ def train_loop(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
+    best_val_loss: float | None = None,
 ) -> None:
     """
     The main training loop for the experiment.
@@ -305,18 +310,36 @@ def train_loop(
         train_loader = iter(tqdm(experiment.train_dataloader))
 
         while True:
+            wandb_logger = WandbLogger(step)
             if step % experiment.constants.training.validate_every == 0:
-                validation_epoch(
+                current_val_loss = validation_epoch(
                     model=experiment.model,
                     device=device,
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
                     scale_scheduler=experiment.inference_scale_scheduler,
-                    step=step,
+                    wandb_logger=wandb_logger,
                 )
 
+                if experiment.constants.training.save_best_checkpoint:
+                    if (
+                        best_val_loss is None
+                        or current_val_loss < best_val_loss
+                    ):
+                        best_val_loss = current_val_loss
+
+                        save_run_state(
+                            experiment=experiment,
+                            optimizer=optimizer,
+                            lr_scheduler=lr_scheduler,
+                            scaler=scaler,
+                            epoch=epoch,
+                            step=step,
+                            best_val_loss=best_val_loss,
+                            best_run_state=True,
+                        )
+
             try:
-                wandb_logger = WandbLogger(step)
                 step = wandb_logger.timed(
                     "train_step",
                     train_step,
@@ -334,6 +357,18 @@ def train_loop(
             except StopIteration:
                 break
 
+            if experiment.constants.training.save_latest_checkpoint:
+                save_run_state(
+                    experiment=experiment,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
+                    scaler=scaler,
+                    epoch=epoch,
+                    step=step,
+                    best_val_loss=best_val_loss,
+                    latest_run_state=True,
+                )
+
             if step % experiment.constants.training.save_checkpoint_every == 0:
                 logging.info("Saving checkpoint.")
                 save_run_state(
@@ -343,6 +378,7 @@ def train_loop(
                     scaler=scaler,
                     epoch=epoch,
                     step=step,
+                    best_val_loss=best_val_loss,
                 )
                 logging.info("Checkpoint saved.")
 
