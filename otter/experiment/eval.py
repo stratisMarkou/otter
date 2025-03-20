@@ -114,6 +114,11 @@ def get_validation_metrics(
 
     mean_validation_metrics = get_mean_metrics(validation_metrics)
 
+    # Also record temporal resolution
+    mean_validation_metrics["val/temporal_resolution"] = (
+        experiment.valid_dataloader.dataset.temporal_resolution
+    ).astype(int)
+
     return mean_validation_metrics
 
 
@@ -157,7 +162,7 @@ def main(
     # Save validation_metrics dict.
     num_val_steps = len(get_time_steps(validation_metrics=validation_metrics))
     save_path = os.path.join(
-        results_dir, (f"{checkpoint_name}_steps-{num_val_steps}.pkl")
+        results_dir, (f"{checkpoint_path.stem}_rollout_{num_val_steps}.pkl")
     )
     with open(save_path, "wb") as f:
         pickle.dump(validation_metrics, f)

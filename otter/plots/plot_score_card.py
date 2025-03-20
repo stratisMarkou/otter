@@ -140,7 +140,7 @@ def get_time_steps(validation_metrics: Dict[str, float]) -> List[str]:
 def plot_score_card(
     base_validation_metrics: Dict[str, float],
     validation_metrics: Dict[str, float],
-    lead_time: int,
+    rollout_steps: int,
     save_path: Optional[str] = None,
 ) -> None:
     # Checks we are passing the dicts properly.
@@ -148,6 +148,17 @@ def plot_score_card(
         raise ValueError("base_validation_metrics cannot be None")
     if validation_metrics is None:
         raise ValueError("validation_metrics cannot be None")
+
+    # Get the temporal resolution
+    temporal_resolution = validation_metrics["val/temporal_resolution"]
+    base_temporal_resolution = base_validation_metrics[
+        "val/temporal_resolution"
+    ]
+    assert temporal_resolution == base_temporal_resolution, (
+        "Temporal resolution must be the same for both experiments."
+    )
+    del validation_metrics["val/temporal_resolution"]
+    del base_validation_metrics["val/temporal_resolution"]
 
     # Filter for just largest scale
     validation_metrics = filter_for_largest_scale(validation_metrics)
@@ -165,7 +176,6 @@ def plot_score_card(
     variables = [variable for variable in variables if variable in vars]
     pressure_levels = ALL_GRID_VARIABLE_LEVELS
     time_steps = get_time_steps(validation_metrics)
-    temporal_resolution = lead_time * 24 // len(time_steps)
 
     # Initialise the figure.
     scale = 0.6 * max(
@@ -285,11 +295,11 @@ def get_metrics_path(
     experiment_name: str,
     results_path: str,
     checkpoint_name: str,
-    lead_time: int,
+    rollout_steps: int,
 ) -> str:
     experiment_path = os.path.join(results_path, experiment_name)
     experiment_metrics_path = os.path.join(
-        experiment_path, (f"{checkpoint_name}_LT{lead_time}.pkl")
+        experiment_path, (f"{checkpoint_name}_rollout_{rollout_steps}.pkl")
     )
     return experiment_metrics_path
 
@@ -303,7 +313,7 @@ def load_metrics(metrics_path: str) -> Any:
 def main(
     experiment_name: str,
     base_experiment_name: str,
-    lead_time: int,
+    rollout_steps: int,
     checkpoint_name: str,
     base_checkpoint_name: str,
     results_path: str = "./_results",
@@ -314,7 +324,7 @@ def main(
         experiment_name=experiment_name,
         results_path=results_path,
         checkpoint_name=checkpoint_name,
-        lead_time=lead_time,
+        rollout_steps=rollout_steps,
     )
     assert os.path.exists(experiment_metrics_path), (
         f"Results for {experiment_name} do not exist at expected location"
@@ -324,7 +334,7 @@ def main(
         experiment_name=base_experiment_name,
         results_path=base_results_path,
         checkpoint_name=base_checkpoint_name,
-        lead_time=lead_time,
+        rollout_steps=rollout_steps,
     )
     assert os.path.exists(base_experiment_metrics_path), (
         f"Results for {base_experiment_name} do not exist at expected location"
@@ -338,7 +348,7 @@ def main(
         (
             f"{experiment_name}_{checkpoint_name}_vs_"
             f"{base_experiment_name}_{base_checkpoint_name}"
-            f"_LT{lead_time}.png"
+            f"_rollout_{rollout_steps}.png"
         ),
     )
 
@@ -350,7 +360,7 @@ def main(
     plot_score_card(
         base_validation_metrics=base_validation_metrics,
         validation_metrics=validation_metrics,
-        lead_time=lead_time,
+        rollout_steps=rollout_steps,
         save_path=save_path,
     )
 
@@ -370,9 +380,9 @@ if __name__ == "__main__":
         help="Name of the base experiment to evaluate against.",
     )
     parser.add_argument(
-        "--lead_time",
+        "--rollout_steps",
         type=int,
-        help="Lead time in days for evaluation.",
+        help="Number of rollout steps.",
     )
     parser.add_argument(
         "--checkpoint_name",
@@ -402,7 +412,7 @@ if __name__ == "__main__":
     main(
         experiment_name=args.experiment_name,
         base_experiment_name=args.base_experiment_name,
-        lead_time=args.lead_time,
+        rollout_steps=args.rollout_steps,
         checkpoint_name=args.checkpoint_name,
         base_checkpoint_name=args.base_checkpoint_name,
         results_path=args.results_path,
