@@ -90,6 +90,7 @@ model:
   data_grid_num_lat: 121
   data_grid_num_lon: 240
   distribution_type: ${get_module_attr:otter.models.distributions.Delta}
+  distribution_kwargs: {}
 
 loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
