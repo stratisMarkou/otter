@@ -21,3 +21,10 @@ repos:
     rev: 1.16.0
     hooks:
       - id: blacken-docs
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest tests/
+        language: system
+        pass_filenames: false
