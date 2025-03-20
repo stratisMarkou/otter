@@ -67,6 +67,9 @@ def assert_state_equal(state1: RunState, state2: RunState) -> None:
     """Compare two RunState objects for equality."""
     assert state1.epoch == state2.epoch, "Epochs do not match"
     assert state1.step == state2.step, "Steps do not match"
+    assert state1.best_val_loss == state2.best_val_loss, (
+        "Best val losses do not match"
+    )
 
     # Compare model states
     for key in state1.model_state:
@@ -92,6 +95,7 @@ def test_runstate_creation(run_state: RunState) -> None:
     """Test basic RunState creation and properties."""
     assert run_state.epoch == 5
     assert run_state.step == 100
+    assert run_state.best_val_loss == float("inf")
     assert isinstance(run_state.model_state, dict)
     assert isinstance(run_state.optimizer_state, dict)
     assert isinstance(run_state.scheduler_state, dict)
@@ -183,6 +187,7 @@ def test_runstate_with_training(
         scaler_state=scaler.state_dict(),
         epoch=1,
         step=1,
+        best_val_loss=0.1,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -233,17 +238,35 @@ def test_get_latest_checkpoint(
 
         # First state
         save_run_state(
-            experiment, optimizer, scheduler, scaler, epoch=0, step=0
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            epoch=0,
+            step=0,
+            checkpoint_name="step_00000000.pt",
         )
 
         # Second state
         save_run_state(
-            experiment, optimizer, scheduler, scaler, epoch=1, step=300
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            epoch=1,
+            step=300,
+            checkpoint_name="step_00000300.pt",
         )
 
         # Third state
         save_run_state(
-            experiment, optimizer, scheduler, scaler, epoch=1, step=1000
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            epoch=1,
+            step=1000,
+            checkpoint_name="step_00001000.pt",
         )
 
         # Ensure all checkpoints are saved:
@@ -257,3 +280,37 @@ def test_get_latest_checkpoint(
         )
         assert state.epoch == 1
         assert state.step == 1000
+        assert state.best_val_loss == float("inf")
+
+        save_run_state(
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            epoch=2,
+            step=2000,
+            checkpoint_name="latest.pt",
+            best_val_loss=10.0,  # Add a best_val_loss to test that it's saved
+        )
+
+        save_run_state(
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            epoch=1,
+            step=500,
+            checkpoint_name="best.pt",
+        )
+
+        assert (path / "checkpoints" / "latest.pt").exists()
+        assert (path / "checkpoints" / "best.pt").exists()
+
+        # This method should now load the latest.pt checkpoint
+        state = load_run_state_from_latest_checkpoint(
+            experiment, optimizer, scheduler, scaler
+        )
+
+        assert state.epoch == 2
+        assert state.step == 2000
+        assert state.best_val_loss == 10.0
