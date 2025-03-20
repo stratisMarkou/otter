@@ -7,86 +7,22 @@ from typing import (
     Dict,
     List,
     Optional,
+    Sequence,
 )
 
 import pickle
 import torch
-from hydra.utils import instantiate
-from omegaconf import (
-    DictConfig,
-    OmegaConf,
-)
 
 from otter.experiment.train import (
     assert_single_device,
     run_validation_epoch,
 )
-from otter.experiment.utils import get_module_attr
+from otter.experiment.utils import initialize_experiment
+from otter.experiment.run_state import (
+    get_latest_checkpoint,
+)
 from otter.models.losses.loss_fn import LossInfo
-
-
-def initialize_evaluation(
-    device: str,
-    experiment_name: str,
-    results_path: str = "./_results",
-    lead_time: int = 4,
-    args_list: Optional[list[str]] = None,
-) -> DictConfig:
-    """
-    Initialize evaluation by loading an existing experiment's config file.
-
-    Arguments:
-        device: Device to run the evaluation on (e.g., 'cuda', 'cpu').
-        results_path: Name of the directory with results.
-        experiment_name: Name of the existing experiment.
-        lead_time: Number of time steps to use in the validation rollout.
-        args_list: Optional list of extra arguments to override config values.
-
-    Returns:
-        evaluation_config: The loaded configuration for evaluation.
-    """
-    experiment_dir = Path(results_path) / experiment_name
-    config_path = experiment_dir / "config.yml"
-
-    if not experiment_dir.exists() or not config_path.exists():
-        raise FileNotFoundError(
-            f"Experiment '{experiment_name}' not found at {experiment_dir}. "
-            "Ensure the experiment exists and contains 'config.yml'."
-        )
-
-    # Load the existing config file.
-    config = OmegaConf.load(str(config_path))
-
-    # Compute num_target_frames based on lead_time and temporal resolution.
-    num_target_frames = (
-        lead_time * 24 // config.constants.data.temporal_resolution_hours
-    )
-    # Modify lead time and subsampling factor.
-    OmegaConf.update(
-        config, "valid_dataset.num_target_frames", num_target_frames
-    )
-    OmegaConf.update(config, "valid_dataset.task_sub_sampling_factor", 1)
-
-    # Register OmegaConf resolvers.
-    OmegaConf.register_new_resolver("eval", eval, replace=True)
-    OmegaConf.register_new_resolver(
-        "get_module_attr", get_module_attr, replace=True
-    )
-
-    # Merge with additional command-line arguments.
-    if args_list:
-        config_changes = OmegaConf.from_cli(args_list)
-        config = OmegaConf.merge(config, config_changes)
-
-    # Update necessary fields for evaluation.
-    config.info.experiment_name = experiment_name
-    config.info.path_results = str(experiment_dir)
-    config.model.device = device
-
-    # Instantiate the evaluation config.
-    evaluation_config: DictConfig = instantiate(config)
-
-    return evaluation_config
+from otter.plots.plot_score_card import get_time_steps
 
 
 def get_last_ckpt_name(
@@ -138,39 +74,36 @@ def get_mean_metrics(
 
 def get_validation_metrics(
     device: str,
-    experiment_name: str,
-    results_path: str = "./_results",
-    checkpoint_name: Optional[str] = None,
-    lead_time: int = 4,
+    results_dir: str,
+    checkpoint_path: Path,
+    args_list: Optional[Sequence[str]] = None,
 ) -> Dict[str, float]:
     """
     Obtain validation metrics.
 
     Arguments:
         device: Device to run the evaluation on (e.g., 'cuda', 'cpu').
-        experiment_name: Name of the existing experiment.
-        results_path: Name of the directory with results.
-        checkpoint_name: Name of the checkpoint you want to evaluate.
+        results_dir: Name of the directory with results.
+        checkpoint_path: Path to the checkpoint you want to evaluate.
         lead_time: Number of time steps to use in the validation rollout.
 
     Returns:
         validation_metrics: Dictionary with validation metrics.
     """
-    # Load experiment.
-    experiment = initialize_evaluation(
+    # Load experiment
+    experiment = initialize_experiment(
         device,
-        experiment_name=experiment_name,
-        results_path=results_path,
-        lead_time=lead_time,
+        args_list=args_list,
+        config_dir=results_dir,
     )
     experiment.model = experiment.model.to(device)
-    # load_checkpointed_weights_from_experiment(
-    #     model=experiment.model,
-    #     experiment_name=experiment_name,
-    #     checkpoint_name=checkpoint_name,
-    # )
 
-    # Perform validation.
+    # Load the model weights from latest checkpoint
+    experiment.model.load_state_dict(
+        torch.load(checkpoint_path)["model_state"]
+    )
+
+    # Perform validation
     _, validation_metrics = run_validation_epoch(
         model=experiment.model,
         device=device,
@@ -186,10 +119,10 @@ def get_validation_metrics(
 
 def main(
     experiment_name: str,
-    lead_time: int,
     results_path: str = "./_results",
     checkpoint_name: Optional[str] = None,
     device: Optional[str] = None,
+    args_list: Optional[Sequence[str]] = None,
 ) -> None:
     torch.set_float32_matmul_precision("high")
     # Ensure that only one device is available.
@@ -197,23 +130,34 @@ def main(
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Evaluate the model.
-    validation_metrics = get_validation_metrics(
-        device=device,
-        experiment_name=experiment_name,
-        results_path=results_path,
-        checkpoint_name=checkpoint_name,
-        lead_time=lead_time,
+    # Get the directory with the experiment results
+    results_dir = os.path.join(results_path, experiment_name)
+    assert os.path.exists(results_dir), (
+        f"No results for experiment {experiment_name} found."
+    )
+    checkpoint_dir = os.path.join(results_dir, "checkpoints")
+    assert os.path.exists(checkpoint_dir), (
+        f"No checkpoints for experiment {experiment_name} found."
     )
 
     # If no checkpoint is specified, get the last checkpoint name.
     if checkpoint_name is None:
-        checkpoint_name = get_last_ckpt_name(experiment_name, results_path)
+        checkpoint_path = get_latest_checkpoint(Path(checkpoint_dir))
+    else:
+        checkpoint_path = Path(checkpoint_dir) / checkpoint_name
+
+    # Evaluate the model.
+    validation_metrics = get_validation_metrics(
+        device=device,
+        results_dir=os.path.abspath(results_dir),
+        checkpoint_path=checkpoint_path,
+        args_list=args_list,
+    )
 
     # Save validation_metrics dict.
-    save_path = os.path.join(results_path, experiment_name)
+    num_val_steps = len(get_time_steps(validation_metrics=validation_metrics))
     save_path = os.path.join(
-        save_path, (f"{checkpoint_name}_LT{lead_time}.pkl")
+        results_dir, (f"{checkpoint_name}_steps-{num_val_steps}.pkl")
     )
     with open(save_path, "wb") as f:
         pickle.dump(validation_metrics, f)
@@ -229,11 +173,6 @@ if __name__ == "__main__":
         help="Name of the experiment to evaluate.",
     )
     parser.add_argument(
-        "--lead_time",
-        type=int,
-        help="Lead time in days for evaluation.",
-    )
-    parser.add_argument(
         "--results_path",
         type=str,
         default="./_results",
@@ -245,12 +184,15 @@ if __name__ == "__main__":
         default=None,
         help="Name of the checkpoint for the experiment.",
     )
+
     parser.add_argument("--device", type=str, default=None, help="Device.")
-    args = parser.parse_args()
+
+    args, extra_args = parser.parse_known_args()
+
     main(
         experiment_name=args.experiment_name,
         results_path=args.results_path,
         checkpoint_name=args.checkpoint_name,
-        lead_time=args.lead_time,
         device=args.device,
+        args_list=extra_args,
     )

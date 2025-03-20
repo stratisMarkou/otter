@@ -68,6 +68,7 @@ def get_module_attr(string: str) -> Any:
 def initialize_experiment(
     device: str,
     args_list: Optional[Sequence[str]] = None,
+    config_dir: Optional[str] = None,
 ) -> Experiment:
     """Initialize experiment by parsing the config file, checking that the
     repo is clean, creating a path for the experiment, and creating a
@@ -76,6 +77,7 @@ def initialize_experiment(
     Arguments:
         device: device to run the experiment on.
         args_list: list of arguments to parse.
+        config_dir: optional config directory if we want to load from a directory.
 
     Returns:
         experiment: experiment config object.
@@ -84,12 +86,8 @@ def initialize_experiment(
     """
 
     args, extra_args = _parse_args(args_list)
-    config = _get_config(args.config_module, args.config_name, extra_args)
-
-    experiment_name = (
-        args.resume_experiment
-        if args.resume_experiment
-        else _generate_experiment_name()
+    config = _get_config(
+        args.config_module, args.config_name, extra_args, config_dir=config_dir
     )
 
     repo = git.Repo(search_parent_directories=True)
@@ -97,16 +95,27 @@ def initialize_experiment(
     # if not in debug mode.
     if not args.debug:
         _assert_repo_is_clean(repo)
+        # If config contains commit hash, assert that it matches the current commit hash.
+        if "commit" in config:
+            _assert_correct_commit_hash(config, repo)
 
-    experiment_path = _create_experiment_path(config, experiment_name)
+    # If the config does not contain an experiment name, generate one.
+    if "experiment_name" not in config.info:
+        experiment_name = (
+            args.resume_experiment
+            if args.resume_experiment
+            else _generate_experiment_name()
+        )
 
-    config.info.experiment_name = experiment_name
-    config.info.experiment_path = experiment_path
-    config.info.start_from_checkpoint = bool(args.resume_experiment)
+        experiment_path = _create_experiment_path(config, experiment_name)
 
-    config.model.device = device
+        config.info.experiment_name = experiment_name
+        config.info.experiment_path = experiment_path
+        config.info.start_from_checkpoint = bool(args.resume_experiment)
 
-    _write_config(config, experiment_path, repo)
+        config.model.device = device
+
+        _write_config(config, experiment_path, repo)
 
     logging.info("Instantiating dependencies.")
 
@@ -237,7 +246,10 @@ def _has_commits_ahead(repo: git.Repo) -> bool:
 
 
 def _get_config(
-    config_module: str, config_name: str, extra_args: list[str]
+    config_module: str,
+    config_name: str,
+    extra_args: list[str],
+    config_dir: Optional[str] = None,
 ) -> DictConfig:
     """
     Reads the config file, evaluates expressions, and merges it with overrides.
@@ -250,10 +262,17 @@ def _get_config(
         OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
 
     # Initialize experiment.
-    with hydra.initialize_config_module(
-        config_module=config_module, version_base="1.3"
-    ):
-        config_yaml = compose(config_name=config_name)
+    # Here, we can either load from a config module or from a config directory.
+    if config_dir is None:
+        with hydra.initialize_config_module(
+            config_module=config_module, version_base="1.3"
+        ):
+            config_yaml = compose(config_name=config_name)
+    else:
+        with hydra.initialize_config_dir(
+            config_dir=config_dir, version_base="1.3"
+        ):
+            config_yaml = compose(config_name=config_name)
 
     cli_overrides = OmegaConf.from_cli(extra_args)
 
@@ -312,6 +331,22 @@ def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
         config_to_save: DictConfig = OmegaConf.to_container(config)  # type: ignore
         config_to_save.update({"commit": hash})
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)
+
+
+def _assert_correct_commit_hash(config: DictConfig, repo: git.Repo) -> None:
+    """
+    Asserts that the current commit hash matches the one stored in the config.
+    """
+    if "commit" not in config:
+        raise ValueError("Config does not have a 'commit' field.")
+
+    config_commit_hash = config.commit
+    current_commit_hash = _get_current_commit_hash(repo)
+
+    if config_commit_hash != current_commit_hash:
+        raise ValueError(
+            f"Config commit hash {config_commit_hash} does not match current commit hash {current_commit_hash}."
+        )
 
 
 def count_parameters(module: torch.nn.Module) -> int:
