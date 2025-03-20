@@ -17,17 +17,18 @@ from tqdm import tqdm
 import wandb
 from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
+from otter.experiment.monitoring import (
+    WandbLogger,
+    get_min_stds_by_var,
+    get_norm_and_abs_max,
+    log_loss_info_to_wandb,
+)
 from otter.experiment.run_state import (
     TrainState,
     load_run_state_from_latest_checkpoint,
     save_run_state,
 )
-from otter.experiment.utils import (
-    initialize_experiment,
-    initialize_wandb,
-    log_loss_info_to_wandb,
-    run_and_log_time_to_wandb,
-)
+from otter.experiment.utils import initialize_experiment, initialize_wandb
 from otter.models.architectures.schedulers import ScaleScheduler
 from otter.models.distributions import Gaussian
 from otter.models.losses.loss_fn import (
@@ -54,19 +55,18 @@ def train_step(
     train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-    step_number: int,
+    step: int,
     scaler: GradScaler,
     scale_scheduler: ScaleScheduler,
-    mixed_precision_dtype: torch.dtype,
+    wandb_logger: WandbLogger,
     device: str = "cuda",
 ) -> int:
-    batch = run_and_log_time_to_wandb("make_next_batch", next, train_loader)
-    batch = run_and_log_time_to_wandb(
-        "batch.to", batch.to, device, non_blocking=True
-    )
+    w = wandb_logger
+    batch = w.timed("make_next_batch", next, train_loader)
+    batch = w.timed("batch.to", batch.to, device, non_blocking=True)
 
     data_scale = scale_scheduler.sample_data_scale()
-    processed_batch = run_and_log_time_to_wandb(
+    processed_batch = w.timed(
         "preprocess_batch",
         preprocess_batch,
         batch=batch,
@@ -76,7 +76,7 @@ def train_step(
 
     rollout_scales = scale_scheduler.get_rollout_scales()
 
-    prd_dist, load_balancing_losses = run_and_log_time_to_wandb(
+    prd_dist, load_balancing_losses = w.timed(
         "model.forward",
         model.forward,
         processed_batch,
@@ -84,19 +84,12 @@ def train_step(
     )
 
     if isinstance(prd_dist, Gaussian):
-        stds = prd_dist.stddev
-        lowest_std = stds.min()
-        hist = wandb.Histogram(stds.flatten().log10().cpu().detach().numpy())  # type: ignore
-        wandb.log({"pred_stddev_log10": hist}, commit=False)
-        wandb.log({"lowest_pred_stddev": lowest_std}, commit=False)
+        smallest_stds_by_var = get_min_stds_by_var(
+            prd_dist, model.trg_variables_and_levels
+        )
+        w.log(smallest_stds_by_var)
 
-        for i, var in enumerate(model.trg_variables_and_levels):
-            var_stds = stds[..., i]
-            wandb.log(
-                {f"lowest_pred_stddev/{var}": var_stds.min()}, commit=False
-            )
-
-    loss, loss_info = run_and_log_time_to_wandb(
+    loss, loss_info = w.timed(
         "loss_fn",
         loss_fn,
         prd_dist=prd_dist,
@@ -104,7 +97,7 @@ def train_step(
         scales=_combine_scales(data_scale, rollout_scales),
     )
 
-    load_balancing_loss, load_balancing_loss_info = run_and_log_time_to_wandb(
+    load_balancing_loss, load_balancing_loss_info = w.timed(
         "gather_load_balancing_losses",
         gather_load_balancing_losses,
         load_balancing_losses=load_balancing_losses,
@@ -116,29 +109,32 @@ def train_step(
     if load_balancing_loss_info is not None:
         loss_info.update(load_balancing_loss_info)
 
-    scaled_loss = run_and_log_time_to_wandb("scaler.scale", scaler.scale, loss)
-    run_and_log_time_to_wandb("scaled_loss.backward", scaled_loss.backward)
+    scaled_loss = w.timed("scaler.scale", scaler.scale, loss)
+    w.timed("scaled_loss.backward", scaled_loss.backward)
 
-    scaler.unscale_(optimizer)
+    param_norm, biggest_abs_param = get_norm_and_abs_max(model, "parameters")
 
-    norm = 0.0
-    for param in model.parameters():
-        norm += param.grad.norm(2) ** 2  # type: ignore
-    norm = norm**0.5
-    wandb.log({"misc/gradient_norm": norm}, commit=False)
+    w.log({"misc/biggest_abs_param": biggest_abs_param})
+    w.log({"misc/parameter_norm": param_norm})
 
-    run_and_log_time_to_wandb("scaler.step", scaler.step, optimizer)
-    run_and_log_time_to_wandb("scaler.update", scaler.update)
-    run_and_log_time_to_wandb("optimizer.zero_grad", optimizer.zero_grad)
-    run_and_log_time_to_wandb("scheduler.step", lr_scheduler.step)
+    grad_norm, biggest_abs_grad = get_norm_and_abs_max(model, "gradients")
+
+    w.log({"misc/biggest_abs_grad": biggest_abs_grad})
+    w.log({"misc/gradient_norm": grad_norm})
+
+    w.timed("scaler.step", scaler.step, optimizer)
+    w.timed("scaler.update", scaler.update)
+    w.timed("optimizer.zero_grad", optimizer.zero_grad)
+    w.timed("scheduler.step", lr_scheduler.step)
 
     log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
 
     current_lr = lr_scheduler.get_last_lr()[0]
-    wandb.log({"misc/learning_rate": current_lr}, commit=False)
-    wandb.log({"misc/gradient_step": step_number}, commit=True)
+    w.log({"misc/learning_rate": current_lr})
+    w.log({"misc/gradient_step": step})
+    w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
 
-    return step_number + 1
+    return step + 1
 
 
 def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
@@ -173,6 +169,7 @@ def validation_epoch(
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
+    step: int,
 ) -> None:
     # Ensure model is in evaluation mode.
     model = model.eval()
@@ -223,7 +220,7 @@ def validation_epoch(
     # Average the losses over the validation set.
     for loss_name, loss_values in losses.items():
         mean_loss = np.mean(np.stack(loss_values, axis=0), axis=0)
-        wandb.log({f"val/{loss_name}": mean_loss}, commit=False)
+        wandb.log({f"val/{loss_name}": mean_loss}, commit=False, step=step)
 
     # Average the loss info over the validation set.
     for loss_name, info in loss_infos.items():
@@ -236,8 +233,7 @@ def validation_epoch(
                 axis=0,
             )
             wandb.log(
-                {f"val/{loss_name}/{var}": mean_info},
-                commit=False,
+                {f"val/{loss_name}/{var}": mean_info}, commit=False, step=step
             )
 
     # Ensure model is back in training mode after validation.
@@ -262,7 +258,6 @@ def main() -> None:
     wandb.watch(
         experiment.model,
         log_freq=experiment.constants.training.log_gradients_every,
-        log="all",
     )
 
     scaler = GradScaler(device=device)
@@ -306,7 +301,6 @@ def train_loop(
     """
     The main training loop for the experiment.
     """
-    mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
@@ -318,10 +312,12 @@ def train_loop(
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
                     scale_scheduler=experiment.inference_scale_scheduler,
+                    step=step,
                 )
 
             try:
-                step = run_and_log_time_to_wandb(
+                wandb_logger = WandbLogger(step)
+                step = wandb_logger.timed(
                     "train_step",
                     train_step,
                     loss_fn=experiment.loss_fn,
@@ -333,11 +329,10 @@ def train_loop(
                     device=device,
                     scaler=scaler,
                     scale_scheduler=experiment.train_scale_scheduler,
-                    mixed_precision_dtype=mixed_precision_dtype,
+                    wandb_logger=wandb_logger,
                 )
             except StopIteration:
                 break
-            step = step + 1
 
             if step % experiment.constants.training.save_checkpoint_every == 0:
                 logging.info("Saving checkpoint.")
