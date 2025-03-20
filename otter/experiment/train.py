@@ -301,7 +301,7 @@ def train_loop(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
-    best_val_loss: float | None = None,
+    best_val_loss: float = float("inf"),
 ) -> None:
     """
     The main training loop for the experiment.
@@ -321,23 +321,22 @@ def train_loop(
                     wandb_logger=wandb_logger,
                 )
 
-                if experiment.constants.training.save_best_checkpoint:
-                    if (
-                        best_val_loss is None
-                        or current_val_loss < best_val_loss
-                    ):
-                        best_val_loss = current_val_loss
+                if (
+                    experiment.constants.training.save_best_checkpoint
+                    and current_val_loss < best_val_loss
+                ):
+                    best_val_loss = current_val_loss
 
-                        save_run_state(
-                            experiment=experiment,
-                            optimizer=optimizer,
-                            lr_scheduler=lr_scheduler,
-                            scaler=scaler,
-                            epoch=epoch,
-                            step=step,
-                            best_val_loss=best_val_loss,
-                            best_run_state=True,
-                        )
+                    save_run_state(
+                        experiment=experiment,
+                        optimizer=optimizer,
+                        lr_scheduler=lr_scheduler,
+                        scaler=scaler,
+                        epoch=epoch,
+                        step=step,
+                        best_val_loss=best_val_loss,
+                        checkpoint_name="best.pt",
+                    )
 
             try:
                 step = wandb_logger.timed(
@@ -366,7 +365,7 @@ def train_loop(
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
-                    latest_run_state=True,
+                    checkpoint_name="latest.pt",
                 )
 
             if step % experiment.constants.training.save_checkpoint_every == 0:
@@ -379,6 +378,7 @@ def train_loop(
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
+                    checkpoint_name=f"step_{step:08d}.pt",
                 )
                 logging.info("Checkpoint saved.")
 

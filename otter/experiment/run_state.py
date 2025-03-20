@@ -14,7 +14,7 @@ from torch.amp.grad_scaler import GradScaler
 class TrainState:
     epoch: int
     step: int
-    best_val_loss: float | None = None
+    best_val_loss: float = float("inf")
 
 
 @dataclass
@@ -25,7 +25,7 @@ class RunState:
     scaler_state: Dict[str, Any]
     epoch: int
     step: int
-    best_val_loss: float | None = None
+    best_val_loss: float = float("inf")
 
     @staticmethod
     def from_objects(
@@ -35,7 +35,7 @@ class RunState:
         scaler: GradScaler,
         epoch: int,
         step: int,
-        best_val_loss: float | None = None,
+        best_val_loss: float = float("inf"),
     ) -> "RunState":
         """Create RunState from torch objects."""
         return RunState(
@@ -58,7 +58,7 @@ class RunState:
             scaler_state=state_dict["scaler_state"],
             epoch=state_dict["epoch"],
             step=state_dict["step"],
-            best_val_loss=state_dict.get("best_val_loss"),
+            best_val_loss=state_dict["best_val_loss"],
         )
 
     @staticmethod
@@ -155,9 +155,8 @@ def save_run_state(
     scaler: GradScaler,
     epoch: int,
     step: int,
-    best_val_loss: float | None = None,
-    latest_run_state: bool = False,
-    best_run_state: bool = False,
+    checkpoint_name: str,
+    best_val_loss: float = float("inf"),
 ) -> None:
     """Save the complete run state to disk."""
     run_state = RunState.from_objects(
@@ -169,12 +168,6 @@ def save_run_state(
         step=step,
         best_val_loss=best_val_loss,
     )
-    assert not (latest_run_state and best_run_state)
 
-    if latest_run_state:
-        path = get_checkpoint_dir(experiment) / "latest.pt"
-    elif best_run_state:
-        path = get_checkpoint_dir(experiment) / "best.pt"
-    else:
-        path = get_checkpoint_dir(experiment) / f"step_{step:08d}.pt"
+    path = get_checkpoint_dir(experiment) / checkpoint_name
     run_state.save(path)
