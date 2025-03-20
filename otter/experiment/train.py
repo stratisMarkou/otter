@@ -322,7 +322,7 @@ def train_loop(
                 )
 
                 if (
-                    experiment.constants.training.save_best_checkpoint
+                    experiment.constants.save_best_checkpoint
                     and current_val_loss < best_val_loss
                 ):
                     best_val_loss = current_val_loss
@@ -356,7 +356,7 @@ def train_loop(
             except StopIteration:
                 break
 
-            if experiment.constants.training.save_latest_checkpoint:
+            if step % experiment.constants.save_checkpoint_every == 0:
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
@@ -368,8 +368,8 @@ def train_loop(
                     checkpoint_name="latest.pt",
                 )
 
-            if step % experiment.constants.training.save_checkpoint_every == 0:
-                logging.info("Saving checkpoint.")
+            interval = experiment.constants.save_persistent_checkpoint_every
+            if step % interval == 0:
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
@@ -380,7 +380,6 @@ def train_loop(
                     best_val_loss=best_val_loss,
                     checkpoint_name=f"step_{step:08d}.pt",
                 )
-                logging.info("Checkpoint saved.")
 
 
 if __name__ == "__main__":
