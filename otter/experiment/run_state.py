@@ -14,6 +14,7 @@ from torch.amp.grad_scaler import GradScaler
 class TrainState:
     epoch: int
     step: int
+    best_val_loss: float = float("inf")
 
 
 @dataclass
@@ -24,6 +25,7 @@ class RunState:
     scaler_state: Dict[str, Any]
     epoch: int
     step: int
+    best_val_loss: float = float("inf")
 
     @staticmethod
     def from_objects(
@@ -33,6 +35,7 @@ class RunState:
         scaler: GradScaler,
         epoch: int,
         step: int,
+        best_val_loss: float = float("inf"),
     ) -> "RunState":
         """Create RunState from torch objects."""
         return RunState(
@@ -42,6 +45,7 @@ class RunState:
             scaler_state=scaler.state_dict(),
             epoch=epoch,
             step=step,
+            best_val_loss=best_val_loss,
         )
 
     @staticmethod
@@ -54,6 +58,7 @@ class RunState:
             scaler_state=state_dict["scaler_state"],
             epoch=state_dict["epoch"],
             step=state_dict["step"],
+            best_val_loss=state_dict["best_val_loss"],
         )
 
     @staticmethod
@@ -71,6 +76,7 @@ class RunState:
             "scaler_state": self.scaler_state,
             "epoch": self.epoch,
             "step": self.step,
+            "best_val_loss": self.best_val_loss,
         }
 
     def save(self, path: Path) -> None:
@@ -122,9 +128,10 @@ def load_run_state_from_latest_checkpoint(
     )
     step = run_state.step
     epoch = run_state.epoch
+    best_val_loss = run_state.best_val_loss
     logging.info(f"Successfully restored state from {path} at step {step}")
 
-    return TrainState(epoch=epoch, step=step)
+    return TrainState(epoch=epoch, step=step, best_val_loss=best_val_loss)
 
 
 def get_checkpoint_dir(experiment: Any) -> Path:
@@ -133,6 +140,8 @@ def get_checkpoint_dir(experiment: Any) -> Path:
 
 def get_latest_checkpoint(path: Path) -> Path:
     """Get the latest checkpoint file in the given directory."""
+    if (path / "latest.pt").exists():
+        return path / "latest.pt"
     checkpoints = list(path.glob("*.pt"))
     if not checkpoints:
         raise FileNotFoundError(f"No checkpoint files found in {path}")
@@ -146,6 +155,8 @@ def save_run_state(
     scaler: GradScaler,
     epoch: int,
     step: int,
+    checkpoint_name: str,
+    best_val_loss: float = float("inf"),
 ) -> None:
     """Save the complete run state to disk."""
     run_state = RunState.from_objects(
@@ -155,6 +166,8 @@ def save_run_state(
         scaler=scaler,
         epoch=epoch,
         step=step,
+        best_val_loss=best_val_loss,
     )
-    path = get_checkpoint_dir(experiment) / f"step_{step:08d}.pt"
+
+    path = get_checkpoint_dir(experiment) / checkpoint_name
     run_state.save(path)
