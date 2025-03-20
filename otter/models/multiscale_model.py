@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import (
+    Any,
     List,
     Optional,
     Sequence,
@@ -100,6 +101,7 @@ class MultiscaleModel(torch.nn.Module):
         data_grid_num_lat: int,
         data_grid_num_lon: int,
         distribution_type: Type[Distribution],
+        distribution_kwargs: dict[str, Any],
         device: str,
     ) -> None:
         super().__init__()
@@ -177,6 +179,7 @@ class MultiscaleModel(torch.nn.Module):
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
         self.distribution_type = distribution_type
+        self.distribution_kwargs = distribution_kwargs
 
     def forward(
         self, batch: MultiscaleInput, scales: torch.Tensor
@@ -267,10 +270,6 @@ class MultiscaleModel(torch.nn.Module):
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
-        # prediction = prediction.reshape(
-        #     *prediction.shape[:-1], self.distribution_type.num_stats, -1
-        # )
-        # prd_stats = list(torch.unbind(prediction, dim=-1))
         prd_stats = list(
             torch.split(
                 prediction,
@@ -283,7 +282,11 @@ class MultiscaleModel(torch.nn.Module):
         # statistic, and add the residual to it.
         prd_stats[0] = prd_stats[0] + residual
 
-        return self.distribution_type(*prd_stats), load_balancing_losses
+        prd_dist = self.distribution_type(
+            *prd_stats, **self.distribution_kwargs
+        )
+
+        return prd_dist, load_balancing_losses
 
     def multiscale_forward(
         self,
@@ -410,6 +413,7 @@ def make_multiscale_model(
     data_grid_num_lon: int,
     device: str,
     distribution_type: Type[Distribution],
+    distribution_kwargs: dict[str, Any],
 ) -> MultiscaleModel:
     return MultiscaleModel(
         backbone_network=backbone_network,
@@ -440,5 +444,6 @@ def make_multiscale_model(
         data_grid_num_lat=data_grid_num_lat,
         data_grid_num_lon=data_grid_num_lon,
         distribution_type=distribution_type,
+        distribution_kwargs=distribution_kwargs,
         device=device,
     )

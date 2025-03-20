@@ -4,6 +4,8 @@ defaults:
 
 model:
   distribution_type: ${get_module_attr:otter.models.distributions.Gaussian}
+  distribution_kwargs:
+    min_std: 1e-9
 
 loss_fn:
   loss_fn: ${get_module_attr:otter.models.losses.loss_fn.mean_neg_log_prob}

@@ -64,14 +64,16 @@ class Gaussian(Distribution):
         self,
         mean: torch.Tensor,
         unconstrained_stddev: torch.Tensor,
-        eps: float = 1e-12,
+        min_std: float,
     ):
         self.mean = mean
         self.unconstrained_stddev = unconstrained_stddev
         self.stddev = torch.nn.functional.softplus(
             unconstrained_stddev
         )  # torch.ones_like(softplus(unconstrained_stddev) + eps)
-        self.dist = dist.Normal(self.mean, self.stddev + eps)  # type: ignore
+        self.stddev = torch.clamp_min(self.stddev, min_std)
+        self.dist = dist.Normal(self.mean, self.stddev)  # type: ignore
+        self.min_std = min_std
 
     def sample(self) -> torch.Tensor:
         return self.dist.rsample()
@@ -84,14 +86,16 @@ class Gaussian(Distribution):
     def stack(cls, dists: List[Self], dim: int) -> Self:
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
         stddev = torch.stack([dist.stddev for dist in dists], dim=dim)
-        return cls(mean, inv_softplus(stddev))
+        return cls(mean, inv_softplus(stddev), dists[0].min_std)
 
     def __add__(self, other: torch.Tensor) -> Gaussian:
-        return Gaussian(self.mean + other, self.unconstrained_stddev)
+        return Gaussian(
+            self.mean + other, self.unconstrained_stddev, self.min_std
+        )
 
     def __mul__(self, other: torch.Tensor) -> Gaussian:
         unconstrained_stddev = inv_softplus(self.stddev * other)
-        return Gaussian(self.mean * other, unconstrained_stddev)
+        return Gaussian(self.mean * other, unconstrained_stddev, self.min_std)
 
 
 def product_distribution(dists: List[Distribution], dim: int) -> Distribution:
