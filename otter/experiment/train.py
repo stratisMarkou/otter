@@ -55,12 +55,11 @@ def train_step(
     train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-    step: int,
     scaler: GradScaler,
     scale_scheduler: ScaleScheduler,
     wandb_logger: WandbLogger,
     device: str = "cuda",
-) -> int:
+) -> None:
     w = wandb_logger
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
@@ -131,10 +130,7 @@ def train_step(
 
     current_lr = lr_scheduler.get_last_lr()[0]
     w.log({"misc/learning_rate": current_lr})
-    w.log({"misc/gradient_step": step})
     w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
-
-    return step + 1
 
 
 def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
@@ -339,7 +335,7 @@ def train_loop(
                     )
 
             try:
-                step = wandb_logger.timed(
+                wandb_logger.timed(
                     "train_step",
                     train_step,
                     loss_fn=experiment.loss_fn,
@@ -347,12 +343,12 @@ def train_loop(
                     train_loader=train_loader,
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
-                    step_number=step,
                     device=device,
                     scaler=scaler,
                     scale_scheduler=experiment.train_scale_scheduler,
                     wandb_logger=wandb_logger,
                 )
+                step += 1
             except StopIteration:
                 break
 

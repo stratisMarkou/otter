@@ -309,8 +309,10 @@ class MultiscaleModel(torch.nn.Module):
 
         # Optionally refine the prediction via rollout through scales.
         for scale in scales:
+            # Unsqueeze along time dimension to match shape of downsampled_trg
+            sample = prd_dist.sample().unsqueeze(-2)
             downsampled_trg = downsample(
-                prd_dist.sample(),
+                sample,
                 int(scale),
             )  # (batch, lat, lon, 1, trg_var_and_level)
 

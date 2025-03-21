@@ -95,7 +95,7 @@ def get_norm_and_abs_max(
     norm: float = 0.0
     for param in model.parameters():
         quantity = param.grad if measurable == "gradients" else param
-        if not quantity:
+        if quantity is None:
             continue
         norm += float(quantity.norm() ** 2)
         abs_param_quantity = quantity.abs().max().item()
