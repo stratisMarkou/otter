@@ -162,7 +162,7 @@ def validation_epoch(
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
-) -> None:
+) -> float:
     # Ensure model is in evaluation mode.
     model = model.eval()
 
@@ -232,6 +232,12 @@ def validation_epoch(
     # Ensure model is back in training mode after validation.
     model.train()
 
+    train_val_loss: float = np.mean(
+        np.stack(losses["train_loss"], axis=0), axis=0
+    ).item()
+
+    return train_val_loss
+
 
 def main() -> None:
     torch.set_float32_matmul_precision("high")
@@ -272,6 +278,7 @@ def main() -> None:
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        best_val_loss=initial_state.best_val_loss,
     )
 
     wandb.finish()
@@ -285,6 +292,7 @@ def train_loop(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
+    best_val_loss: float = float("inf"),
 ) -> None:
     """
     The main training loop for the experiment.
@@ -295,13 +303,30 @@ def train_loop(
 
         while True:
             if step % experiment.constants.training.validate_every == 0:
-                validation_epoch(
+                current_val_loss = validation_epoch(
                     model=experiment.model,
                     device=device,
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
                     scale_scheduler=experiment.inference_scale_scheduler,
                 )
+
+                if (
+                    experiment.constants.save_best_checkpoint
+                    and current_val_loss < best_val_loss
+                ):
+                    best_val_loss = current_val_loss
+
+                    save_run_state(
+                        experiment=experiment,
+                        optimizer=optimizer,
+                        lr_scheduler=lr_scheduler,
+                        scaler=scaler,
+                        epoch=epoch,
+                        step=step,
+                        best_val_loss=best_val_loss,
+                        checkpoint_name="best.pt",
+                    )
 
             try:
                 step = run_and_log_time_to_wandb(
@@ -320,10 +345,8 @@ def train_loop(
                 )
             except StopIteration:
                 break
-            step = step + 1
 
-            if step % experiment.constants.training.save_checkpoint_every == 0:
-                logging.info("Saving checkpoint.")
+            if step % experiment.constants.save_checkpoint_every == 0:
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
@@ -331,8 +354,22 @@ def train_loop(
                     scaler=scaler,
                     epoch=epoch,
                     step=step,
+                    best_val_loss=best_val_loss,
+                    checkpoint_name="latest.pt",
                 )
-                logging.info("Checkpoint saved.")
+
+            interval = experiment.constants.save_persistent_checkpoint_every
+            if step % interval == 0:
+                save_run_state(
+                    experiment=experiment,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
+                    scaler=scaler,
+                    epoch=epoch,
+                    step=step,
+                    best_val_loss=best_val_loss,
+                    checkpoint_name=f"step_{step:08d}.pt",
+                )
 
 
 if __name__ == "__main__":
