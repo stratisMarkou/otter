@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -28,7 +29,13 @@ from otter.data.utils import (
 from otter.experiment.downsample import downsample
 from otter.models.architectures.embeddings import TimeEmbedding
 from otter.models.architectures.moe import LoadBalancingLosses
-from otter.models.distributions import Distribution, product_distribution
+from otter.models.distributions import (
+    Delta,
+    Distribution,
+    Gaussian,
+    MixtureOfGaussians,
+    product_distribution,
+)
 
 
 def _get_variable_and_level_list(
@@ -403,6 +410,35 @@ class MultiscaleModel(torch.nn.Module):
         # Concat the time rollout steps along the time dimension
         product_prd_dist = product_distribution(predictions, dim=3)
         return product_prd_dist, all_load_balancing_losses
+
+    def sample_n_trajectories(
+        self, n: int, batch: MultiscaleInput, scales: torch.Tensor
+    ) -> tuple[Distribution | MixtureOfGaussians, list[LoadBalancingLosses]]:
+        loab_balancing_losses = []
+
+        if issubclass(self.distribution_type, Delta):
+            if n != 1:
+                logging.warning(
+                    "Sampling multiple trajectories from a Delta distribution "
+                    "is not meaningful. Returning a single trajectory."
+                )
+            return self.forward(batch, scales)
+
+        trajectory_dists = []
+        weights = []
+        for _ in range(n):
+            trajectory_dist, lbl = self.forward(batch, scales)
+            loab_balancing_losses += lbl
+            assert isinstance(trajectory_dist, Gaussian)
+            trajectory_dists.append(trajectory_dist)
+
+            # NOTE: there may be a better weighting scheme, e.g. importance
+            # sampling weights somehow, but for now we just use uniform.
+            weights.append(1.0)
+
+        out_dist = MixtureOfGaussians(trajectory_dists, weights)
+
+        return out_dist, loab_balancing_losses
 
 
 def make_multiscale_model(

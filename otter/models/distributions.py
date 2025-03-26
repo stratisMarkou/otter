@@ -103,3 +103,18 @@ def product_distribution(dists: List[Distribution], dim: int) -> Distribution:
         raise ValueError("Cannot stack empty list of distributions")
 
     return dists[0].stack(dists, dim)
+
+
+class MixtureOfGaussians:
+    def __init__(self, gaussians: list[Gaussian], weights: list[float]):
+        self.gaussians = gaussians
+        self.weights = torch.tensor(weights)
+        self.weights = self.weights / self.weights.sum()
+
+    def log_prob(self, x: torch.Tensor) -> torch.Tensor:
+        log_probs = torch.stack([g.log_prob(x) for g in self.gaussians], dim=1)
+        return torch.logsumexp(log_probs + torch.log(self.weights), dim=1)
+
+    def mean(self) -> torch.Tensor:
+        means = torch.stack([g.mean for g in self.gaussians], dim=1)
+        return torch.dot(self.weights, means)

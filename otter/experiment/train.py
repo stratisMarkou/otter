@@ -35,7 +35,7 @@ from otter.models.losses.loss_fn import (
     LossInfo,
     gather_load_balancing_losses,
 )
-from otter.models.multiscale_model import MultiscaleInput
+from otter.models.multiscale_model import MultiscaleInput, MultiscaleModel
 
 LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
@@ -160,11 +160,12 @@ def _combine_scales(
 
 
 def validation_epoch(
-    model: torch.nn.Module,
+    model: MultiscaleModel,
     device: str,
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
+    num_validation_samples: int,
     wandb_logger: WandbLogger,
 ) -> float:
     model = model.eval()
@@ -186,8 +187,10 @@ def validation_epoch(
             preprocessed_batch = preprocess_batch(batch, data_scale)
             preprocessed_batch = preprocessed_batch.to(device)
 
-            prd_dist, load_balancing_losses = model(
-                preprocessed_batch, scales=rollout_scales
+            prd_dist, load_balancing_losses = model.sample_n_trajectories(
+                n=num_validation_samples,
+                batch=preprocessed_batch,
+                scales=rollout_scales,
             )
 
             # Compute the loss for each loss function and store results.
@@ -302,6 +305,7 @@ def train_loop(
     """
     The main training loop for the experiment.
     """
+    num_validation_samples = experiment.constants.validation.num_samples
     for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
@@ -314,6 +318,7 @@ def train_loop(
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
                     scale_scheduler=experiment.inference_scale_scheduler,
+                    num_validation_samples=num_validation_samples,
                     wandb_logger=wandb_logger,
                 )
 

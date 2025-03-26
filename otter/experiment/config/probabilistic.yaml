@@ -23,3 +23,6 @@ val_loss_fns:
 
 constants:
   num_stats: 2
+  training:
+    # How many rollout samples we want to generate and compute losses over.
+    num_validation_samples: 10
