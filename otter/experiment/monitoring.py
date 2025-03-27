@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Literal, Tuple
 
 import torch
-import xarray as xr
 
 import wandb
 from otter.models.distributions import Gaussian
@@ -63,29 +62,6 @@ def log_loss_info_to_wandb(
 ) -> None:
     for k, v in loss_info.items():
         wandb.log({f"{prefix}/{k}": v}, commit=False)
-
-
-def log_per_variable_per_lead_time_losses_to_wandb(
-    mean_loss: Dict[str, torch.Tensor],
-    mean_loss_info: Dict[str, torch.Tensor],
-    std_dataset: xr.DataArray,
-) -> None:
-    # Log the mean loss for each time index.
-    for i, loss in enumerate(mean_loss):
-        # Log and add leading 0s to index i
-        wandb.log({f"val/loss_time_{i:03}": loss}, commit=False)
-
-    # Log the lwrmse loss info for each time index.
-    for key, info in mean_loss_info.items():
-        variable_and_level = key.replace("lwrmse/", "")
-        std = std_dataset.sel(variable_and_level=variable_and_level).values
-
-        # Loop over times and log the lwrmse loss info.
-        for i in range(info.shape[0]):
-            wandb.log(
-                {f"val/{key}_time_{i:03}": info[i] * std},
-                commit=False,
-            )
 
 
 def get_norm_and_abs_max(
