@@ -179,8 +179,8 @@ constants:
     validate_every: 5000
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float32}
-    max_grad_norm: 30.0
     num_validation_samples: 1
+    clip_grad_norm: 1000.0
   load_weights_from_experiment: null
   save_best_checkpoint: true
   save_checkpoint_every: 1_000

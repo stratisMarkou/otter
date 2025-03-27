@@ -26,3 +26,4 @@ constants:
   training:
     # How many rollout samples we want to generate and compute losses over.
     num_validation_samples: 10
+    clip_grad_norm: 75.0

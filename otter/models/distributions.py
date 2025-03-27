@@ -85,8 +85,10 @@ class Gaussian(Distribution):
     @classmethod
     def stack(cls, dists: List[Self], dim: int) -> Self:
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
-        stddev = torch.stack([dist.stddev for dist in dists], dim=dim)
-        return cls(mean, inv_softplus(stddev), dists[0].min_std)
+        unconstrained_stddev = torch.stack(
+            [dist.unconstrained_stddev for dist in dists], dim=dim
+        )
+        return cls(mean, unconstrained_stddev, dists[0].min_std)
 
     def __add__(self, other: torch.Tensor) -> Gaussian:
         return Gaussian(
