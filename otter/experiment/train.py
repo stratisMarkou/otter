@@ -58,6 +58,7 @@ def train_step(
     scaler: GradScaler,
     scale_scheduler: ScaleScheduler,
     wandb_logger: WandbLogger,
+    clip_grad_norm: float,
     device: str = "cuda",
 ) -> None:
     w = wandb_logger
@@ -110,6 +111,10 @@ def train_step(
 
     scaled_loss = w.timed("scaler.scale", scaler.scale, loss)
     w.timed("scaled_loss.backward", scaled_loss.backward)
+
+    scaler.unscale_(optimizer)
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
 
     param_norm, biggest_abs_param = get_norm_and_abs_max(model, "parameters")
 
@@ -335,6 +340,7 @@ def train_loop(
                     )
 
             try:
+                clip_grad_norm = experiment.constants.training.clip_grad_norm
                 wandb_logger.timed(
                     "train_step",
                     train_step,
@@ -347,6 +353,7 @@ def train_loop(
                     scaler=scaler,
                     scale_scheduler=experiment.train_scale_scheduler,
                     wandb_logger=wandb_logger,
+                    clip_grad_norm=clip_grad_norm,
                 )
                 step += 1
             except StopIteration:

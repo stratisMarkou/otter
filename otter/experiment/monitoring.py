@@ -111,6 +111,6 @@ def get_min_stds_by_var(
     stds = dist.stddev
     for i, var in enumerate(trg_variables_and_levels):
         var_stds = stds[..., i]
-        result[f"lowest_pred_stddev_{var}"] = var_stds.min().item()
+        result[f"lowest_pred_stddev/{var}"] = var_stds.min().item()
     result["lowest_pred_stddev"] = stds.min().item()
     return result
