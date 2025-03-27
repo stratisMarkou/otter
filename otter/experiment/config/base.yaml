@@ -89,11 +89,14 @@ model:
   trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
   data_grid_num_lat: 121
   data_grid_num_lon: 240
+  distribution_type: ${get_module_attr:otter.models.distributions.Delta}
+  distribution_kwargs: {}
 
 loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
   model: ${model}
   loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+  weighting_coefficients_power: 0.5
   weighting_fns:
     - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
     - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}
@@ -107,10 +110,12 @@ val_loss_fns:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.rmse}
+    weighting_coefficients_power: 0.5
   raw_lwrmse:
     _target_: otter.models.losses.loss_fn.make_loss_fn
     model: ${model}
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
+    weighting_coefficients_power: 0.5
 
 optimizer:
   # Can also be set to `otter.experiment.utils.get_shampoo_optimizer`.
@@ -133,6 +138,7 @@ lr_scheduler:
     eta_min: 1e-6  # Only for `get_cosine_lr_scheduler`.
 
 constants:
+  num_stats: 1
   data:
     train_start_date: "1979-01-01 00:00:00"
     train_end_date: "2019-12-31 18:00:00"
@@ -146,9 +152,12 @@ constants:
     valid_num_target_frames: 4
     num_ctx_variables: 87
     num_trg_variables: 82
+    # TODO(jonas, stratis): refactor these calculations in a python helper.
     num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
     num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${time_embedding.num_scales} + ${constants.data.num_trg_variables}'}
-    num_output_channels: ${constants.data.num_trg_variables}
+    num_output_channels: ${eval:'${constants.data.num_trg_variables} * ${constants.num_stats}'}
+    # Until we refactor the calculations in a python helper, we need to
+    # manually set the number of sufficient statistics for the output.
     batch_size: 4
     num_workers: 6
     prefetch_factor: 4
@@ -168,7 +177,9 @@ constants:
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
     validate_every: 5000
+    log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float32}
+    clip_grad_norm: 1000.0
   load_weights_from_experiment: null
   save_best_checkpoint: true
   save_checkpoint_every: 1_000
