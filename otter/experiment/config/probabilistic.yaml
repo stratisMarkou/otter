@@ -23,3 +23,5 @@ val_loss_fns:
 
 constants:
   num_stats: 2
+  training:
+    clip_grad_norm: 75.0
