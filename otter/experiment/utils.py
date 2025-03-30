@@ -220,13 +220,17 @@ def _generate_experiment_name() -> str:
     return f"{timestamp}-{adjective}-{animal}"
 
 
-def initialize_wandb(experiment_name: str) -> None:
+def initialize_wandb(
+    experiment_name: str, log_code: Optional[bool] = False
+) -> None:
     wandb.init(
         project="otter-deterministic",
         entity="otter-weather",
         name=experiment_name,
         id=experiment_name,
     )
+    if log_code:
+        log_code_to_wandb()
 
 
 def _assert_repo_is_clean(repo: git.Repo) -> None:
@@ -392,6 +396,8 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
         re.compile(r"otter.egg-info.*"),
         # matches the "tests" directory
         re.compile(r"tests.*"),
+        # matches all paths containing "__pycache__"
+        re.compile(r"__pycache__.*"),
     ]
 
     return any(bool(pattern.match(path)) for pattern in patterns)
@@ -400,12 +406,19 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
 def log_code_to_wandb() -> None:
     # Create code artifact to log to wandb.
     code_artifact = wandb.Artifact(name="source", type="code")
-    for path in os.listdir("."):
-        if not wandb_log_code_exclude_fn(path):
-            if os.path.isdir(path):
-                code_artifact.add_dir(path)
-            else:
-                code_artifact.add_file(path)
+    # Walk through all files and directories from the current directory.
+    for root, dirs, files in os.walk("."):
+        # Filter out unwanted directories and files.
+        dirs[:] = [d for d in dirs if not wandb_log_code_exclude_fn(d)]
+
+        for file in files:
+            file_path = os.path.join(root, file)
+            # Get relative path to preserve directory structure.
+            rel_path = os.path.relpath(file_path, start=".")
+
+            # Only add non-excluded files.
+            if not wandb_log_code_exclude_fn(rel_path):
+                code_artifact.add_file(file_path, name=rel_path)
 
     # Log code artifact to wandb.
     wandb.log_artifact(code_artifact)
