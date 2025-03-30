@@ -57,7 +57,7 @@ time_embedding:
 
 pos_embedding:
   _target_: otter.models.architectures.embeddings.SpatialEmbedding
-  num_scales: 16
+  num_scales: 128
   token_dimension: ${backbone_network.token_dimensions[0]}
 
 backbone_network:
@@ -66,7 +66,7 @@ backbone_network:
   height: 128
   width: 256
   patch_size: 2
-  token_dimensions: [128, 128, 128, 128]
+  token_dimensions: [1024, 1024, 1024, 1024]
   output_dimension: ${constants.data.num_output_channels}
   window_size: 4
   num_heads: 8
@@ -77,7 +77,7 @@ backbone_network:
 feedforward_network:
   _target_: otter.models.architectures.mlp.MLP
   _partial_: true
-  hidden_features: 128
+  hidden_features: 4096
   num_hidden_layers: 2
 
 model:
