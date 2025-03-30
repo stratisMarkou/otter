@@ -82,29 +82,53 @@ def initialize_experiment(
     """
 
     args, extra_args = _parse_args(args_list)
-    config = _get_config(args.config_module, args.config_name, extra_args)
+    # If we are resuming, set the config_dir to the experiment path.
+    if bool(args.resume_experiment):
+        config = _get_config(
+            args.config_module,
+            args.config_name,
+            extra_args,
+        )
+        config_dir = (
+            os.path.abspath(config.info.root_results)
+            + "/"
+            + args.resume_experiment
+        )
+        args.config_name = "config"
+    else:
+        config_dir = None
 
-    experiment_name = (
-        args.resume_experiment
-        if args.resume_experiment
-        else _generate_experiment_name()
+    config = _get_config(
+        args.config_module, args.config_name, extra_args, config_dir=config_dir
     )
+    # Set the start_from_checkpoint flag if we are resuming.
+    config.info.start_from_checkpoint = bool(args.resume_experiment)
 
     repo = git.Repo(search_parent_directories=True)
     # Check that the repo is clean, and up to date with remote branch,
     # if not in debug mode.
     if not args.debug:
         _assert_repo_is_clean(repo)
+        # If config contains commit hash, assert that it matches the current commit hash.
+        if "commit" in config:
+            _assert_correct_commit_hash(config, repo)
 
-    experiment_path = _create_experiment_path(config, experiment_name)
+    # If the config does not contain an experiment name, generate one.
+    if "experiment_name" not in config.info:
+        experiment_name = (
+            args.resume_experiment
+            if args.resume_experiment
+            else _generate_experiment_name()
+        )
 
-    config.info.experiment_name = experiment_name
-    config.info.experiment_path = experiment_path
-    config.info.start_from_checkpoint = bool(args.resume_experiment)
+        experiment_path = _create_experiment_path(config, experiment_name)
 
-    config.model.device = device
+        config.info.experiment_name = experiment_name
+        config.info.experiment_path = experiment_path
 
-    _write_config(config, experiment_path, repo)
+        config.model.device = device
+
+        _write_config(config, experiment_path, repo)
 
     logging.info("Instantiating dependencies.")
 
@@ -234,8 +258,27 @@ def _has_commits_ahead(repo: git.Repo) -> bool:
         return len(commits) > 0
 
 
+def _assert_correct_commit_hash(config: DictConfig, repo: git.Repo) -> None:
+    """
+    Asserts that the current commit hash matches the one stored in the config.
+    """
+    if "commit" not in config:
+        raise ValueError("Config does not have a 'commit' field.")
+
+    config_commit_hash = config.commit
+    current_commit_hash = _get_current_commit_hash(repo)
+
+    if config_commit_hash != current_commit_hash:
+        raise ValueError(
+            f"Config commit hash {config_commit_hash} does not match current commit hash {current_commit_hash}."
+        )
+
+
 def _get_config(
-    config_module: str, config_name: str, extra_args: list[str]
+    config_module: str,
+    config_name: str,
+    extra_args: list[str],
+    config_dir: Optional[str] = None,
 ) -> DictConfig:
     """
     Reads the config file, evaluates expressions, and merges it with overrides.
@@ -248,10 +291,17 @@ def _get_config(
         OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
 
     # Initialize experiment.
-    with hydra.initialize_config_module(
-        config_module=config_module, version_base="1.3"
-    ):
-        config_yaml = compose(config_name=config_name)
+    # Here, we can either load from a config module or from a config directory.
+    if config_dir is None:
+        with hydra.initialize_config_module(
+            config_module=config_module, version_base="1.3"
+        ):
+            config_yaml = compose(config_name=config_name)
+    else:
+        with hydra.initialize_config_dir(
+            config_dir=config_dir, version_base="1.3"
+        ):
+            config_yaml = compose(config_name=config_name)
 
     cli_overrides = OmegaConf.from_cli(extra_args)
 
@@ -303,7 +353,7 @@ def _create_experiment_path(config: DictConfig, experiment_name: str) -> str:
 
 def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
     # Write config to file together with commit hash
-    path = f"{path}/config.yml"
+    path = f"{path}/config.yaml"
     logging.info(f"Writing reified config to {path}.")
     with open(path, "w") as file:
         hash = _get_current_commit_hash(repo)
