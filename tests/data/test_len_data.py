@@ -10,7 +10,6 @@ from otter.data.source.utils import (
 )
 from otter.data.utils import save_xarray_dataset_as_memmap
 
-
 TEST_DATASET = "era5_240x121"
 
 
@@ -33,10 +32,10 @@ TEST_DATASET = "era5_240x121"
         ("2020-01-01 00:00:00", "2020-01-04 21:00:00", 12, 1, 2, 6),
     ],
 )
-# @pytest.mark.skipif(
-#     os.getenv("OTTER_RUN_ALL_TESTS") != "true",
-#     reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
-# )
+@pytest.mark.skipif(
+    os.getenv("OTTER_RUN_ALL_TESTS") != "true",
+    reason="Skipping test because OTTER_RUN_ALL_TESTS != true.",
+)
 def test_len_dataset(
     start_date: str,
     end_date: str,

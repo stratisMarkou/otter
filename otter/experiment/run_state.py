@@ -143,6 +143,8 @@ def get_latest_checkpoint(path: Path) -> Path:
     if (path / "latest.pt").exists():
         return path / "latest.pt"
     checkpoints = list(path.glob("*.pt"))
+    # Exclude "best" checkpoints for the purpose of getting the latest.
+    checkpoints = [c for c in checkpoints if "best" not in c.name]
     if not checkpoints:
         raise FileNotFoundError(f"No checkpoint files found in {path}")
     return max(checkpoints, key=lambda x: str(x))

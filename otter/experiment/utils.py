@@ -7,12 +7,10 @@ import re
 from datetime import datetime
 from typing import (
     Any,
-    Callable,
     Dict,
     Iterator,
     Optional,
     Sequence,
-    Tuple,
 )
 
 import git
@@ -366,28 +364,6 @@ def get_module_summary(module: torch.nn.Module, indent: int = 0) -> str:
     return summary
 
 
-def run_with_timing(
-    f: Callable[..., Any],
-    *args: Any,
-    **kwargs: Any,
-) -> Tuple[float, Any]:
-    start = datetime.now()
-    result = f(*args, **kwargs)
-    end = datetime.now()
-    return (end - start).total_seconds(), result
-
-
-def run_and_log_time_to_wandb(
-    log_name: str,
-    f: Callable[..., Any],
-    *f_args: Any,
-    **f_kwargs: Any,
-) -> Any:
-    time, result = run_with_timing(f, *f_args, **f_kwargs)
-    wandb.log({f"time/{log_name}": time}, commit=False)
-    return result
-
-
 def wandb_log_code_exclude_fn(path: str) -> bool:
     # Create regex patterns that:
     patterns = [
@@ -432,37 +408,6 @@ def load_std_dataset() -> xr.DataArray:
         std_dataset, "level"
     )
     return stack_dataset_variable_and_levels(mean_dataset_split)
-
-
-def log_loss_info_to_wandb(
-    loss_info: Dict[str, torch.Tensor],
-    prefix: str,
-) -> None:
-    for k, v in loss_info.items():
-        wandb.log({f"{prefix}/{k}": v}, commit=False)
-
-
-def log_per_variable_per_lead_time_losses_to_wandb(
-    mean_loss: Dict[str, torch.Tensor],
-    mean_loss_info: Dict[str, torch.Tensor],
-    std_dataset: xr.DataArray,
-) -> None:
-    # Log the mean loss for each time index.
-    for i, loss in enumerate(mean_loss):
-        # Log and add leading 0s to index i
-        wandb.log({f"val/loss_time_{i:03}": loss}, commit=False)
-
-    # Log the lwrmse loss info for each time index.
-    for key, info in mean_loss_info.items():
-        variable_and_level = key.replace("lwrmse/", "")
-        std = std_dataset.sel(variable_and_level=variable_and_level).values
-
-        # Loop over times and log the lwrmse loss info.
-        for i in range(info.shape[0]):
-            wandb.log(
-                {f"val/{key}_time_{i:03}": info[i] * std},
-                commit=False,
-            )
 
 
 def get_adamw_optimizer(
