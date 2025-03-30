@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 from typing import (
     Any,
     Dict,
@@ -17,7 +18,6 @@ import seaborn as sns  # type: ignore
 
 from otter.data.source.utils import (
     ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
-    ALL_GRID_VARIABLE_LEVELS,
 )
 
 # Map between variables names and their abbreviation.
@@ -137,6 +137,18 @@ def get_time_steps(validation_metrics: Dict[str, float]) -> List[str]:
     return sorted(time_steps)
 
 
+def get_all_levels(data: Dict[str, float]) -> List[int]:
+    level_pattern = re.compile(r"level_(\d+)")
+    levels = set()
+
+    for key in data.keys():
+        match = level_pattern.search(key)
+        if match:
+            levels.add(int(match.group(1)))  # Extract and convert to int
+
+    return sorted(levels)
+
+
 def plot_score_card(
     base_validation_metrics: Dict[str, float],
     validation_metrics: Dict[str, float],
@@ -170,23 +182,36 @@ def plot_score_card(
 
     # Get all the variables from the metrics dictionary.
     vars = get_list_of_vars(validation_metrics)
+    base_vars = get_list_of_vars(base_validation_metrics)
 
     # Define variables, pressure levels, and lead times
     variables = list(VAR_MAP.keys())
-    variables = [variable for variable in variables if variable in vars]
-    pressure_levels = ALL_GRID_VARIABLE_LEVELS
+    variables = [
+        variable
+        for variable in variables
+        if ((variable in vars) and (variable in base_vars))
+    ]
+    pressure_levels = get_all_levels(validation_metrics)
     time_steps = get_time_steps(validation_metrics)
 
     # Initialise the figure.
     scale = 0.6 * max(
         1, 1 + 0.15 * (10 - len(time_steps))
     )  # This seems to look decent.
-    fig, axs = plt.subplots(
-        1,
-        3,
-        figsize=(scale * len(time_steps), scale * len(time_steps)),
-        gridspec_kw={"wspace": 1.2},
-    )
+    # This seems to look decent.
+    if len(metrics) > 1:
+        fig, axs = plt.subplots(
+            1,
+            len(metrics),
+            figsize=(scale * len(time_steps), scale * len(time_steps)),
+            gridspec_kw={"wspace": 1.2},
+        )
+    else:
+        fig, axs = plt.subplots(
+            figsize=(scale * len(time_steps), scale * len(time_steps)),
+            gridspec_kw={"wspace": 1.2},
+        )
+        axs = [axs]
 
     for ax, _metric in zip(axs, metrics):
         heatmap_data = []
@@ -270,7 +295,8 @@ def plot_score_card(
             cmap="RdBu_r",
             center=0,
             linewidths=0.5,
-            annot=False,
+            annot=True,
+            fmt=".2f",
             ax=ax,
         )
         # Compute percentage in which metrics have improved.
