@@ -84,15 +84,8 @@ def initialize_experiment(
     args, extra_args = _parse_args(args_list)
     # If we are resuming, set the config_dir to the experiment path.
     if bool(args.resume_experiment):
-        config = _get_config(
-            args.config_module,
-            args.config_name,
-            extra_args,
-        )
-        config_dir = (
-            os.path.abspath(config.info.root_results)
-            + "/"
-            + args.resume_experiment
+        config_dir = os.path.join(
+            os.path.abspath(args.root_results), args.resume_experiment
         )
         args.config_name = "config"
     else:
@@ -161,6 +154,7 @@ def _parse_args(
         "--config_module", type=str, default="otter.experiment.config"
     )
     parser.add_argument("--config_name", type=str)
+    parser.add_argument("--root_results", type=str, default="_results")
 
     return parser.parse_known_args(args=args_list)
 
@@ -221,7 +215,7 @@ def _generate_experiment_name() -> str:
 
 
 def initialize_wandb(
-    experiment_name: str, log_code: Optional[bool] = False
+    experiment_name: str, log_code: Optional[bool] = True
 ) -> None:
     wandb.init(
         project="otter-deterministic",
