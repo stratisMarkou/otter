@@ -1,3 +1,7 @@
 [tool.ruff]
 line-length = 79
 lint.extend-select = ["RUF012", "RUF100", "RUF200"]
+
+[[tool.mypy.overrides]]
+module = ["cartopy.*"]
+ignore_missing_imports = true
