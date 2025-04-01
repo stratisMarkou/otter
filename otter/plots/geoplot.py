@@ -172,21 +172,21 @@ class GeoPlotter:
         row_titles: Sequence[str],
         share_cmap: ShareCmap = "row",
     ) -> Figure:
-        num_vars = data.shape[-1]
+        num_rows = data.shape[-1]
         num_cols = data.shape[-2]
 
         fig, axs = plt.subplots(
-            num_vars,
+            num_rows,
             num_cols,
             figsize=(
                 self.map_width * num_cols,
-                self.map_height * num_vars,
+                self.map_height * num_rows,
             ),
             subplot_kw={"projection": self.projection},
         )
 
         # Always want a 2D array of axes.
-        if num_vars == 1:
+        if num_rows == 1:
             axs = axs[None, :]
         if num_cols == 1:
             axs = axs[:, None]
@@ -207,19 +207,32 @@ class GeoPlotter:
                 vmin = torch.amin(data, dim=(0, 1, 3)).tolist()
                 vmax = torch.amax(data, dim=(0, 1, 3)).tolist()
 
-        for col_idx in range(num_cols):
-            # TODO not list of tensors
-            data_tensors = [
-                data[:, :, col_idx, row_idx] for row_idx in range(num_vars)
-            ]
+        if share_cmap == "col":
+            for row_idx in range(num_rows):
+                data_tensors = [
+                    data[:, :, col_idx, row_idx] for col_idx in range(num_cols)
+                ]
 
-            self.plot_along_axes(
-                data_tensors=data_tensors,
-                axs=axs[:, col_idx],
-                vmin=vmin,
-                vmax=vmax,
-                titles=None,
-            )
+                self.plot_along_axes(
+                    data_tensors=data_tensors,
+                    axs=axs[row_idx, :],
+                    vmin=vmin,
+                    vmax=vmax,
+                    titles=None,
+                )
+        else:
+            for col_idx in range(num_cols):
+                data_tensors = [
+                    data[:, :, col_idx, row_idx] for row_idx in range(num_rows)
+                ]
+
+                self.plot_along_axes(
+                    data_tensors=data_tensors,
+                    axs=axs[:, col_idx],
+                    vmin=vmin,
+                    vmax=vmax,
+                    titles=None,
+                )
 
         _add_left_titles(fig, axs[:, 0], row_titles)
 
