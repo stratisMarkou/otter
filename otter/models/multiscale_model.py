@@ -31,6 +31,52 @@ from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.distributions import Distribution, product_distribution
 
 
+def get_trg_vars_and_levels(
+    trg_variables_to_remove: Sequence[str],
+) -> Sequence[str]:
+    trg_surface_variables = filter_variables(
+        ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        trg_variables_to_remove,
+    )
+
+    trg_multilevel_variables = filter_variables(
+        ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        trg_variables_to_remove,
+    )
+
+    return _get_variable_and_level_list(
+        levels=ALL_GRID_VARIABLE_LEVELS,
+        surface_variables=trg_surface_variables,
+        multilevel_variables=trg_multilevel_variables,
+    )
+
+
+def get_ctx_vars_and_levels(
+    ctx_variables_to_remove: Sequence[str],
+) -> Sequence[str]:
+    ctx_surface_variables = filter_variables(
+        ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    ctx_multilevel_variables = filter_variables(
+        ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    ctx_static_variables = filter_variables(
+        ALL_GRID_STATIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    return _get_variable_and_level_list(
+        levels=ALL_GRID_VARIABLE_LEVELS,
+        surface_variables=ctx_surface_variables,
+        multilevel_variables=ctx_multilevel_variables,
+        static_variables=ctx_static_variables,
+    )
+
+
 def _get_variable_and_level_list(
     levels: Sequence[int],
     surface_variables: Sequence[str],
@@ -91,13 +137,8 @@ class MultiscaleModel(torch.nn.Module):
         backbone_network: torch.nn.Module,
         time_embedding: TimeEmbedding,
         temporal_resolution_hours: int,
-        ctx_surface_variables: Sequence[str],
-        ctx_multilevel_variables: Sequence[str],
-        ctx_static_variables: Sequence[str],
-        trg_surface_variables: Sequence[str],
-        trg_multilevel_variables: Sequence[str],
-        ctx_levels: Sequence[int],
-        trg_levels: Sequence[int],
+        ctx_variables_and_levels: Sequence[str],
+        trg_variables_and_levels: Sequence[str],
         data_grid_num_lat: int,
         data_grid_num_lon: int,
         distribution_type: Type[Distribution],
@@ -110,39 +151,8 @@ class MultiscaleModel(torch.nn.Module):
         self.time_embedding = time_embedding
         self.temporal_resolution_hours = temporal_resolution_hours
 
-        # Ensure ctx surface vars are subset of trg surface vars
-        if not set(ctx_surface_variables).issubset(set(trg_surface_variables)):
-            raise ValueError(
-                "Context surface variables must be a subset of target "
-                "surface variables"
-            )
-
-        # Ensure ctx multilevel vars are subset of trg multilevel vars
-        if not set(ctx_multilevel_variables).issubset(
-            set(trg_multilevel_variables)
-        ):
-            raise ValueError(
-                "Context multilevel variables must be a subset of target "
-                "multilevel variables"
-            )
-
-        self.ctx_surface_variables = ctx_surface_variables
-        self.ctx_multilevel_variables = ctx_multilevel_variables
-        self.ctx_static_variables = ctx_static_variables
-        self.ctx_variables_and_levels = _get_variable_and_level_list(
-            levels=ctx_levels,
-            surface_variables=ctx_surface_variables,
-            multilevel_variables=ctx_multilevel_variables,
-            static_variables=ctx_static_variables,
-        )
-
-        self.trg_surface_variables = trg_surface_variables
-        self.trg_multilevel_variables = trg_multilevel_variables
-        self.trg_variables_and_levels = _get_variable_and_level_list(
-            levels=trg_levels,
-            surface_variables=trg_surface_variables,
-            multilevel_variables=trg_multilevel_variables,
-        )
+        self.ctx_variables_and_levels = ctx_variables_and_levels
+        self.trg_variables_and_levels = trg_variables_and_levels
 
         self.data_grid_num_lat = data_grid_num_lat
         self.data_grid_num_lon = data_grid_num_lon
@@ -417,32 +427,27 @@ def make_multiscale_model(
     distribution_type: Type[Distribution],
     distribution_kwargs: dict[str, Any],
 ) -> MultiscaleModel:
+    ctx_variables_and_levels = get_ctx_vars_and_levels(ctx_variables_to_remove)
+    trg_variables_and_levels = get_trg_vars_and_levels(trg_variables_to_remove)
+
+    ctx_static_variables = filter_variables(
+        ALL_GRID_STATIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    # Ensure ctx surface vars are subset of trg surface vars
+    dynamic_ctx = set(ctx_variables_and_levels) - set(ctx_static_variables)
+    if not set(dynamic_ctx).issubset(set(trg_variables_and_levels)):
+        raise ValueError(
+            "Non-static context variables must be a subset of target variables"
+        )
+
     return MultiscaleModel(
         backbone_network=backbone_network,
         time_embedding=time_embedding,
         temporal_resolution_hours=temporal_resolution_hours,
-        ctx_surface_variables=filter_variables(
-            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
-            ctx_variables_to_remove,
-        ),
-        ctx_multilevel_variables=filter_variables(
-            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
-            ctx_variables_to_remove,
-        ),
-        ctx_static_variables=filter_variables(
-            ALL_GRID_STATIC_VARIABLES,
-            ctx_variables_to_remove,
-        ),
-        trg_surface_variables=filter_variables(
-            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
-            trg_variables_to_remove,
-        ),
-        trg_multilevel_variables=filter_variables(
-            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
-            trg_variables_to_remove,
-        ),
-        ctx_levels=ALL_GRID_VARIABLE_LEVELS,
-        trg_levels=ALL_GRID_VARIABLE_LEVELS,
+        ctx_variables_and_levels=ctx_variables_and_levels,
+        trg_variables_and_levels=trg_variables_and_levels,
         data_grid_num_lat=data_grid_num_lat,
         data_grid_num_lon=data_grid_num_lon,
         distribution_type=distribution_type,
