@@ -52,18 +52,26 @@ module purge                               # Removes all modules still loaded
 module load rhel8/default-amp              # REQUIRED - loads the basic environment
 
 #! Insert additional module load commands after this line if needed:
-module load python/3.11 cuda/12.1 cudnn/8.9_cuda-12.1
+module load python/3.8 cuda/12.1 cudnn/8.9_cuda-12.1
 
 source ~/.bashrc
-conda activate otter
+
+# Here is a single variable controlling the environment location.
+# If not set, default to "otter" (i.e., an environment named 'otter').
+# You can override this by running, for example:
+#    ENV_PATH=otter/.venv sbatch myscript.sh
+ENV_PATH="${ENV_PATH:-otter}"
+
+echo "Activating environment: $ENV_PATH"
+conda activate "$ENV_PATH" || {
+    echo "Could not activate conda env '$ENV_PATH'. Check that it exists."
+    exit 1
+}
 
 export WANDB_MODE=online
 
 #! Full path to application executable:
 application="python"
-
-#! Run options for the application:
-options=$1
 
 #! Work directory (i.e. where the job will run):
 workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory
@@ -78,7 +86,7 @@ np=$[${numnodes}*${mpi_tasks_per_node}]
 
 #! Choose this for a pure shared-memory OpenMP parallel program on a single node:
 #! (OMP_NUM_THREADS threads will be created):
-CMD="$application $options"
+CMD="$application $@"
 
 #! Choose this for a MPI code using OpenMPI:
 #CMD="mpirun -npernode $mpi_tasks_per_node -np $np $application $options"
