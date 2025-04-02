@@ -52,7 +52,7 @@ module purge                               # Removes all modules still loaded
 module load rhel8/default-amp              # REQUIRED - loads the basic environment
 
 #! Insert additional module load commands after this line if needed:
-module load python/3.8 cuda/12.1 cudnn/8.9_cuda-12.1
+module load cuda/12.1 cudnn/8.9_cuda-12.1
 
 source ~/.bashrc
 
