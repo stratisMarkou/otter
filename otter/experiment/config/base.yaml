@@ -184,6 +184,7 @@ constants:
   save_best_checkpoint: true
   save_checkpoint_every: 1_000
   save_persistent_checkpoint_every: 30_000
+  log_code: True
 
 info:
   root_results: _results
