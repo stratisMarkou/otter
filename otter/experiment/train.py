@@ -255,7 +255,10 @@ def main() -> None:
 
     logging.info("Initializing experiment.")
     experiment = initialize_experiment(device)
-    initialize_wandb(experiment.info.experiment_name)
+    initialize_wandb(
+        experiment.info.experiment_name,
+        log_code=experiment.constants.log_code,
+    )
     logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
     experiment.model = experiment.model.to(device)

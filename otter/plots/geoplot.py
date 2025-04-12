@@ -1,26 +1,41 @@
+"""
+This module provides classes and functions for creating geospatial plots on a
+latitude-longitude grid.
+
+It features the following classes:
+
+1. `GeoPlotter`: A class for plotting 2D PyTorch tensors on a
+    latitude-longitude grid, agnostic of what data is plotted.
+2. `GeoPlotBuilder`: A class for incrementally building a grid of weather
+    plots, in which each row represents a different variable.
+3. `GeoVariablePlotter`: A wrapper around `GeoPlotter` that provides additional
+    functionality for common plotting tasks, such as plotting
+    `ForecastingSamples` and individual variables. This class understands our
+    definitions of target/context variables and is specifically tailored for
+    the dataset used for Otter training.
+"""
+
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Sequence, Union
 
-import cartopy.crs as ccrs  # type: ignore
-import hydra
+import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from hydra import compose
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from otter.data.datasets import ForecastingSample
-from otter.experiment.downsample import downsample
-from otter.models.multiscale_model import (
-    get_ctx_vars_and_levels,
-    get_trg_vars_and_levels,
-)
 
 ShareCmap = Literal["row", "col", "global", "none"]
 
 
 class GeoPlotter:
+    """
+    A class for plotting 2D PyTorch tensors on a latitude-longitude grid.
+    Supports rows/columns and 2d grids of maps.
+    """
+
     def __init__(
         self,
         cmap: str = "jet",
@@ -29,9 +44,6 @@ class GeoPlotter:
         map_width: int = 6,
         map_height: int = 3,
     ):
-        """
-        Plots 2D PyTorch tensors representing data on a lat-lon grid.
-        """
         self.cmap = cmap
         self.n_levels = n_levels
         self.projection = projection
@@ -210,7 +222,6 @@ class GeoPlotter:
                 )
         else:
             for col_idx in range(num_cols):
-                # TODO (jonas) not list of tensors, higher dim tensor instead
                 data_tensors = [
                     data[:, :, col_idx, row_idx] for row_idx in range(num_rows)
                 ]
@@ -232,6 +243,13 @@ class GeoPlotter:
 
 
 class GeoPlotBuilder:
+    """
+    A class for incrementally building a grid of weather plots, in which each
+    row represents a different variable.
+
+    This allows for custom plots that feature columns of geodata.
+    """
+
     def __init__(
         self,
         plotter: GeoPlotter,
@@ -250,6 +268,15 @@ class GeoPlotBuilder:
     def add_column(
         self, data_tensor: torch.Tensor, is_trg_like: bool, title: str = ""
     ) -> None:
+        """
+        Adds a column of data to the grid builder.
+
+        Args:
+            data_tensor: A tensor of shape (lat, lon, variables) representing
+                the data to be plotted.
+            is_trg_like: Whether the data is target-like or context-like.
+            title: The title for the column.
+        """
         self.titles.append(title)
 
         var2idx = self.trg_var_to_idx if is_trg_like else self.ctx_var_to_idx
@@ -271,6 +298,12 @@ class GeoPlotBuilder:
 
 # TODO (Jonas) add support for units as colorbar labels.
 class GeoVariablePlotter:
+    """
+    A wrapper around GeoPlotter that provides additional functionality for
+    common plotting tasks, such as plotting ForecastingSamples and individual
+    variables.
+    """
+
     def __init__(
         self,
         ctx_var_to_idx: dict[str, int],
@@ -385,74 +418,3 @@ def savefig(fig: Figure, fname: str) -> None:
     root = Path("_plots")
     root.mkdir(parents=True, exist_ok=True)
     fig.savefig(root / fname, bbox_inches="tight")
-
-
-if __name__ == "__main__":
-    # Load some data
-    with hydra.initialize_config_module(
-        config_module="otter.experiment.config", version_base="1.3"
-    ):
-        config_yaml = compose(config_name="base.yaml")
-        config_yaml.backbone_network.feedforward_network.hidden_features = 256
-        config_yaml.constants.data.num_workers = 0
-        config_yaml.constants.data.prefetch_factor = None
-
-    trainloader = hydra.utils.instantiate(config_yaml.train_dataloader)
-    sample: ForecastingSample = trainloader.dataset[0]
-    batch: ForecastingSample = next(iter(trainloader))
-
-    variables_to_remove = ["sea_surface_temperature"]
-
-    ctx_vars_and_levels = get_ctx_vars_and_levels(variables_to_remove)
-    trg_vars_and_levels = get_trg_vars_and_levels(variables_to_remove)
-
-    ctx_var_to_idx = {var: idx for idx, var in enumerate(ctx_vars_and_levels)}
-    trg_var_to_idx = {var: idx for idx, var in enumerate(trg_vars_and_levels)}
-
-    VARS_AND_LEVELS = [
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "2m_temperature",
-        "specific_humidity/level_500",
-    ]
-
-    plotter = GeoVariablePlotter.default(ctx_var_to_idx, trg_var_to_idx)
-
-    # A complex custom plot
-    gb = plotter.new_grid_builder(VARS_AND_LEVELS)
-    gb.add_column(
-        sample.ctx[:, :, 0, :], is_trg_like=False, title="Context[0]"
-    )
-    gb.add_column(sample.trg[:, :, 0, :], is_trg_like=True, title="Target[0]")
-
-    scale = 8
-    trg_downsampled = downsample(sample.trg.unsqueeze(0), scale).squeeze(0)
-    gb.add_column(
-        trg_downsampled[:, :, 0, :],
-        is_trg_like=True,
-        title=f"Target[0] (scale={scale})",
-    )
-
-    residual = sample.trg[:, :, 0, :] - trg_downsampled[:, :, 0, :]
-    gb.add_column(
-        residual, is_trg_like=True, title=f"Residual[0] (scale={scale})"
-    )
-
-    # Some simpler plots
-
-    fig = gb.plot(share_cmap="none")
-    savefig(fig, "complex_geoplot.pdf")
-
-    fig = plotter.plot_forecasting_sample(sample, VARS_AND_LEVELS)
-    savefig(fig, "forecasting_sample.pdf")
-
-    fig = plotter.plot_forecasting_sample(
-        next(iter(trainloader)), VARS_AND_LEVELS, batch_idx=2
-    )
-    savefig(fig, "forecasting_sample_batch.pdf")
-
-    fig = plotter.plot_vars(sample.ctx[:, :, 0, :], VARS_AND_LEVELS, ctx=True)
-    savefig(fig, "context_vars.pdf")
-
-    fig = plotter.plot_vars(sample.trg[:, :, 0, :], VARS_AND_LEVELS, ctx=False)
-    savefig(fig, "target_vars.pdf")

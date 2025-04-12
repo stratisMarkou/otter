@@ -32,6 +32,8 @@ ALL_TRG_VARIABLES = (
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES + ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES
 )
 
+BASE_TEMPORAL_RESOLUTION = np.timedelta64(6, "h")
+
 
 @dataclass
 class ForecastingSample:
@@ -161,24 +163,27 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         self.task_sub_sampling_factor = task_sub_sampling_factor
 
     def __len__(self) -> int:
-        # Trailing time interval that is not enough to form a full task
-        # and will be discarded.
-        trailing_time_interval = (
-            self.single_task_time_window - self.temporal_resolution
+        # Time interval for the specified dates from which we subtract the time needed to form a full task.
+        total_time_interval = (
+            self.end_date - self.start_date - self.single_task_time_window
         )
 
-        # Return the number of full tasks that can be formed with the
-        # parameters specified for the task.
-        length = int(
-            (self.end_date - self.start_date - trailing_time_interval)
-            // self.temporal_resolution
-        )
+        # Number of datapoints within this time interval given the
+        # resolution of the data.
+        # NOTE: we cast to int as mypy infers np.int64
+        num_datapoints = int(total_time_interval // BASE_TEMPORAL_RESOLUTION)
 
-        return length // self.task_sub_sampling_factor
+        # Number of subsampled tasks according to task_sub_sampling_factor.
+        # NOTE: We add 1 because we start the numbering from 0. For example,
+        # if num_datapoints is 9 and task_sub_sampling factor=2, we will use
+        # datapoints [0, 2, 4, 6, 8], hence 9 // 2 + 1.
+        length = num_datapoints // self.task_sub_sampling_factor + 1
+
+        return length
 
     def __getitem__(self, idx: int) -> ForecastingSample:
         idx = idx * self.task_sub_sampling_factor
-        zero_time = self.first_zero_time + idx * self.temporal_resolution
+        zero_time = self.first_zero_time + idx * BASE_TEMPORAL_RESOLUTION
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 
@@ -192,13 +197,10 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
             variable_and_level=self.trg_variables_and_levels
         )
 
-        ctx_tensor = torch.tensor(ctx.data)
-        ctx_tensor = ctx_tensor.permute(
+        ctx_tensor = torch.tensor(ctx.data).permute(
             2, 1, 0, 3
         )  # (lat, lon, time, var_and_level)
-
-        trg_tensor = torch.tensor(trg.data)
-        trg_tensor = trg_tensor.permute(
+        trg_tensor = torch.tensor(trg.data).permute(
             2, 1, 0, 3
         )  # (lat, lon, time, var_and_level)
 
