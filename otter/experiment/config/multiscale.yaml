@@ -17,4 +17,4 @@ inference_scale_scheduler:
   data_scales: [128]
   data_scale_probs: [1]
   # During rollout, go from the coarsest to the finest scale.
-  rollout_scales: [64, 32, 16, 8, 4, 2]
+  rollout_scales: [8, 4, 2]

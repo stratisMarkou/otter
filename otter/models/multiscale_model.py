@@ -38,6 +38,52 @@ from otter.models.distributions import (
 )
 
 
+def get_trg_vars_and_levels(
+    trg_variables_to_remove: Sequence[str],
+) -> Sequence[str]:
+    trg_surface_variables = filter_variables(
+        ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        trg_variables_to_remove,
+    )
+
+    trg_multilevel_variables = filter_variables(
+        ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        trg_variables_to_remove,
+    )
+
+    return _get_variable_and_level_list(
+        levels=ALL_GRID_VARIABLE_LEVELS,
+        surface_variables=trg_surface_variables,
+        multilevel_variables=trg_multilevel_variables,
+    )
+
+
+def get_ctx_vars_and_levels(
+    ctx_variables_to_remove: Sequence[str],
+) -> Sequence[str]:
+    ctx_surface_variables = filter_variables(
+        ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    ctx_multilevel_variables = filter_variables(
+        ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    ctx_static_variables = filter_variables(
+        ALL_GRID_STATIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    return _get_variable_and_level_list(
+        levels=ALL_GRID_VARIABLE_LEVELS,
+        surface_variables=ctx_surface_variables,
+        multilevel_variables=ctx_multilevel_variables,
+        static_variables=ctx_static_variables,
+    )
+
+
 def _get_variable_and_level_list(
     levels: Sequence[int],
     surface_variables: Sequence[str],
@@ -184,6 +230,8 @@ class MultiscaleModel(torch.nn.Module):
         trg_std_tensor = torch.tensor(trg_std.values).float().to(device)
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
+
+        self.device = device
 
         self.distribution_type = distribution_type
         self.distribution_kwargs = distribution_kwargs
@@ -411,6 +459,7 @@ class MultiscaleModel(torch.nn.Module):
         product_prd_dist = product_distribution(predictions, dim=3)
         return product_prd_dist, all_load_balancing_losses
 
+    # TODO jonas: refactor this to avoid the awkward type checks.
     def sample_n_trajectories(
         self, n: int, batch: MultiscaleInput, scales: torch.Tensor
     ) -> tuple[Distribution | MixtureOfGaussians, list[LoadBalancingLosses]]:
@@ -436,7 +485,7 @@ class MultiscaleModel(torch.nn.Module):
             # sampling weights somehow, but for now we just use uniform.
             weights.append(1.0)
 
-        out_dist = MixtureOfGaussians(trajectory_dists, weights)
+        out_dist = MixtureOfGaussians(trajectory_dists, torch.tensor(weights))
 
         return out_dist, loab_balancing_losses
 

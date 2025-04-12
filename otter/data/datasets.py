@@ -192,11 +192,21 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
             variable_and_level=self.trg_variables_and_levels
         )
 
+        ctx_tensor = torch.tensor(ctx.data)
+        ctx_tensor = ctx_tensor.permute(
+            2, 1, 0, 3
+        )  # (lat, lon, time, var_and_level)
+
+        trg_tensor = torch.tensor(trg.data)
+        trg_tensor = trg_tensor.permute(
+            2, 1, 0, 3
+        )  # (lat, lon, time, var_and_level)
+
         return ForecastingSample(
-            ctx=torch.tensor(ctx.data),
+            ctx=ctx_tensor,
             zero_time=np.array(zero_time),
             trg_timedelta_hours=self.target_timedeltas.astype(np.int32),
-            trg=torch.tensor(trg.data),
+            trg=trg_tensor,
         )
 
 
@@ -208,13 +218,6 @@ def collate_fn(batch: List[ForecastingSample]) -> ForecastingSample:
 
     ctx_tensor = torch.stack([example.ctx for example in batch], dim=0)
     trg_tensor = torch.stack([example.trg for example in batch], dim=0)
-
-    ctx_tensor = ctx_tensor.permute(
-        0, 3, 2, 1, 4
-    )  # (batch, lat, lon, time, var_and_level)
-    trg_tensor = trg_tensor.permute(
-        0, 3, 2, 1, 4
-    )  # (batch, lat, lon, time, var_and_level)
 
     return ForecastingSample(
         ctx_tensor, zero_time, trg_timedelta_hours, trg_tensor

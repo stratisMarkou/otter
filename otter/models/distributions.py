@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Any, List
 
 import torch
 import torch.distributions as dist
@@ -99,6 +99,11 @@ class Gaussian(Distribution):
         unconstrained_stddev = inv_softplus(self.stddev * other)
         return Gaussian(self.mean * other, unconstrained_stddev, self.min_std)
 
+    def __getitem__(self, idx: Any) -> Gaussian:
+        mean = self.mean[idx]
+        unconstrained_stddev = self.unconstrained_stddev[idx]
+        return Gaussian(mean, unconstrained_stddev, self.min_std)
+
 
 def product_distribution(dists: List[Distribution], dim: int) -> Distribution:
     if not dists:
@@ -108,15 +113,22 @@ def product_distribution(dists: List[Distribution], dim: int) -> Distribution:
 
 
 class MixtureOfGaussians:
-    def __init__(self, gaussians: list[Gaussian], weights: list[float]):
+    def __init__(self, gaussians: list[Gaussian], weights: torch.Tensor):
         self.gaussians = gaussians
-        self.weights = torch.tensor(weights)
+        self.weights = weights
         self.weights = self.weights / self.weights.sum()
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        log_probs = torch.stack([g.log_prob(x) for g in self.gaussians], dim=1)
-        return torch.logsumexp(log_probs + torch.log(self.weights), dim=1)
+        log_probs = torch.stack(
+            [g.log_prob(x) for g in self.gaussians], dim=-1
+        )
+        return torch.logsumexp(log_probs + torch.log(self.weights), dim=-1)
 
     def mean(self) -> torch.Tensor:
         means = torch.stack([g.mean for g in self.gaussians], dim=1)
         return torch.dot(self.weights, means)
+
+    def __getitem__(self, idx: Any) -> MixtureOfGaussians:
+        """Slice the underlying gaussians' means and stddevs."""
+        gaussians = [g[idx] for g in self.gaussians]
+        return MixtureOfGaussians(gaussians, self.weights)

@@ -5,6 +5,7 @@ import os
 import random
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -33,6 +34,25 @@ from omegaconf import (
 import wandb
 
 Experiment = DictConfig
+
+
+def load_experiment_config(
+    experiment_name: str,
+    override_args: list[str],
+    results_dir: Path | str = "_results",
+) -> DictConfig:
+    cfg_dir = Path(results_dir) / experiment_name / "config.yml"
+
+    _register_resolvers()
+    with open(cfg_dir, "r") as f:
+        cfg = OmegaConf.load(f)
+
+    overrides = OmegaConf.from_cli(override_args)
+    cfg = OmegaConf.merge(cfg, overrides)
+    OmegaConf.set_struct(cfg, False)
+
+    assert isinstance(cfg, DictConfig)
+    return cfg
 
 
 def get_model_parameters(
@@ -240,12 +260,7 @@ def _get_config(
     """
     Reads the config file, evaluates expressions, and merges it with overrides.
     """
-    # Register custom resolvers if not already registered.
-    if not OmegaConf.has_resolver("eval"):
-        OmegaConf.register_new_resolver("eval", eval)
-
-    if not OmegaConf.has_resolver("get_module_attr"):
-        OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+    _register_resolvers()
 
     # Initialize experiment.
     with hydra.initialize_config_module(
@@ -261,6 +276,15 @@ def _get_config(
     OmegaConf.set_struct(config, False)
 
     return config
+
+
+def _register_resolvers() -> None:
+    # Register custom resolvers if not already registered.
+    if not OmegaConf.has_resolver("eval"):
+        OmegaConf.register_new_resolver("eval", eval)
+
+    if not OmegaConf.has_resolver("get_module_attr"):
+        OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
 
 
 def _get_current_commit_hash(repo: git.Repo) -> str:
