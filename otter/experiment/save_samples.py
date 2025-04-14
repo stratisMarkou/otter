@@ -100,7 +100,7 @@ def initialise_memmap(
     lats = np.linspace(-90, 90, num_lats, dtype=np.float32)
     lons = np.linspace(-180, 180, num_lons, dtype=np.float32)
     forecast_time_indices = np.arange(num_forecast_times, dtype=np.int32)
-    trajectory_indices = np.arange(args.num_trajectories, dtype=np.int32)
+    trajectory_indices = np.arange(num_trajectories, dtype=np.int32)
     statistics = ["mean", "std"]
 
     coord_values: list[Sequence[Any] | npt.NDArray[Any]] = [
