@@ -4,6 +4,7 @@ import bisect
 import os
 import pickle
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -319,28 +320,7 @@ class LabelledArray:
                 )
 
     def sel(self, **index_coords: Any) -> LabelledArray:
-        # Get indices along each coordinate.
-        indices: List[List[int] | None] = []
-        for coord in self.coords:
-            if coord.name not in index_coords:
-                indices.append(None)
-
-            else:
-                coord_indices: List[int] = []
-                # Search for the index of the value in the coordinate.
-                for value in index_coords[coord.name]:
-                    if coord.is_sorted:
-                        index = bisect.bisect_left(coord.values, value)
-                        assert coord.values[index] == value, (
-                            f"Value {value} not found in coord {coord.name}"
-                        )
-                        coord_indices.append(index)
-
-                    else:
-                        index = int(np.where(coord.values == value)[0][0])
-                        coord_indices.append(index)
-
-                indices.append(coord_indices)
+        indices = self._find_indices(**index_coords)
 
         # Select the data.
         sliced_data = self.data
@@ -364,6 +344,105 @@ class LabelledArray:
             sliced_coords.append(sliced_coord)
 
         return LabelledArray(data=sliced_data, coords=sliced_coords)
+
+    def _find_indices(
+        self, **index_coords: Any
+    ) -> tuple[list[int] | None, ...]:
+        """
+        Find the indices of the given coordinate values in the LabelledArray.
+
+        Args:
+            index_coords: Dictionary of coordinate names and their values.
+
+        Returns:
+            List of indices for each coordinate in the LabelledArray.
+        """
+
+        for key, val in index_coords.items():
+            if not _is_list_like(val):
+                index_coords[key] = [val]
+
+        indices: List[List[int] | None] = []
+        for coord in self.coords:
+            if coord.name not in index_coords:
+                indices.append(None)
+
+            else:
+                coord_indices: List[int] = []
+                # Search for the index of the value in the coordinate.
+                for value in index_coords[coord.name]:
+                    if coord.is_sorted:
+                        index = bisect.bisect_left(coord.values, value)
+                        assert coord.values[index] == value, (
+                            f"Value {value} not found in coord {coord.name}"
+                        )
+                        coord_indices.append(index)
+
+                    else:
+                        try:
+                            index = int(np.where(coord.values == value)[0][0])
+                        except IndexError:
+                            raise ValueError(
+                                f"Value {value} not found in coord {coord.name}"
+                            )
+
+                        coord_indices.append(index)
+
+                indices.append(coord_indices)
+
+        return tuple(indices)
+
+    def set_at(self, value: npt.NDArray[Any], **index_coords: Any) -> None:
+        """
+        Set the value at a specific coordinate in the LabelledArray.
+
+        NOTE: Along each coordinate, either ALL values or ONE value can be
+        selected. Advanced indexing is not supported.
+
+        Args:
+            value: Value to set.
+            index_coords: Dictionary of coordinate names and their values.
+        """
+
+        indices = self._find_indices(**index_coords)
+
+        simple_indices = self._simplify_indices(indices)
+
+        self.data[simple_indices] = value
+
+        if isinstance(self.data, np.memmap):
+            self.data.flush()
+
+    def _simplify_indices(
+        self, indices: Sequence[List[int] | None]
+    ) -> tuple[int | slice, ...]:
+        """
+        Simplifies advanced indices to basic indices or throws.
+        """
+        simplified_indices: list[int | slice] = []
+        for idx in indices:
+            if isinstance(idx, list):
+                if len(idx) == 1:
+                    simplified_indices.append(idx[0])
+                else:
+                    raise ValueError(
+                        """Advanced indices could not be simplified. Select
+                        only one coordinate at a time."""
+                    )
+            elif idx is None:
+                simplified_indices.append(slice(None))
+            else:
+                raise ValueError(f"Unexpected index type: {type(idx)}")
+
+        return tuple(simplified_indices)
+
+
+def _is_list_like(value: Any) -> bool:
+    if isinstance(value, np.ndarray):
+        return True
+    if isinstance(value, (str, bytes)):
+        return False
+    return isinstance(value, Sequence)
 
 
 def open_memmap_and_dims(
@@ -416,3 +495,81 @@ def filter_variables(
     variables: Sequence[str], exclude: Sequence[str]
 ) -> List[str]:
     return [var for var in variables if var not in exclude]
+
+
+def new_memmap_labelled_array(
+    filepath: str | Path,
+    shape: Tuple[int, ...],
+    coord_names: Sequence[str],
+    coord_values: Sequence[Sequence[Any] | npt.NDArray[Any]],
+    dtype: npt.DTypeLike,
+) -> LabelledArray:
+    """
+    Creates and saves a zeros-filled memmap-based LabelledArray at the
+    specified path.
+    """
+    if len(shape) != len(coord_names):
+        raise ValueError(
+            f"""Length of shape {shape} ({len(shape)}) must match length of
+            coord_names {coord_names} ({len(coord_names)})"""
+        )
+
+    for name, values in zip(coord_names, coord_values):
+        if len(values) != shape[coord_names.index(name)]:
+            raise ValueError(
+                f"""Length of values {len(values)} for coord {name} must match
+                shape along that dimension {shape[coord_names.index(name)]}"""
+            )
+
+    sorted_dims = []
+    for name, values in zip(coord_names, coord_values):
+        if _dim_is_sorted(values):
+            sorted_dims.append(name)
+
+    filepath = Path(filepath)
+    os.makedirs(filepath, exist_ok=True)
+    dims_dir = filepath / "dims"
+    os.makedirs(dims_dir, exist_ok=True)
+    metadata_files = {
+        "dim_names.pkl": coord_names,
+        "shape.pkl": shape,
+        "sorted.pkl": sorted_dims,
+    }
+    for filename, data in metadata_files.items():
+        with open(filepath / filename, "wb") as f:
+            pickle.dump(data, f)
+
+    with open(filepath / "dtype", "w") as f:
+        f.write(np.dtype(dtype).str)
+
+    for name, values in zip(coord_names, coord_values):
+        np.save(dims_dir / f"{name}.npy", np.array(values))
+
+    coords = [
+        Coordinate(name, np.array(values), False)
+        for name, values in zip(coord_names, coord_values)
+    ]
+
+    data_memmap = np.memmap(
+        filename=filepath / "data.memmap",
+        dtype=dtype,
+        mode="w+",
+        shape=shape,
+    )
+
+    data_memmap[...] = 0
+    data_memmap.flush()
+    return LabelledArray(
+        data=data_memmap,
+        coords=coords,
+    )
+
+
+def _dim_is_sorted(values: Sequence[Any] | npt.NDArray[Any]) -> bool:
+    """
+    Check if a dimension is sorted.
+    """
+    if isinstance(values, np.ndarray):
+        return bool(np.all(np.diff(values).astype(float) >= 0))
+    else:
+        return all(values[i] <= values[i + 1] for i in range(len(values) - 1))

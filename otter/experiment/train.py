@@ -10,11 +10,11 @@ from typing import (
 
 import numpy as np
 import torch
+import wandb
 from omegaconf import DictConfig
 from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
-import wandb
 from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
@@ -35,7 +35,7 @@ from otter.models.losses.loss_fn import (
     LossInfo,
     gather_load_balancing_losses,
 )
-from otter.models.multiscale_model import MultiscaleInput
+from otter.models.multiscale_model import MultiscaleInput, MultiscaleModel
 
 LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
@@ -165,7 +165,7 @@ def _combine_scales(
 
 
 def validation_epoch(
-    model: torch.nn.Module,
+    model: MultiscaleModel,
     device: str,
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
