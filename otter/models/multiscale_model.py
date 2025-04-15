@@ -28,7 +28,10 @@ from otter.data.utils import (
 from otter.experiment.downsample import downsample
 from otter.models.architectures.embeddings import TimeEmbedding
 from otter.models.architectures.moe import LoadBalancingLosses
-from otter.models.distributions import Distribution, product_distribution
+from otter.models.distributions import (
+    Distribution,
+    product_distribution,
+)
 
 
 def get_trg_vars_and_levels(
@@ -187,6 +190,8 @@ class MultiscaleModel(torch.nn.Module):
         trg_std_tensor = torch.tensor(trg_std.values).float().to(device)
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
+
+        self.device = device
 
         self.distribution_type = distribution_type
         self.distribution_kwargs = distribution_kwargs
