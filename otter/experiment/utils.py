@@ -316,6 +316,8 @@ def _get_config(
         ):
             config = compose(config_name=config_name, overrides=extra_args)
 
+    logging.info("Config:\n" + OmegaConf.to_yaml(config))
+
     assert type(config) is DictConfig  # Check this to silence mypy.
 
     OmegaConf.set_struct(config, False)
