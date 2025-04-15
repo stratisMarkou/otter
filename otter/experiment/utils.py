@@ -309,16 +309,13 @@ def _get_config(
         with hydra.initialize_config_module(
             config_module=config_module, version_base="1.3"
         ):
-            config_yaml = compose(config_name=config_name)
+            config = compose(config_name=config_name, overrides=extra_args)
     else:
         with hydra.initialize_config_dir(
             config_dir=config_dir, version_base="1.3"
         ):
-            config_yaml = compose(config_name=config_name)
+            config = compose(config_name=config_name, overrides=extra_args)
 
-    cli_overrides = OmegaConf.from_cli(extra_args)
-
-    config = OmegaConf.merge(config_yaml, cli_overrides)
     assert type(config) is DictConfig  # Check this to silence mypy.
 
     OmegaConf.set_struct(config, False)
