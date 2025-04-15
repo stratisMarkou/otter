@@ -1,3 +1,7 @@
+defaults:
+  - _self_
+  - host: default
+
 train_dataloader:
   _target_: torch.utils.data.DataLoader
   batch_size: ${constants.data.batch_size}
@@ -150,9 +154,6 @@ constants:
     # Until we refactor the calculations in a python helper, we need to
     # manually set the number of sufficient statistics for the output.
     batch_size: 4
-    num_workers: 6
-    prefetch_factor: 4
-    path_to_labelled_array: "./_data/era5_240x121_single_array_float32"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste

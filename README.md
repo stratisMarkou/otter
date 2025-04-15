@@ -49,7 +49,7 @@ To launch a training run on HPC, from the repo root, run:
 ```bash
 # ENV_PATH indicates the path to otter venv, default is set to otter.
 # submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
-ENV_PATH="otter" sbatch submit.sh otter/experiment/train.py --config_name base
+ENV_PATH="otter" sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
 ```
 
 
