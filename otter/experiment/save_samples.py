@@ -56,7 +56,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def initialise_memmap(
-    num_zero_times: int,
+    ds: GriddedWeatherTask,
     num_lats: int,
     num_lons: int,
     num_forecast_times: int,
@@ -65,7 +65,7 @@ def initialise_memmap(
     experiment_path: Path,
 ) -> LabelledArray:
     out_shape = (
-        num_zero_times,
+        len(ds),  # Number of zero times
         num_lats,
         num_lons,
         num_forecast_times,  # e.g. [6, 12, 18, 24] hrs after zero time
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     num_lats, num_lons, num_forecast_times, vars_and_levels = ds[0].trg.shape
 
     la = initialise_memmap(
-        len(ds),
+        ds,
         num_lats,
         num_lons,
         num_forecast_times,
