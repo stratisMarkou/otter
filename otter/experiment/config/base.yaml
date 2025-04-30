@@ -1,3 +1,7 @@
+defaults:
+  - _self_
+  - host: default
+
 train_dataloader:
   _target_: torch.utils.data.DataLoader
   batch_size: ${constants.data.batch_size}
@@ -109,17 +113,12 @@ val_loss_fns:
     weighting_coefficients_power: 0.5
 
 optimizer:
-  # Can also be set to `otter.experiment.utils.get_shampoo_optimizer`.
   _target_: otter.experiment.utils.get_adamw_optimizer
   _partial_: true
   optimizer_kwargs:
     lr: ${constants.training.initial_learning_rate}
     betas: ${constants.training.betas}
     weight_decay: ${constants.training.weight_decay}
-    # The following two arguments are required by the shampoo optimizer, and
-    # are relevant only for otter.experiment_utils.get_shampoo_optimizer.
-    # max_preconditioner_dim: 8192  # Only for `get_shampoo_optimizer`.
-    # adaptive_amortized_computation_frequency_tolerance: 0.2  # Only for `get_shampoo_optimizer`.
 
 lr_scheduler:
   _target_: otter.experiment.utils.get_cosine_lr_scheduler
@@ -150,9 +149,6 @@ constants:
     # Until we refactor the calculations in a python helper, we need to
     # manually set the number of sufficient statistics for the output.
     batch_size: 4
-    num_workers: 6
-    prefetch_factor: 4
-    path_to_labelled_array: "./_data/era5_240x121_single_array_float32"
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
     # Sub-sampling factor for the validation task, as we don't want to waste
