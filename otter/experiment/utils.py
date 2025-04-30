@@ -19,11 +19,6 @@ import hydra
 import torch
 import xarray as xr
 import yaml
-from distributed_shampoo import (  # type: ignore[import-untyped]
-    AdaptiveAmortizedComputationFrequencyConfig,
-    DistributedShampoo,
-    EigenvalueCorrectedShampooPreconditionerConfig,
-)
 from hydra import compose
 from hydra.utils import instantiate
 from omegaconf import (
@@ -459,50 +454,6 @@ def get_adamw_optimizer(
     module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
 ) -> torch.optim.AdamW:
     return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
-
-
-def get_shampoo_optimizer(
-    module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
-) -> DistributedShampoo:
-    """Instantiate Shampoo optimizer with eigenvalue-corrected preconditioner.
-
-    See the docstring of the DistributedShampoo class for more information:
-    https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/distributed_shampoo.py#L101-L294
-
-    Mmemory overhead:
-    For a parameter W with shape (m, n), Adam uses an additional buffer of size m*n.
-    On top of this, eigenvalue-corrected Shampoo uses buffers of sizes 2 * m**2  and 2 * n**2, which increases its memory requirements.
-    However, if max(m, n) > max_preconditioner_dim, the preconditioner will be blocked such that the largest dimension is max_preconditioner_dim.
-
-    Computational overhead:
-    The most significant overhead is caused by the eigendecompositions of the Kronecker factor matrices.
-    Instead of computing them at a fixed frequency, we use an adaptive strategy that computes them only when the previously computed eigenbasis is no longer accurate enough.
-    This strategy is controlled by the tolerance parameter of the AdaptiveAmortizedComputationFrequencyConfig class, i.e. the smaller the tolerance, the more frequently the eigendecompositions are computed.
-
-    Arguments:
-        module: Module to optimize.
-        optimizer_kwargs: Optimizer arguments.
-
-    Returns:
-        DistributedShampoo optimizer instance.
-    """
-    # See the following docstring for more explanation on the eigenvalue correction:
-    # https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/distributed_shampoo.py#L238-L246
-    preconditioner_config = EigenvalueCorrectedShampooPreconditionerConfig(
-        amortized_computation_frequency_config=AdaptiveAmortizedComputationFrequencyConfig(
-            # Determines how frequently eigendecompositions are computed and hence also
-            # the average step time. See the following docstring for an explanation:
-            # https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/shampoo_types.py#L105-L112
-            tolerance=optimizer_kwargs.pop(
-                "adaptive_amortized_computation_frequency_tolerance"
-            ),
-        )
-    )
-    return DistributedShampoo(
-        params=module.parameters(),
-        preconditioner_config=preconditioner_config,
-        **optimizer_kwargs,
-    )
 
 
 def get_cosine_lr_scheduler(
