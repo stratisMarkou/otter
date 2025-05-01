@@ -12,13 +12,13 @@ from otter.models.architectures.embeddings import (
     PositionEmbedding,
     SpatialEmbedding,
 )
+from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
-from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import (
     aggregate_load_balancing_losses,
     conv_channel_last,
-    interpolate_bilinear_channel_last,
+    pad_bottom_right,
 )
 
 
@@ -147,9 +147,9 @@ class SwinTransformer(nn.Module):
         """
         _, original_height, original_width, _ = x.shape
 
-        # Interpolate image to target dimensions
-        x = interpolate_bilinear_channel_last(
-            x, height=self.height, width=self.width
+        # Pad input to target dimensions
+        x = pad_bottom_right(
+            x, target_height=self.height, target_width=self.width
         )
 
         x = self.tokeniser(x)
@@ -181,9 +181,7 @@ class SwinTransformer(nn.Module):
 
         x = conv_channel_last(self.final_conv, x)
 
-        # Interpolate image to original dimensions
-        x = interpolate_bilinear_channel_last(
-            x, height=original_height, width=original_width
-        )
+        # Crop the padding to restore original dimensions
+        x = x[:, :original_height, :original_width, :]
 
         return x, aggregate_load_balancing_losses(load_balancing_losses_list)
