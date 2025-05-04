@@ -3,5 +3,5 @@
 constants:
   data:
     path_to_labelled_array: "/rds/project/rds-dHudQI6NhiE/otter/data/era5_240x121_single_array_float32"
-    num_workers: 32
-    prefetch_factor: 1
+    num_workers: 64
+    prefetch_factor: 2

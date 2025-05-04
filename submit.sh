@@ -79,7 +79,7 @@ workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the
 
 #! Are you using OpenMP (NB this is unrelated to OpenMPI)? If so increase this
 #! safe value to no more than 128:
-export OMP_NUM_THREADS=1
+unset OMP_NUM_THREADS
 
 #! Number of MPI tasks to be started by the application per node and in total (do not change):
 np=$[${numnodes}*${mpi_tasks_per_node}]
@@ -118,5 +118,16 @@ fi
 echo -e "\nnumtasks=$numtasks, numnodes=$numnodes, mpi_tasks_per_node=$mpi_tasks_per_node (OMP_NUM_THREADS=$OMP_NUM_THREADS)"
 
 echo -e "\nExecuting command:\n==================\n$CMD\n"
+
+echo "--- Environment Variables (Batch) ---"
+env | sort > batch_env.log
+echo "--- Loaded Modules (Batch) ---"
+module list > batch_modules.log 2>&1
+echo "--- Conda Environment (Batch) ---"
+conda list > batch_conda.log
+echo "--- Limits (Batch) ---"
+ulimit -a > batch_limits.log
+echo "--- Python Path (Batch) ---"
+echo $PYTHONPATH > batch_pythonpath.log
 
 eval $CMD
