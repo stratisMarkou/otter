@@ -20,7 +20,7 @@ def benchmark_random_time_access(zarr_path, num_samples=100, sample_size=1):
     """
     # Open the dataset with xarray
     print(f"Opening Zarr dataset from {zarr_path}")
-    ds = xr.open_zarr(zarr_path)
+    ds = xr.open_zarr(zarr_path, consolidated=True)
 
     # Get information about the dataset
     time_dim = "time"  # Default name, adjust if needed
@@ -35,16 +35,6 @@ def benchmark_random_time_access(zarr_path, num_samples=100, sample_size=1):
 
     num_times = ds.dims[time_dim]
     print(f"Dataset contains {num_times} time steps")
-
-    # Get list of data variables (exclude coordinates)
-    data_vars = list(ds.data_vars)
-
-    # Choose a representative variable for benchmarking
-    if len(data_vars) > 0:
-        test_var = data_vars[0]
-        print(f"Using '{test_var}' for benchmark")
-    else:
-        raise ValueError("No data variables found in dataset")
 
     # Generate random time indices
     max_start_idx = num_times - sample_size
@@ -69,7 +59,7 @@ def benchmark_random_time_access(zarr_path, num_samples=100, sample_size=1):
 
         # Time the data access
         start_time = time.time()
-        _ = ds[test_var].isel(selection).load()  # Force data load
+        _ = ds.isel(selection).load()  # Force data load
         end_time = time.time()
 
         access_time_ms = (
