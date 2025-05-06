@@ -1,3 +1,4 @@
+import argparse
 import time
 
 import numpy as np
@@ -10,7 +11,7 @@ class ZarrDataset(Dataset):
         print(f"Opening Zarr dataset from {zarr_path}")
         self.zarr_path = zarr_path
         self.time_dim = time_dim
-        self.ds = xr.open_zarr(zarr_path, consolidated=True)
+        self.ds = xr.open_zarr(zarr_path, consolidated=True, chunks=None)
         self.slice_size = slice_size
 
     def __len__(self):
@@ -31,13 +32,13 @@ class ZarrDataset(Dataset):
 
 
 def benchmark_random_time_access(
-    zarr_path, num_samples=100, sample_size=1, num_workers=0
+    zarr_path, num_batches, sample_size, num_workers, batch_size
 ):
     ds = ZarrDataset(zarr_path, time_dim="time", slice_size=sample_size)
 
     dl = DataLoader(
         ds,
-        batch_size=1,
+        batch_size=batch_size,
         num_workers=num_workers,
         pin_memory=True,
         shuffle=True,
@@ -47,12 +48,12 @@ def benchmark_random_time_access(
     )
 
     print(
-        f"Starting benchmark: Reading {num_samples} random time slices of size {sample_size}"
+        f"Starting benchmark: Reading {num_batches} batches of size {sample_size} x {batch_size}"
     )
 
     access_times = []
     data_iter = iter(dl)
-    for i in range(num_samples):
+    for i in range(num_batches):
         start_time = time.time()
         _ = next(data_iter)
         end_time = time.time()
@@ -60,7 +61,7 @@ def benchmark_random_time_access(
         access_times.append(access_time_ms)
 
         if (i + 1) % 10 == 0:
-            print(f"Completed {i + 1}/{num_samples} samples")
+            print(f"Completed {i + 1}/{num_batches} batches")
 
     # Calculate statistics
     access_times = np.array(access_times)
@@ -86,9 +87,41 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    zarr_path = sys.argv[1]
-    num_samples = int(sys.argv[2]) if len(sys.argv) > 2 else 100
-    sample_size = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    num_workers = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+    parser = argparse.ArgumentParser(
+        description="Benchmark random time access in a Zarr dataset"
+    )
+    parser.add_argument("zarr_path", type=str, help="Path to the Zarr dataset")
+    parser.add_argument(
+        "--num_batches",
+        type=int,
+        default=100,
+        help="Number of batches to access",
+    )
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=4,
+        help="Size of each sample (number of time steps)",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=4,
+        help="Batch size for DataLoader",
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=0,
+        help="Number of workers for DataLoader",
+    )
+    args = parser.parse_args()
+    zarr_path = args.zarr_path
+    num_batches = args.num_batches
+    sample_size = args.sample_size
+    batch_size = args.batch_size
+    num_workers = args.num_workers
 
-    benchmark_random_time_access(zarr_path, num_samples, sample_size)
+    benchmark_random_time_access(
+        zarr_path, num_batches, sample_size, num_workers, batch_size
+    )
