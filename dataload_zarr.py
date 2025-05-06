@@ -2,7 +2,7 @@ import time
 
 import numpy as np
 import xarray as xr
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 
 class ZarrDataset(Dataset):
@@ -30,17 +30,31 @@ class ZarrDataset(Dataset):
         self.ds = None
 
 
-def benchmark_random_time_access(zarr_path, num_samples=100, sample_size=1):
+def benchmark_random_time_access(
+    zarr_path, num_samples=100, sample_size=1, num_workers=0
+):
     ds = ZarrDataset(zarr_path, time_dim="time", slice_size=sample_size)
+
+    dl = DataLoader(
+        ds,
+        batch_size=1,
+        num_workers=num_workers,
+        pin_memory=True,
+        shuffle=True,
+        prefetch_factor=2 if num_workers > 0 else None,
+        persistent_workers=num_workers > 0,
+        collate_fn=lambda x: x,
+    )
 
     print(
         f"Starting benchmark: Reading {num_samples} random time slices of size {sample_size}"
     )
 
     access_times = []
+    data_iter = iter(dl)
     for i in range(num_samples):
         start_time = time.time()
-        _ = ds[i]
+        _ = next(data_iter)
         end_time = time.time()
         access_time_ms = (end_time - start_time) * 1000
         access_times.append(access_time_ms)
@@ -75,5 +89,6 @@ if __name__ == "__main__":
     zarr_path = sys.argv[1]
     num_samples = int(sys.argv[2]) if len(sys.argv) > 2 else 100
     sample_size = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    num_workers = int(sys.argv[4]) if len(sys.argv) > 4 else 0
 
     benchmark_random_time_access(zarr_path, num_samples, sample_size)
