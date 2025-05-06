@@ -1,70 +1,48 @@
-import random
 import time
 
 import numpy as np
 import xarray as xr
+from torch.utils.data import Dataset
+
+
+class ZarrDataset(Dataset):
+    def __init__(self, zarr_path, time_dim="time", slice_size=4):
+        print(f"Opening Zarr dataset from {zarr_path}")
+        self.zarr_path = zarr_path
+        self.time_dim = time_dim
+        self.ds = xr.open_zarr(zarr_path, consolidated=True)
+        self.slice_size = slice_size
+
+    def __len__(self):
+        return self.ds.dims[self.time_dim] - self.slice_size
+
+    def __getitem__(self, idx):
+        # Create slice for time dimension
+        time_slice = slice(idx, idx + self.slice_size)
+
+        selection = {self.time_dim: time_slice}
+        data = self.ds.isel(selection).load()
+        return data
+
+    def close(self):
+        print("Closing Zarr dataset")
+        self.ds.close()
+        self.ds = None
 
 
 def benchmark_random_time_access(zarr_path, num_samples=100, sample_size=1):
-    """
-    Benchmark random time slice access from a Zarr dataset and print results.
+    ds = ZarrDataset(zarr_path, time_dim="time", slice_size=sample_size)
 
-    Parameters:
-    -----------
-    zarr_path : str
-        Path to the Zarr dataset
-    num_samples : int
-        Number of random samples to read
-    sample_size : int
-        Number of consecutive time steps to read in each sample
-    """
-    # Open the dataset with xarray
-    print(f"Opening Zarr dataset from {zarr_path}")
-    ds = xr.open_zarr(zarr_path, consolidated=True)
-
-    # Get information about the dataset
-    time_dim = "time"  # Default name, adjust if needed
-    if time_dim not in ds.dims:
-        time_dims = [dim for dim in ds.dims if "time" in dim.lower()]
-        if time_dims:
-            time_dim = time_dims[0]
-        else:
-            raise ValueError(
-                f"No time dimension found. Available dimensions: {list(ds.dims.keys())}"
-            )
-
-    num_times = ds.dims[time_dim]
-    print(f"Dataset contains {num_times} time steps")
-
-    # Generate random time indices
-    max_start_idx = num_times - sample_size
-    random_indices = [
-        random.randint(0, max_start_idx) for _ in range(num_samples)
-    ]
-
-    # Prepare results storage
-    access_times = []
-
-    # Perform benchmark
     print(
         f"Starting benchmark: Reading {num_samples} random time slices of size {sample_size}"
     )
 
-    for i, idx in enumerate(random_indices):
-        # Create slice for time dimension
-        time_slice = slice(idx, idx + sample_size)
-
-        # Build selection dictionary
-        selection = {time_dim: time_slice}
-
-        # Time the data access
+    access_times = []
+    for i in range(num_samples):
         start_time = time.time()
-        _ = ds.isel(selection).load()  # Force data load
+        _ = ds[i]
         end_time = time.time()
-
-        access_time_ms = (
-            end_time - start_time
-        ) * 1000  # Convert to milliseconds
+        access_time_ms = (end_time - start_time) * 1000
         access_times.append(access_time_ms)
 
         if (i + 1) % 10 == 0:
