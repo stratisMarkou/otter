@@ -613,11 +613,12 @@ class ZarrDatasource(GriddedWeatherSource):
         return ZarrDatasource(ds)
 
     def to_numpy(self) -> npt.NDArray[Any]:
-        for var_and_level in self.ds.variables:
+        scaled_ds = self.ds.copy()  # Create a temporary copy of the dataset
+        for var_and_level in scaled_ds.variables:
             var: str = var_and_level.split("/")[0]  # type: ignore
             factor = VARIABLES_WITH_SCALING_FACTORS.get(var)
             if factor:
-                self.ds[var_and_level] = self.ds[var_and_level] * factor
+                scaled_ds[var_and_level] = scaled_ds[var_and_level] * factor
 
-        stacked = stack_dataset_variable_and_levels(self.ds)
+        stacked = stack_dataset_variable_and_levels(scaled_ds)
         return stacked.values
