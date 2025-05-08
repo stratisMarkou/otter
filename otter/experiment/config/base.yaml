@@ -51,11 +51,23 @@ train_scale_scheduler:
 
 inference_scale_scheduler: ${train_scale_scheduler}
 
-feedforward_network:
+feedforward_network_mlp:
   _target_: otter.models.architectures.mlp.MLP
   _partial_: true
   hidden_features: 4096
   num_hidden_layers: 2
+
+feedforward_network_moe:
+  _target_: otter.models.architectures.moe.MixtureOfExperts
+  _partial_: true
+  num_experts: 32
+  k: 2
+  hidden_features: 4096
+  num_hidden_layers: 2
+  use_gating_bias: False
+  apply_softmax_before_top_k: False
+  w_importance: 0.1
+  w_load: 0.1
 
 model:
   _target_: otter.models.multiscale_model.make_multiscale_model
@@ -80,7 +92,9 @@ model:
     window_size: 4
     num_heads: 8
     num_blocks_per_stage: [4, 4, 4]
-    feedforward_network: ${feedforward_network}
+    use_moe_per_stage: [False, False, False]
+    feedforward_network_mlp: ${feedforward_network_mlp}
+    feedforward_network_moe: ${feedforward_network_moe}
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
       num_scales: 128

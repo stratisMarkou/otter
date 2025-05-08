@@ -78,7 +78,9 @@ def test_swin_transformer(
         # instead of xformers.ops.memory_efficient_attention, which is not
         # runnable in the test environment when we don't have a GPU.
         use_efficient_attention=False,
-        feedforward_network=feedforward_network,
+        feedforward_network_mlp=feedforward_network,
+        feedforward_network_moe=feedforward_network,
+        use_moe_per_stage=[False] * len(num_blocks_per_stage),
     )
 
     # Create a random input tensor

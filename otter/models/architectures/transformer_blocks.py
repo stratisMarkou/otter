@@ -232,7 +232,9 @@ class SwinTransformerBlock(torch.nn.Module):
     def __init__(
         self,
         token_dim: int,
-        feedforward_network: Callable[[int, int], nn.Module],
+        feedforward_network_mlp: Callable[[int, int], nn.Module],
+        feedforward_network_moe: Callable[[int, int], nn.Module],
+        use_moe: bool,
         num_heads: int,
         window_size: int,
         use_efficient_attention: bool = True,
@@ -240,6 +242,9 @@ class SwinTransformerBlock(torch.nn.Module):
         super().__init__()
 
         # Transformer block applied before the shift operation.
+        feedforward_network = (
+            feedforward_network_moe if use_moe else feedforward_network_mlp
+        )
         self.first_block = TransformerBlock(
             token_dim=token_dim,
             feedforward_network=feedforward_network,
@@ -250,7 +255,7 @@ class SwinTransformerBlock(torch.nn.Module):
         # Transformer block applied after the shift operation.
         self.second_block = TransformerBlock(
             token_dim=token_dim,
-            feedforward_network=feedforward_network,
+            feedforward_network=feedforward_network_mlp,
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
         )
@@ -315,7 +320,9 @@ class SwinTransformerBlock(torch.nn.Module):
 
 def make_swin_stage(
     token_dim: int,
-    feedforward_network: Callable[[int, int], nn.Module],
+    feedforward_network_mlp: Callable[[int, int], nn.Module],
+    feedforward_network_moe: Callable[[int, int], nn.Module],
+    use_moe: bool,
     num_heads: int,
     num_swin_blocks: int,
     window_size: int,
@@ -325,7 +332,9 @@ def make_swin_stage(
         [
             SwinTransformerBlock(
                 token_dim=token_dim,
-                feedforward_network=feedforward_network,
+                feedforward_network_mlp=feedforward_network_mlp,
+                feedforward_network_moe=feedforward_network_moe,
+                use_moe=use_moe,
                 num_heads=num_heads,
                 window_size=window_size,
                 use_efficient_attention=use_efficient_attention,

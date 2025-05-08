@@ -34,13 +34,16 @@ class SwinTransformer(nn.Module):
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
-        feedforward_network: Callable[[int, int], nn.Module],
+        use_moe_per_stage: Sequence[bool],
+        feedforward_network_mlp: Callable[[int, int], nn.Module],
+        feedforward_network_moe: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
 
         assert len(num_blocks_per_stage) > 0
+        assert len(num_blocks_per_stage) == len(use_moe_per_stage)
 
         if isinstance(token_dimensions, int):
             first_token_dim = token_dimensions
@@ -59,9 +62,10 @@ class SwinTransformer(nn.Module):
             zip(token_dimensions[:-1], token_dimensions[1:])
         )
 
-        for num_blocks, (t1, t2) in zip(
+        for num_blocks, (t1, t2), use_moe in zip(
             num_blocks_per_stage,
             token_in_out_dims,
+            use_moe_per_stage,
         ):
             patch_downsampling_layers.append(
                 nn.Conv2d(
@@ -75,7 +79,9 @@ class SwinTransformer(nn.Module):
             down_swin_stages.append(
                 make_swin_stage(
                     token_dim=t2,
-                    feedforward_network=feedforward_network,
+                    feedforward_network_mlp=feedforward_network_mlp,
+                    feedforward_network_moe=feedforward_network_moe,
+                    use_moe=use_moe,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
@@ -83,14 +89,17 @@ class SwinTransformer(nn.Module):
                 )
             )
 
-        for num_blocks, (t2, t1) in zip(
+        for num_blocks, (t2, t1), use_moe in zip(
             num_blocks_per_stage[::-1],
             token_in_out_dims[::-1],
+            use_moe_per_stage[::-1],
         ):
             up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t1,
-                    feedforward_network=feedforward_network,
+                    feedforward_network_mlp=feedforward_network_mlp,
+                    feedforward_network_moe=feedforward_network_moe,
+                    use_moe=use_moe,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
