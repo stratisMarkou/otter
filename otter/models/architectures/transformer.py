@@ -76,12 +76,19 @@ class SwinTransformer(nn.Module):
                 )
             )
 
+            moe_per_transformer_block = [False] * num_blocks
+
+            if use_moe:
+                assert num_blocks > 2
+                moe_per_transformer_block[0] = True
+                moe_per_transformer_block[1] = True
+
             down_swin_stages.append(
                 make_swin_stage(
                     token_dim=t2,
                     feedforward_network_mlp=feedforward_network_mlp,
                     feedforward_network_moe=feedforward_network_moe,
-                    use_moe=use_moe,
+                    use_moe_per_transformer_block=moe_per_transformer_block,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
@@ -94,12 +101,19 @@ class SwinTransformer(nn.Module):
             token_in_out_dims[::-1],
             use_moe_per_stage[::-1],
         ):
+            moe_per_transformer_block = [False] * num_blocks
+
+            if use_moe:
+                assert num_blocks > 2
+                moe_per_transformer_block[-1] = True
+                moe_per_transformer_block[-2] = True
+
             up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t1,
                     feedforward_network_mlp=feedforward_network_mlp,
                     feedforward_network_moe=feedforward_network_moe,
-                    use_moe=use_moe,
+                    use_moe_per_transformer_block=moe_per_transformer_block,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,

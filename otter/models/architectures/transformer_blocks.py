@@ -322,12 +322,16 @@ def make_swin_stage(
     token_dim: int,
     feedforward_network_mlp: Callable[[int, int], nn.Module],
     feedforward_network_moe: Callable[[int, int], nn.Module],
-    use_moe: bool,
+    use_moe_per_transformer_block: List[bool],
     num_heads: int,
     num_swin_blocks: int,
     window_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.Module:
+    assert len(use_moe_per_transformer_block) == num_swin_blocks, (
+        f"Length of use_moe_per_transformer_block ({len(use_moe_per_transformer_block)}) "
+        f"must match num_swin_blocks ({num_swin_blocks})"
+    )
     return torch.nn.ModuleList(
         [
             SwinTransformerBlock(
@@ -339,6 +343,6 @@ def make_swin_stage(
                 window_size=window_size,
                 use_efficient_attention=use_efficient_attention,
             )
-            for _ in range(num_swin_blocks)
+            for use_moe in use_moe_per_transformer_block
         ]
     )

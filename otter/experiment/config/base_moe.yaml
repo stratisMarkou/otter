@@ -2,4 +2,6 @@ defaults:
   - base  # Extend the base.yaml config
   - _self_
 
-model.backbone_network.use_moe_per_stage: [True, False, False]
+model:
+  backbone_network:
+    use_moe_per_stage: [True, False, False]
