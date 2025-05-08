@@ -13,5 +13,5 @@ feedforward_network:
   num_hidden_layers: 2
   use_gating_bias: False
   apply_softmax_before_top_k: False
-  w_importance: 1.0
-  w_load: 1.0
+  w_importance: 0.1
+  w_load: 0.1
