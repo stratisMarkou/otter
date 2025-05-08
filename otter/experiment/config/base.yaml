@@ -60,7 +60,7 @@ feedforward_network_mlp:
 feedforward_network_moe:
   _target_: otter.models.architectures.moe.MixtureOfExperts
   _partial_: true
-  num_experts: 32
+  num_experts: 20
   k: 2
   hidden_features: 4096
   num_hidden_layers: 2
