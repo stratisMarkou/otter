@@ -315,32 +315,32 @@ def train_loop(
 
         while True:
             wandb_logger = WandbLogger(step)
-            # if step % experiment.constants.training.validate_every == 0:
-            #     current_val_loss = validation_epoch(
-            #         model=experiment.model,
-            #         device=device,
-            #         dataloader=experiment.valid_dataloader,
-            #         loss_fns=experiment.val_loss_fns,
-            #         scale_scheduler=experiment.inference_scale_scheduler,
-            #         wandb_logger=wandb_logger,
-            #     )
+            if step % experiment.constants.training.validate_every == 0:
+                current_val_loss = validation_epoch(
+                    model=experiment.model,
+                    device=device,
+                    dataloader=experiment.valid_dataloader,
+                    loss_fns=experiment.val_loss_fns,
+                    scale_scheduler=experiment.inference_scale_scheduler,
+                    wandb_logger=wandb_logger,
+                )
 
-            #     if (
-            #         experiment.constants.save_best_checkpoint
-            #         and current_val_loss < best_val_loss
-            #     ):
-            #         best_val_loss = current_val_loss
+                if (
+                    experiment.constants.save_best_checkpoint
+                    and current_val_loss < best_val_loss
+                ):
+                    best_val_loss = current_val_loss
 
-            #         save_run_state(
-            #             experiment=experiment,
-            #             optimizer=optimizer,
-            #             lr_scheduler=lr_scheduler,
-            #             scaler=scaler,
-            #             epoch=epoch,
-            #             step=step,
-            #             best_val_loss=best_val_loss,
-            #             checkpoint_name="best.pt",
-            #         )
+                    save_run_state(
+                        experiment=experiment,
+                        optimizer=optimizer,
+                        lr_scheduler=lr_scheduler,
+                        scaler=scaler,
+                        epoch=epoch,
+                        step=step,
+                        best_val_loss=best_val_loss,
+                        checkpoint_name="best.pt",
+                    )
 
             try:
                 clip_grad_norm = experiment.constants.training.clip_grad_norm
