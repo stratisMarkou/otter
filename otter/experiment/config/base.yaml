@@ -12,7 +12,7 @@ train_dataloader:
   prefetch_factor: ${constants.data.prefetch_factor}
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
-    path_to_labelled_array: ${constants.data.path_to_labelled_array}
+    data_source: ${data_source}
     start_date: ${constants.data.train_start_date}
     end_date: ${constants.data.train_end_date}
     num_context_frames: ${constants.data.num_context_frames}
@@ -31,7 +31,7 @@ valid_dataloader:
   prefetch_factor: ${constants.data.prefetch_factor}
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
-    path_to_labelled_array: ${constants.data.path_to_labelled_array}
+    data_source: ${data_source}
     start_date: ${constants.data.valid_start_date}
     end_date: ${constants.data.valid_end_date}
     num_context_frames: ${constants.data.num_context_frames}

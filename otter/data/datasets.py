@@ -18,8 +18,8 @@ from otter.data.source.utils import (
     ALL_GRID_VARIABLE_LEVELS,
 )
 from otter.data.utils import (
+    GriddedWeatherSource,
     filter_variables,
-    open_memmap_as_labelled_array,
 )
 
 ALL_CTX_VARIABLES = (
@@ -74,7 +74,7 @@ def _combine_variables_and_levels(
 class GriddedWeatherTask(Dataset[ForecastingSample]):
     def __init__(
         self,
-        path_to_labelled_array: str,
+        data_source: GriddedWeatherSource,
         start_date: str,
         end_date: str,
         num_context_frames: int,
@@ -137,10 +137,7 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         self.target_timedeltas = self.temporal_resolution * (
             np.arange(num_target_frames) + 1
         )
-
-        # Specify data source zarr and select the time range that will be
-        # used to form tasks.
-        self.dataset = open_memmap_as_labelled_array(path_to_labelled_array)
+        self.dataset = data_source
 
         # Context and target variable names
         ctx_multilevel_dynamic_variables = _combine_variables_and_levels(
@@ -190,17 +187,18 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         assert all(ctx_time >= self.start_date for ctx_time in context_times)
         assert all(trg_time <= self.end_date for trg_time in target_times)
 
-        ctx = self.dataset.sel(time=context_times).sel(
-            variable_and_level=self.ctx_variables_and_levels
+        ctx = self.dataset.sel(
+            time=context_times,
+            variable_and_level=self.ctx_variables_and_levels,
         )
-        trg = self.dataset.sel(time=target_times).sel(
-            variable_and_level=self.trg_variables_and_levels
+        trg = self.dataset.sel(
+            time=target_times, variable_and_level=self.trg_variables_and_levels
         )
 
-        ctx_tensor = torch.tensor(ctx.data).permute(
+        ctx_tensor = torch.from_numpy(ctx.to_numpy()).permute(
             2, 1, 0, 3
         )  # (lat, lon, time, var_and_level)
-        trg_tensor = torch.tensor(trg.data).permute(
+        trg_tensor = torch.from_numpy(trg.to_numpy()).permute(
             2, 1, 0, 3
         )  # (lat, lon, time, var_and_level)
 

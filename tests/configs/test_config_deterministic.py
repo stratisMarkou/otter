@@ -59,7 +59,7 @@ def test_config(config_name: str) -> None:
                 "otter.experiment.config",
                 "--config_name",
                 config_name,
-                f"constants.data.path_to_labelled_array={path}",
+                f"data_source.path={path}",
                 # Use a small MLP to keep test fast and prevent OOMs.
                 "feedforward_network.hidden_features=32",
                 # Reduce model size to keep test fast and prevent OOMs.
