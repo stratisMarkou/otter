@@ -8,3 +8,6 @@ constants:
 data_source:
   _target_: otter.data.utils.ZarrDatasource.from_path
   path: /rds/project/rds-dHudQI6NhiE/otter/data/era5_240x121.zarr
+
+info:
+  root_results: /rds/project/rds-dHudQI6NhiE/otter/results
