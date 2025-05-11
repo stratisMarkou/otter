@@ -1,0 +1,17 @@
+defaults:
+  - base
+  - self
+
+lr_scheduler:
+  _target_: otter.experiment.lr_scheduler.get_linear_warmup_cosine_annealing_lr_scheduler
+  _partial_: true
+  lr_scheduler_kwargs:
+    warmup_epochs: 5000
+    max_epochs: ${constants.training.num_training_steps}
+    warmup_start_lr: 0.0
+    eta_min: 0.0
+    last_epoch: -1.0
+
+constants:
+  training:
+    initial_learning_rate: 1e-3
