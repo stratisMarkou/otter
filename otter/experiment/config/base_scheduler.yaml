@@ -1,6 +1,6 @@
 defaults:
-  - base
-  - self
+  - base  # Extend the base.yaml config
+  - _self_
 
 lr_scheduler:
   _target_: otter.experiment.lr_scheduler.get_linear_warmup_cosine_annealing_lr_scheduler
