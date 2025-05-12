@@ -10,11 +10,11 @@ from typing import (
 
 import numpy as np
 import torch
-import wandb
 from omegaconf import DictConfig
 from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
+import wandb
 from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
@@ -65,12 +65,12 @@ def train_step(
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
 
-    data_scale = scale_scheduler.sample_data_scale()
+    input_scale, output_scale = scale_scheduler.sample_data_scale_pair()
     processed_batch = w.timed(
         "preprocess_batch",
         preprocess_batch,
         batch=batch,
-        scale=data_scale,
+        scale=input_scale,
     )
     processed_batch = processed_batch.to(device)
 
@@ -89,12 +89,14 @@ def train_step(
         )
         w.log(smallest_stds_by_var)
 
+    trg = downsample(batch.trg, output_scale)
+
     loss, loss_info = w.timed(
         "loss_fn",
         loss_fn,
         prd_dist=prd_dist,
-        trg=batch.trg,
-        scales=_combine_scales(data_scale, rollout_scales),
+        trg=trg,
+        scales=_combine_scales(input_scale, rollout_scales),
     )
 
     load_balancing_loss, load_balancing_loss_info = w.timed(
@@ -179,7 +181,7 @@ def validation_epoch(
         loss_infos: Dict[str, List[LossInfo]] = defaultdict(list)
         for batch in tqdm(dataloader):
             batch = batch.to(device)
-            data_scale = scale_scheduler.sample_data_scale()
+            data_scale, next_scale = scale_scheduler.sample_data_scale_pair()
             rollout_scales = scale_scheduler.get_rollout_scales()
             all_scales = _combine_scales(data_scale, rollout_scales)
             # Test that the largest scale is greater than the number of lats,
@@ -195,6 +197,18 @@ def validation_epoch(
                 preprocessed_batch, scales=rollout_scales
             )
 
+            # Each step in the rollout is targeting the next scale, so we need
+            # to construct an appropriate target for the loss function.
+
+            scale_trgs = []
+            for scale in rollout_scales:
+                # The target is the downsampled target at the current scale.
+                scale_trg = downsample(batch.trg, int(scale))
+                scale_trgs.append(scale_trg)
+            # The final target is the clean target.
+            scale_trgs.append(batch.trg)
+            trg = torch.stack(scale_trgs, dim=-2)
+
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
                 if loss_name not in losses:
@@ -202,7 +216,7 @@ def validation_epoch(
                     loss_infos[loss_name] = []
 
                 loss, loss_info = loss_fn(
-                    trg=batch.trg, prd_dist=prd_dist, scales=all_scales
+                    trg=trg, prd_dist=prd_dist, scales=all_scales
                 )
 
                 if loss_name == "train_loss":
@@ -328,6 +342,7 @@ def train_loop(
                 if (
                     experiment.constants.save_best_checkpoint
                     and current_val_loss < best_val_loss
+                    and step > 0
                 ):
                     best_val_loss = current_val_loss
 

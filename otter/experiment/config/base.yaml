@@ -62,6 +62,8 @@ model:
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
   ctx_variables_to_remove: ${constants.data.ctx_variables_to_remove}
   trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
+  # Use previous timestep as residual, not previous scale.
+  prev_scale_as_residual: false
   data_grid_num_lat: 121
   data_grid_num_lon: 240
   distribution_type: ${get_module_attr:otter.models.distributions.Delta}

@@ -146,6 +146,7 @@ class MultiscaleModel(torch.nn.Module):
         data_grid_num_lon: int,
         distribution_type: Type[Distribution],
         distribution_kwargs: dict[str, Any],
+        prev_scale_as_residual: bool,
         device: str,
     ) -> None:
         super().__init__()
@@ -191,6 +192,7 @@ class MultiscaleModel(torch.nn.Module):
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
+        self.prev_scale_as_residual = prev_scale_as_residual
         self.device = device
 
         self.distribution_type = distribution_type
@@ -246,9 +248,12 @@ class MultiscaleModel(torch.nn.Module):
         downsampled_trg: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
     ) -> tuple[Distribution, Optional[LoadBalancingLosses]]:
-        residual = ctx[
-            ..., 0, self.idx_residual
-        ]  # (batch, lat, lon, time_idx, res_var_and_level)
+        if self.prev_scale_as_residual:
+            residual = downsampled_trg.squeeze()
+        else:
+            residual = ctx[
+                ..., 0, self.idx_residual
+            ]  # (batch, lat, lon, time_idx, res_var_and_level)
 
         ctx_reshaped = ctx.reshape(
             *ctx.shape[:-2], -1
@@ -326,6 +331,10 @@ class MultiscaleModel(torch.nn.Module):
         for scale in scales:
             # Unsqueeze along time dimension to match shape of downsampled_trg
             sample = prd_dist.sample().unsqueeze(-2)
+
+            # We downsample here to make sure the edges are clean, because the
+            # model might not learn to perfectly predict the edges, reducing
+            # the OOD problem.
             downsampled_trg = downsample(
                 sample,
                 int(scale),
@@ -429,6 +438,7 @@ def make_multiscale_model(
     data_grid_num_lat: int,
     data_grid_num_lon: int,
     device: str,
+    prev_scale_as_residual: bool,
     distribution_type: Type[Distribution],
     distribution_kwargs: dict[str, Any],
 ) -> MultiscaleModel:
@@ -457,5 +467,6 @@ def make_multiscale_model(
         data_grid_num_lon=data_grid_num_lon,
         distribution_type=distribution_type,
         distribution_kwargs=distribution_kwargs,
+        prev_scale_as_residual=prev_scale_as_residual,
         device=device,
     )

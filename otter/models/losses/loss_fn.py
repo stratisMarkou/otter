@@ -14,7 +14,7 @@ import torch
 
 from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import aggregate_load_balancing_losses
-from otter.models.distributions import Distribution, Delta, Gaussian
+from otter.models.distributions import Delta, Distribution, Gaussian
 from otter.models.multiscale_model import get_trg_vars_and_levels
 
 DistributionWithMean = Union[Delta, Gaussian]
@@ -62,9 +62,6 @@ def _rmse(
     prd_dist: DistributionWithMean,
     apply_latitude_weighting: bool,
 ) -> torch.Tensor:
-    # Expand along the scale dimension to match the target tensor.
-    trg = trg.unsqueeze(-2)  # (batch, lat, lon, time_idx, 1, var_and_level)
-
     error = torch.square(
         prd_dist.mean - trg
     )  # (batch, lat, lon, time_idx, scale, var_and_level)
@@ -86,9 +83,6 @@ def _mean_neg_log_prob(
     prd_dist: Gaussian,
     apply_latitude_weighting: bool,
 ) -> torch.Tensor:
-    # Expand along the scale dimension to match the target tensor.
-    trg = trg.unsqueeze(-2)  # (batch, lat, lon, time_idx, 1, var_and_level)
-
     neg_log_prob = -prd_dist.log_prob(trg)
 
     if apply_latitude_weighting:
@@ -167,6 +161,7 @@ def apply_loss(
 
     Args:
         trg: target tensor of shape (batch, lat, lon, time_idx, var_and_level)
+            or (batch, lat, lon, time_idx, scale, var_and_level)
         prd_dist: distribution of shape
             (batch, lat, lon, time_idx, scale, var_and_level)
         loss_fn: loss function to apply
@@ -177,6 +172,10 @@ def apply_loss(
         scales: list of scales corresponding to the scale dimension of the
             prediction statistics tensor(s)
     """
+    if trg.ndim == 5:
+        # Assuming no bugs, we're missing the scale dimension in the target
+        # tensor. Broadcast it to match the prd_dist.
+        trg = trg.unsqueeze(-2)
 
     # Calculate the squared error. We apply specified weightings to it below.
     loss = loss_fn(trg, prd_dist)  # (batch, time, scale, var_and_level)
