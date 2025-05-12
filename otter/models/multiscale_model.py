@@ -147,6 +147,7 @@ class MultiscaleModel(torch.nn.Module):
         distribution_type: Type[Distribution],
         distribution_kwargs: dict[str, Any],
         device: str,
+        downsampling_noise_std: float = 0.0,
     ) -> None:
         super().__init__()
 
@@ -195,6 +196,8 @@ class MultiscaleModel(torch.nn.Module):
 
         self.distribution_type = distribution_type
         self.distribution_kwargs = distribution_kwargs
+
+        self.downsampling_noise_std = downsampling_noise_std
 
     def forward(
         self, batch: MultiscaleInput, scales: torch.Tensor
@@ -313,6 +316,12 @@ class MultiscaleModel(torch.nn.Module):
         prd_dists = []
         all_load_balancing_losses = []
 
+        # Add noise to the downsampled target if specified.
+        if self.downsampling_noise_std > 0:
+            downsampled_trg = torch.normal(
+                mean=downsampled_trg, std=self.downsampling_noise_std
+            )
+
         prd_dist, load_balancing_losses = self.single_scale_forward(
             ctx=ctx,
             downsampled_trg=downsampled_trg,
@@ -331,6 +340,12 @@ class MultiscaleModel(torch.nn.Module):
                 int(scale),
             )  # (batch, lat, lon, 1, trg_var_and_level)
 
+            # Add noise to the downsampled target if specified.
+            if self.downsampling_noise_std > 0:
+                downsampled_trg = torch.normal(
+                    mean=downsampled_trg, std=self.downsampling_noise_std
+                )
+
             prd_dist, load_balancing_losses = self.single_scale_forward(
                 ctx=ctx,
                 downsampled_trg=downsampled_trg,
@@ -344,7 +359,11 @@ class MultiscaleModel(torch.nn.Module):
             prd_dists, dim=-2
         )  # (batch, lat, lon, scale, trg_var_and_level)
 
-        return product_prd_dist, prd_dist, all_load_balancing_losses
+        return (
+            product_prd_dist,
+            prd_dist,
+            all_load_balancing_losses,
+        )
 
     def time_rollout(
         self,
@@ -380,13 +399,15 @@ class MultiscaleModel(torch.nn.Module):
         for i in range(num_rollout_steps):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
-            prd_dist, last_prd_dist, load_balancing_losses = (
-                self.multiscale_forward(
-                    ctx,
-                    downsampled_trg=downsampled_slice,
-                    zero_time=zero_time + i * self.temporal_resolution_hours,
-                    scales=scales,
-                )
+            (
+                prd_dist,
+                last_prd_dist,
+                load_balancing_losses,
+            ) = self.multiscale_forward(
+                ctx,
+                downsampled_trg=downsampled_slice,
+                zero_time=zero_time + i * self.temporal_resolution_hours,
+                scales=scales,
             )  # (batch, lat, lon, scale, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
@@ -417,7 +438,10 @@ class MultiscaleModel(torch.nn.Module):
 
         # Concat the time rollout steps along the time dimension
         product_prd_dist = product_distribution(predictions, dim=3)
-        return product_prd_dist, all_load_balancing_losses
+        return (
+            product_prd_dist,
+            all_load_balancing_losses,
+        )
 
 
 def make_multiscale_model(
@@ -431,6 +455,7 @@ def make_multiscale_model(
     device: str,
     distribution_type: Type[Distribution],
     distribution_kwargs: dict[str, Any],
+    downsampling_noise_std: float = 0.0,
 ) -> MultiscaleModel:
     ctx_variables_and_levels = get_ctx_vars_and_levels(ctx_variables_to_remove)
     trg_variables_and_levels = get_trg_vars_and_levels(trg_variables_to_remove)
@@ -458,4 +483,5 @@ def make_multiscale_model(
         distribution_type=distribution_type,
         distribution_kwargs=distribution_kwargs,
         device=device,
+        downsampling_noise_std=downsampling_noise_std,
     )
