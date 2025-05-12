@@ -79,7 +79,7 @@ model:
     output_dimension: ${constants.data.num_output_channels}
     window_size: 4
     num_heads: 8
-    num_blocks_per_stage: [4, 4, 4, 4]
+    num_blocks_per_stage: [2, 4, 4, 4]
     feedforward_network: ${feedforward_network}
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
