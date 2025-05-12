@@ -55,13 +55,25 @@ class SwinTransformer(nn.Module):
         up_swin_stages = []
         patch_downsampling_layers = []
         patch_upsampling_layers = []
-        token_in_out_dims = list(
+
+        intermediate_token_in_out_dims = list(
             zip(token_dimensions[:-1], token_dimensions[1:])
+        )
+        # Ignore the first token dimension (before downsampling)
+        intemediate_blocks_per_stage = num_blocks_per_stage[1:]
+
+        self.initial_swin_stage = make_swin_stage(
+            token_dim=first_token_dim,
+            feedforward_network=feedforward_network,
+            num_heads=num_heads,
+            num_swin_blocks=num_blocks_per_stage[0],
+            window_size=window_size,
+            use_efficient_attention=use_efficient_attention,
         )
 
         for num_blocks, (t1, t2) in zip(
-            num_blocks_per_stage,
-            token_in_out_dims,
+            intemediate_blocks_per_stage,
+            intermediate_token_in_out_dims,
         ):
             patch_downsampling_layers.append(
                 nn.Conv2d(
@@ -84,8 +96,8 @@ class SwinTransformer(nn.Module):
             )
 
         for num_blocks, (t2, t1) in zip(
-            num_blocks_per_stage[::-1],
-            token_in_out_dims[::-1],
+            intemediate_blocks_per_stage[::-1],
+            intermediate_token_in_out_dims[::-1],
         ):
             up_swin_stages.append(
                 make_swin_stage(
@@ -106,6 +118,15 @@ class SwinTransformer(nn.Module):
                 )
             )
 
+        self.final_swin_stage = make_swin_stage(
+            token_dim=first_token_dim,
+            feedforward_network=feedforward_network,
+            num_heads=num_heads,
+            num_swin_blocks=num_blocks_per_stage[0],
+            window_size=window_size,
+            use_efficient_attention=use_efficient_attention,
+        )
+
         self.down_swin_stages = torch.nn.ModuleList(down_swin_stages)
         self.up_swin_stages = torch.nn.ModuleList(up_swin_stages)
         self.patch_downsampling_layers = torch.nn.ModuleList(
@@ -124,7 +145,7 @@ class SwinTransformer(nn.Module):
         self.embedding = pos_embedding
 
         self.final_conv = nn.ConvTranspose2d(
-            in_channels=token_dimensions[-1],
+            in_channels=first_token_dim,
             out_channels=output_dimension,
             stride=(patch_size, patch_size),
             kernel_size=(patch_size, patch_size),
@@ -158,6 +179,11 @@ class SwinTransformer(nn.Module):
         skips = []
         load_balancing_losses_list: List[LoadBalancingLosses] = list()
 
+        # First SWIN block at native resolution without downsampling
+        for swin_transformer_block in self.initial_swin_stage:
+            x, load_balancing_losses_per_block = swin_transformer_block(x)
+            load_balancing_losses_list += load_balancing_losses_per_block
+
         for downsampling_conv, down_swin_stage in zip(
             self.patch_downsampling_layers,
             self.down_swin_stages,
@@ -178,6 +204,11 @@ class SwinTransformer(nn.Module):
                 load_balancing_losses_list += load_balancing_losses_per_block
             x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
             x = x + skip
+
+        # Final SWIN block at native resolution
+        for swin_transformer_block in self.final_swin_stage:
+            x, load_balancing_losses_per_block = swin_transformer_block(x)
+            load_balancing_losses_list += load_balancing_losses_per_block
 
         x = conv_channel_last(self.final_conv, x)
 
