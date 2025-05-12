@@ -306,6 +306,18 @@ class MultiscaleModel(torch.nn.Module):
 
         return prd_dist, load_balancing_losses
 
+    def _add_downsampling_noise(
+        self, downsampled_trg: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Adds Gaussian noise to the downsampled target tensor.
+        """
+        if self.downsampling_noise_std > 0:
+            downsampled_trg = torch.normal(
+                mean=downsampled_trg, std=self.downsampling_noise_std
+            )
+        return downsampled_trg
+
     def multiscale_forward(
         self,
         ctx: torch.Tensor,
@@ -317,10 +329,7 @@ class MultiscaleModel(torch.nn.Module):
         all_load_balancing_losses = []
 
         # Add noise to the downsampled target if specified.
-        if self.downsampling_noise_std > 0:
-            downsampled_trg = torch.normal(
-                mean=downsampled_trg, std=self.downsampling_noise_std
-            )
+        downsampled_trg = self._add_downsampling_noise(downsampled_trg)
 
         prd_dist, load_balancing_losses = self.single_scale_forward(
             ctx=ctx,
@@ -341,10 +350,7 @@ class MultiscaleModel(torch.nn.Module):
             )  # (batch, lat, lon, 1, trg_var_and_level)
 
             # Add noise to the downsampled target if specified.
-            if self.downsampling_noise_std > 0:
-                downsampled_trg = torch.normal(
-                    mean=downsampled_trg, std=self.downsampling_noise_std
-                )
+            downsampled_trg = self._add_downsampling_noise(downsampled_trg)
 
             prd_dist, load_balancing_losses = self.single_scale_forward(
                 ctx=ctx,
