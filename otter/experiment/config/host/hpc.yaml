@@ -1,0 +1,10 @@
+# @package _global_
+
+constants:
+  data:
+    num_workers: 32
+    prefetch_factor: 4
+
+data_source:
+  _target_: otter.data.utils.ZarrDatasource.from_path
+  path: /rds/project/rds-dHudQI6NhiE/otter/data/era5_240x121.zarr
