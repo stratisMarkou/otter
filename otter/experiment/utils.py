@@ -462,3 +462,11 @@ def get_cosine_lr_scheduler(
     return torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optimizer, **lr_scheduler_kwargs
     )
+
+
+def get_linear_lr_scheduler(
+    optimizer: torch.optim.Optimizer, num_steps: int
+) -> torch.optim.lr_scheduler.LinearLR:
+    return torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1.0, end_factor=0.0, total_iters=num_steps
+    )
