@@ -19,8 +19,6 @@ from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
     WandbLogger,
-    get_min_stds_by_var,
-    get_norm_and_abs_max,
     log_loss_info_to_wandb,
 )
 from otter.experiment.run_state import (
@@ -30,7 +28,6 @@ from otter.experiment.run_state import (
 )
 from otter.experiment.utils import initialize_experiment, initialize_wandb
 from otter.models.architectures.schedulers import ScaleScheduler
-from otter.models.distributions import Gaussian
 from otter.models.losses.loss_fn import (
     LossInfo,
     gather_load_balancing_losses,
@@ -91,12 +88,6 @@ def train_step(
             scales=rollout_scales,
         )
 
-        if isinstance(prd_dist, Gaussian):
-            smallest_stds_by_var = get_min_stds_by_var(
-                prd_dist, model.trg_variables_and_levels
-            )
-            w.log(smallest_stds_by_var)
-
         loss, loss_info = w.timed(
             "loss_fn",
             loss_fn,
@@ -123,16 +114,6 @@ def train_step(
     scaler.unscale_(optimizer)
 
     torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
-
-    param_norm, biggest_abs_param = get_norm_and_abs_max(model, "parameters")
-
-    w.log({"misc/biggest_abs_param": biggest_abs_param})
-    w.log({"misc/parameter_norm": param_norm})
-
-    grad_norm, biggest_abs_grad = get_norm_and_abs_max(model, "gradients")
-
-    w.log({"misc/biggest_abs_grad": biggest_abs_grad})
-    w.log({"misc/gradient_norm": grad_norm})
 
     w.timed("scaler.step", scaler.step, optimizer)
     w.timed("scaler.update", scaler.update)
