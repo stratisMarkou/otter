@@ -10,11 +10,11 @@ from typing import (
 
 import numpy as np
 import torch
-import wandb
 from omegaconf import DictConfig
 from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
+import wandb
 from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
@@ -59,6 +59,7 @@ def train_step(
     scale_scheduler: ScaleScheduler,
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
+    mixed_precision_dtype: torch.dtype,
     device: str = "cuda",
 ) -> None:
     w = wandb_logger
@@ -76,35 +77,42 @@ def train_step(
 
     rollout_scales = scale_scheduler.get_rollout_scales()
 
-    prd_dist, load_balancing_losses = w.timed(
-        "model.forward",
-        model.forward,
-        processed_batch,
-        scales=rollout_scales,
-    )
-
-    if isinstance(prd_dist, Gaussian):
-        smallest_stds_by_var = get_min_stds_by_var(
-            prd_dist, model.trg_variables_and_levels
+    # Do forward pass with AMP autocasting. Only forward pass needs to be
+    # autocasted, as the backward is computed with matching dtypes to the
+    # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
+    with torch.amp.autocast(  # type: ignore
+        device_type=device,
+        dtype=mixed_precision_dtype,
+    ):
+        prd_dist, load_balancing_losses = w.timed(
+            "model.forward",
+            model.forward,
+            processed_batch,
+            scales=rollout_scales,
         )
-        w.log(smallest_stds_by_var)
 
-    loss, loss_info = w.timed(
-        "loss_fn",
-        loss_fn,
-        prd_dist=prd_dist,
-        trg=batch.trg,
-        scales=_combine_scales(data_scale, rollout_scales),
-    )
+        if isinstance(prd_dist, Gaussian):
+            smallest_stds_by_var = get_min_stds_by_var(
+                prd_dist, model.trg_variables_and_levels
+            )
+            w.log(smallest_stds_by_var)
 
-    load_balancing_loss, load_balancing_loss_info = w.timed(
-        "gather_load_balancing_losses",
-        gather_load_balancing_losses,
-        load_balancing_losses=load_balancing_losses,
-    )
+        loss, loss_info = w.timed(
+            "loss_fn",
+            loss_fn,
+            prd_dist=prd_dist,
+            trg=batch.trg,
+            scales=_combine_scales(data_scale, rollout_scales),
+        )
 
-    if load_balancing_loss is not None:
-        loss += load_balancing_loss
+        load_balancing_loss, load_balancing_loss_info = w.timed(
+            "gather_load_balancing_losses",
+            gather_load_balancing_losses,
+            load_balancing_losses=load_balancing_losses,
+        )
+
+        if load_balancing_loss is not None:
+            loss += load_balancing_loss
 
     if load_balancing_loss_info is not None:
         loss_info.update(load_balancing_loss_info)
@@ -310,6 +318,8 @@ def train_loop(
     """
     The main training loop for the experiment.
     """
+    mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
+    clip_grad_norm = experiment.constants.training.clip_grad_norm
     for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
@@ -343,7 +353,6 @@ def train_loop(
                     )
 
             try:
-                clip_grad_norm = experiment.constants.training.clip_grad_norm
                 wandb_logger.timed(
                     "train_step",
                     train_step,
@@ -357,6 +366,7 @@ def train_loop(
                     scale_scheduler=experiment.train_scale_scheduler,
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
+                    mixed_precision_dtype=mixed_precision_dtype,
                 )
                 step += 1
             except StopIteration:
