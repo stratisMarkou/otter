@@ -251,11 +251,6 @@ def main() -> None:
     optimizer = experiment.optimizer(experiment.model)
     lr_scheduler = experiment.lr_scheduler(optimizer)
 
-    wandb.watch(
-        experiment.model,
-        log_freq=experiment.constants.training.log_gradients_every,
-    )
-
     scaler = GradScaler(device=device)
 
     if experiment.info.start_from_checkpoint:
@@ -286,6 +281,15 @@ def main() -> None:
     wandb.finish()
 
 
+def compute_num_params(model: torch.nn.Module) -> int:
+    """
+    Compute the number of parameters in a model.
+    """
+    num_params = sum(p.numel() for p in model.parameters())
+    logging.info(f"Number of parameters: {num_params / 1e6:.2f}M")
+    return num_params
+
+
 def train_loop(
     start_epoch: int,
     step: int,
@@ -301,6 +305,9 @@ def train_loop(
     """
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     clip_grad_norm = experiment.constants.training.clip_grad_norm
+
+    compute_num_params(experiment.model)
+
     for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
