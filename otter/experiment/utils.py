@@ -81,7 +81,7 @@ def get_module_attr(string: str) -> Any:
 def initialize_experiment(
     device: str,
     args_list: Optional[Sequence[str]] = None,
-) -> Experiment:
+) -> tuple[Experiment, DictConfig]:
     """Initialize experiment by parsing the config file, checking that the
     repo is clean, creating a path for the experiment, and creating a
     writer for tensorboard.
@@ -141,7 +141,7 @@ def initialize_experiment(
     logging.info("Instantiating dependencies.")
 
     experiment: DictConfig = instantiate(config)
-    return experiment
+    return experiment, config
 
 
 def _parse_args(
@@ -229,14 +229,16 @@ def _generate_experiment_name() -> str:
     return f"{timestamp}-{adjective}-{animal}"
 
 
-def initialize_wandb(
-    experiment_name: str, log_code: Optional[bool] = True
-) -> None:
+def initialize_wandb(config: DictConfig) -> None:
+    config_dict: dict = OmegaConf.to_container(config)  # type: ignore
+    experiment_name = config.info.experiment_name
+    log_code = config.constants.log_code
     wandb.init(
         project="otter-deterministic",
         entity="otter-weather",
         name=experiment_name,
         id=experiment_name,
+        config=config_dict,
     )
     if log_code:
         log_code_to_wandb()
