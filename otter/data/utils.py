@@ -3,6 +3,7 @@ from __future__ import annotations
 import bisect
 import os
 import pickle
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -18,6 +19,8 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from tqdm import trange
+
+from otter.data.source.utils import VARIABLES_WITH_SCALING_FACTORS
 
 ERA5_START_DATE = "1979-01-01"
 ERA5_END_DATE = "2023-12-31"
@@ -290,6 +293,16 @@ def save_xarray_dataset_as_memmap(
     data_memmap.flush()
 
 
+class GriddedWeatherSource(ABC):
+    @abstractmethod
+    def sel(self, **index_coords: Any) -> "GriddedWeatherSource":
+        pass
+
+    @abstractmethod
+    def to_numpy(self) -> npt.NDArray[Any]:
+        pass
+
+
 @dataclass
 class Coordinate:
     name: str
@@ -297,7 +310,7 @@ class Coordinate:
     is_sorted: bool
 
 
-class LabelledArray:
+class LabelledArray(GriddedWeatherSource):
     def __init__(
         self,
         data: npt.NDArray[Any],
@@ -344,6 +357,9 @@ class LabelledArray:
             sliced_coords.append(sliced_coord)
 
         return LabelledArray(data=sliced_data, coords=sliced_coords)
+
+    def to_numpy(self) -> npt.NDArray[Any]:
+        return self.data
 
     def _find_indices(
         self, **index_coords: Any
@@ -573,3 +589,36 @@ def _dim_is_sorted(values: Sequence[Any] | npt.NDArray[Any]) -> bool:
         return bool(np.all(np.diff(values).astype(float) >= 0))
     else:
         return all(values[i] <= values[i + 1] for i in range(len(values) - 1))
+
+
+class ZarrDatasource(GriddedWeatherSource):
+    def __init__(self, ds: xr.Dataset) -> None:
+        self.ds = ds
+
+    @staticmethod
+    def from_path(path: str) -> ZarrDatasource:
+        ds = xr.open_zarr(path, consolidated=True, chunks=None)
+        ds = split_into_different_variables_along_dim(ds, dim="level")
+        return ZarrDatasource(ds)
+
+    def sel(self, **index_coords: Any) -> ZarrDatasource:
+        # The variable_and_level dimension is not a coordinate, so we need to
+        # instead select the correct variables and remove the index_coord.
+        ds = self.ds
+        if "variable_and_level" in index_coords:
+            ds = ds[index_coords["variable_and_level"]]
+            del index_coords["variable_and_level"]
+
+        ds = ds.sel(**index_coords)
+        return ZarrDatasource(ds)
+
+    def to_numpy(self) -> npt.NDArray[Any]:
+        scaled_ds = self.ds.copy()  # Create a temporary copy of the dataset
+        for var_and_level in scaled_ds.variables:
+            var: str = var_and_level.split("/")[0]  # type: ignore
+            factor = VARIABLES_WITH_SCALING_FACTORS.get(var)
+            if factor:
+                scaled_ds[var_and_level] = scaled_ds[var_and_level] * factor
+
+        stacked = stack_dataset_variable_and_levels(scaled_ds)
+        return stacked.values

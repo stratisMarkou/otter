@@ -1,7 +1,7 @@
 import os
 from tempfile import TemporaryDirectory
-import numpy as np
 
+import numpy as np
 import pytest
 import xarray as xr
 
@@ -12,8 +12,10 @@ from otter.data.datasets import (
 from otter.data.source.utils import (
     download_zarr_and_store,
 )
-from otter.data.utils import save_xarray_dataset_as_memmap
-
+from otter.data.utils import (
+    open_memmap_as_labelled_array,
+    save_xarray_dataset_as_memmap,
+)
 
 TEST_DATASET = "era5_240x121"
 
@@ -139,9 +141,11 @@ def test_dataset_dates(
 
         path = os.path.join(temp_dir, f"{TEST_DATASET}_single_array")
 
+        data_source = open_memmap_as_labelled_array(path=path)
+
         # Construct dataset.
         dataset = make_gridded_weather_task(
-            path_to_labelled_array=path,
+            data_source=data_source,
             start_date=start_date,
             end_date=end_date,
             num_context_frames=num_context_frames,
