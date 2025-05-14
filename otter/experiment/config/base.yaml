@@ -66,6 +66,7 @@ model:
   data_grid_num_lon: 240
   distribution_type: ${get_module_attr:otter.models.distributions.Delta}
   distribution_kwargs: {}
+  downsampling_noise_std: 0.0
   time_embedding:
     _target_: otter.models.architectures.embeddings.TimeEmbedding
     num_scales: 16
