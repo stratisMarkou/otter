@@ -36,7 +36,8 @@ class ImageTokeniser(nn.Module):
             x: image input tensor of shape (B, W, H, C)
 
         Returns:
-            output tensor of shape (B, N, D)
+            output tensor of shape (B, W // P, H // P, D), where
+            P is the patch size and D is the token dimension.
         """
         _, H, W, _ = x.shape
         Hk, Wk = self.conv.kernel_size
