@@ -19,16 +19,7 @@ from otter.models.architectures.transformer import SwinTransformer
     "window_size, num_blocks_per_stage, pos_embedding",
     [
         (64, 32, 7, 12, 2, 2, [1, 1], PositionEmbedding(12, 16, 32)),
-        (
-            64,
-            32,
-            7,
-            12,
-            2,
-            4,
-            [2, 2],
-            SpatialEmbedding(32, 0.1, 720, 12),
-        ),
+        (64, 32, 7, 12, 2, 4, [2, 2], SpatialEmbedding(32, 0.1, 720, 12)),
         (64, 32, 9, 16, 4, 2, [1, 1], PositionEmbedding(16, 8, 16)),
         (
             128,
@@ -40,6 +31,7 @@ from otter.models.architectures.transformer import SwinTransformer
             [2, 2],
             SpatialEmbedding(64, 0.1, 720, 16),
         ),
+        (64, 32, 7, 12, 2, 2, [1, 1], PositionEmbedding(12, 16, 32)),
     ],
 )
 def test_swin_transformer(
