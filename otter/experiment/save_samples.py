@@ -182,7 +182,7 @@ if __name__ == "__main__":
     experiment_path = Path(experiment.info.experiment_path)
 
     scale_scheduler: ScaleScheduler = experiment.inference_scale_scheduler
-    data_scale = scale_scheduler.sample_data_scale_pair()
+    data_scale, _ = scale_scheduler.sample_data_scale_pair()
     rollout_scales = scale_scheduler.get_rollout_scales()
 
     all_scales = [data_scale] + list(rollout_scales)

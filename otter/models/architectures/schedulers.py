@@ -42,14 +42,14 @@ class ScaleScheduler:
             predict
         """
         idx = torch.multinomial(self.scale_probs, 1)
-        input_scale = self.data_scales[idx].item()
+        input_scale = int(self.data_scales[idx].item())
 
         if idx == len(self.data_scales) - 1:
             # The last scale should target the clean image
             output_scale = 1
         else:
-            output_scale = self.data_scales[idx + 1].item()
-        return int(input_scale), int(output_scale)
+            output_scale = int(self.data_scales[idx + 1].item())
+        return input_scale, output_scale
 
     def get_rollout_scales(self) -> torch.Tensor:
         """
