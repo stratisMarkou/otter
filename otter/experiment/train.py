@@ -10,17 +10,15 @@ from typing import (
 
 import numpy as np
 import torch
-import wandb
 from omegaconf import DictConfig
 from torch.amp import GradScaler  # type: ignore
 from tqdm import tqdm
 
+import wandb
 from otter.data.datasets import ForecastingSample
 from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
     WandbLogger,
-    get_min_stds_by_var,
-    get_norm_and_abs_max,
     log_loss_info_to_wandb,
 )
 from otter.experiment.run_state import (
@@ -30,7 +28,6 @@ from otter.experiment.run_state import (
 )
 from otter.experiment.utils import initialize_experiment, initialize_wandb
 from otter.models.architectures.schedulers import ScaleScheduler
-from otter.models.distributions import Gaussian
 from otter.models.losses.loss_fn import (
     LossInfo,
     gather_load_balancing_losses,
@@ -59,6 +56,7 @@ def train_step(
     scale_scheduler: ScaleScheduler,
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
+    mixed_precision_dtype: torch.dtype,
     device: str = "cuda",
 ) -> None:
     w = wandb_logger
@@ -76,35 +74,36 @@ def train_step(
 
     rollout_scales = scale_scheduler.get_rollout_scales()
 
-    prd_dist, load_balancing_losses = w.timed(
-        "model.forward",
-        model.forward,
-        processed_batch,
-        scales=rollout_scales,
-    )
-
-    if isinstance(prd_dist, Gaussian):
-        smallest_stds_by_var = get_min_stds_by_var(
-            prd_dist, model.trg_variables_and_levels
+    # Do forward pass with AMP autocasting. Only forward pass needs to be
+    # autocasted, as the backward is computed with matching dtypes to the
+    # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
+    with torch.amp.autocast(  # type: ignore
+        device_type=device,
+        dtype=mixed_precision_dtype,
+    ):
+        prd_dist, load_balancing_losses = w.timed(
+            "model.forward",
+            model.forward,
+            processed_batch,
+            scales=rollout_scales,
         )
-        w.log(smallest_stds_by_var)
 
-    loss, loss_info = w.timed(
-        "loss_fn",
-        loss_fn,
-        prd_dist=prd_dist,
-        trg=batch.trg,
-        scales=_combine_scales(data_scale, rollout_scales),
-    )
+        loss, loss_info = w.timed(
+            "loss_fn",
+            loss_fn,
+            prd_dist=prd_dist,
+            trg=batch.trg,
+            scales=_combine_scales(data_scale, rollout_scales),
+        )
 
-    load_balancing_loss, load_balancing_loss_info = w.timed(
-        "gather_load_balancing_losses",
-        gather_load_balancing_losses,
-        load_balancing_losses=load_balancing_losses,
-    )
+        load_balancing_loss, load_balancing_loss_info = w.timed(
+            "gather_load_balancing_losses",
+            gather_load_balancing_losses,
+            load_balancing_losses=load_balancing_losses,
+        )
 
-    if load_balancing_loss is not None:
-        loss += load_balancing_loss
+        if load_balancing_loss is not None:
+            loss += load_balancing_loss
 
     if load_balancing_loss_info is not None:
         loss_info.update(load_balancing_loss_info)
@@ -115,16 +114,6 @@ def train_step(
     scaler.unscale_(optimizer)
 
     torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
-
-    param_norm, biggest_abs_param = get_norm_and_abs_max(model, "parameters")
-
-    w.log({"misc/biggest_abs_param": biggest_abs_param})
-    w.log({"misc/parameter_norm": param_norm})
-
-    grad_norm, biggest_abs_grad = get_norm_and_abs_max(model, "gradients")
-
-    w.log({"misc/biggest_abs_grad": biggest_abs_grad})
-    w.log({"misc/gradient_norm": grad_norm})
 
     w.timed("scaler.step", scaler.step, optimizer)
     w.timed("scaler.update", scaler.update)
@@ -251,21 +240,13 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     logging.info("Initializing experiment.")
-    experiment = initialize_experiment(device)
-    initialize_wandb(
-        experiment.info.experiment_name,
-        log_code=experiment.constants.log_code,
-    )
+    experiment, config = initialize_experiment(device)
+    initialize_wandb(config)
     logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
     experiment.model = experiment.model.to(device)
     optimizer = experiment.optimizer(experiment.model)
     lr_scheduler = experiment.lr_scheduler(optimizer)
-
-    wandb.watch(
-        experiment.model,
-        log_freq=experiment.constants.training.log_gradients_every,
-    )
 
     scaler = GradScaler(device=device)
 
@@ -297,6 +278,15 @@ def main() -> None:
     wandb.finish()
 
 
+def log_num_params(model: torch.nn.Module) -> int:
+    """
+    Compute the number of parameters in a model.
+    """
+    num_params = sum(p.numel() for p in model.parameters())
+    logging.info(f"Number of parameters: {num_params / 1e6:.2f}M")
+    return num_params
+
+
 def train_loop(
     start_epoch: int,
     step: int,
@@ -310,6 +300,11 @@ def train_loop(
     """
     The main training loop for the experiment.
     """
+    mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
+    clip_grad_norm = experiment.constants.training.clip_grad_norm
+
+    log_num_params(experiment.model)
+
     for epoch in range(start_epoch, experiment.constants.training.epochs):
         train_loader = iter(tqdm(experiment.train_dataloader))
 
@@ -343,7 +338,6 @@ def train_loop(
                     )
 
             try:
-                clip_grad_norm = experiment.constants.training.clip_grad_norm
                 wandb_logger.timed(
                     "train_step",
                     train_step,
@@ -357,6 +351,7 @@ def train_loop(
                     scale_scheduler=experiment.train_scale_scheduler,
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
+                    mixed_precision_dtype=mixed_precision_dtype,
                 )
                 step += 1
             except StopIteration:
