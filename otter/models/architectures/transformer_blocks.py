@@ -187,14 +187,12 @@ class TransformerBlock(nn.Module):
     ):
         super().__init__()
 
-        self.mhsa: Callable[[torch.Tensor], torch.Tensor]
-
         if use_efficient_attention:
             self.efficient_mha_layer = EfficientMultiHeadAttention(
                 num_heads=num_heads,
                 token_dim=token_dim,
             )
-            self.mhsa = lambda x: (self.efficient_mha_layer(x, x, x))
+            self.mhsa = self.efficient_mha_layer
 
         else:
             self.mha_layer = nn.MultiheadAttention(
@@ -211,6 +209,7 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freq_cis: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply the transformer block to input tokens `x`.
 
@@ -221,7 +220,8 @@ class TransformerBlock(nn.Module):
             output tensor of shape (B, N, D)
         """
 
-        x = x + self.mhsa(self.ln1(x))
+        x = self.ln1(x)
+        x = x + self.mhsa(x, x, x, freq_cis=freq_cis)
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
         x = x + x_ffn
 
@@ -261,6 +261,7 @@ class SwinTransformerBlock(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freq_cis: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, List[LoadBalancingLosses]]:
         """Apply the Swin Transformer block to input tokens `x`.
 
@@ -281,7 +282,7 @@ class SwinTransformerBlock(torch.nn.Module):
             x, S
         )  # (B*H//S*W//S, S**2, D)
         x, load_balancing_losses = self.first_block(
-            x
+            x, freq_cis=freq_cis
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
@@ -299,7 +300,7 @@ class SwinTransformerBlock(torch.nn.Module):
         )  # (B*H//S*W//S, S**2, D)
 
         x, load_balancing_losses = self.second_block(
-            x
+            x, freq_cis=freq_cis
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
