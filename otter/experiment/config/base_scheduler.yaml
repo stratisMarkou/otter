@@ -11,7 +11,3 @@ lr_scheduler:
     warmup_start_lr: 0.0
     eta_min: 0.0
     last_epoch: -1.0
-
-constants:
-  training:
-    initial_learning_rate: 3e-4
