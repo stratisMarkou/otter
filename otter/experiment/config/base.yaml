@@ -92,7 +92,10 @@ model:
 loss_fn:
   _target_: otter.models.losses.loss_fn.make_loss_fn
   trg_variables_to_remove: ${constants.data.trg_variables_to_remove}
-  loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
+  loss_fn:
+    _target_: otter.models.losses.loss_fn._rmse
+    _partial_: true
+    apply_latitude_weighting: true
   weighting_coefficients_power: 1
   weighting_fns:
     - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
