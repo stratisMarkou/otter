@@ -5,6 +5,7 @@ import os
 import random
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -18,11 +19,6 @@ import hydra
 import torch
 import xarray as xr
 import yaml
-from distributed_shampoo import (  # type: ignore[import-untyped]
-    AdaptiveAmortizedComputationFrequencyConfig,
-    DistributedShampoo,
-    EigenvalueCorrectedShampooPreconditionerConfig,
-)
 from hydra import compose
 from hydra.utils import instantiate
 from omegaconf import (
@@ -33,6 +29,25 @@ from omegaconf import (
 import wandb
 
 Experiment = DictConfig
+
+
+def load_experiment_config(
+    experiment_name: str,
+    override_args: list[str],
+    results_dir: Path | str = "_results",
+) -> DictConfig:
+    cfg_dir = Path(results_dir) / experiment_name / "config.yml"
+
+    _register_resolvers()
+    with open(cfg_dir, "r") as f:
+        cfg = OmegaConf.load(f)
+
+    overrides = OmegaConf.from_cli(override_args)
+    cfg = OmegaConf.merge(cfg, overrides)
+    OmegaConf.set_struct(cfg, False)
+
+    assert isinstance(cfg, DictConfig)
+    return cfg
 
 
 def get_model_parameters(
@@ -66,8 +81,7 @@ def get_module_attr(string: str) -> Any:
 def initialize_experiment(
     device: str,
     args_list: Optional[Sequence[str]] = None,
-    config_dir: Optional[str] = None,
-) -> Experiment:
+) -> tuple[Experiment, DictConfig]:
     """Initialize experiment by parsing the config file, checking that the
     repo is clean, creating a path for the experiment, and creating a
     writer for tensorboard.
@@ -84,9 +98,20 @@ def initialize_experiment(
     """
 
     args, extra_args = _parse_args(args_list)
+    # If we are resuming, set the config_dir to the experiment path.
+    if bool(args.resume_experiment):
+        config_dir = os.path.join(
+            os.path.abspath(args.root_results), args.resume_experiment
+        )
+        args.config_name = "config"
+    else:
+        config_dir = None
+
     config = _get_config(
         args.config_module, args.config_name, extra_args, config_dir=config_dir
     )
+    # Set the start_from_checkpoint flag if we are resuming.
+    config.info.start_from_checkpoint = bool(args.resume_experiment)
 
     repo = git.Repo(search_parent_directories=True)
     # Check that the repo is clean, and up to date with remote branch,
@@ -109,7 +134,6 @@ def initialize_experiment(
 
         config.info.experiment_name = experiment_name
         config.info.experiment_path = experiment_path
-        config.info.start_from_checkpoint = bool(args.resume_experiment)
 
         config.model.device = device
 
@@ -118,7 +142,7 @@ def initialize_experiment(
     logging.info("Instantiating dependencies.")
 
     experiment: DictConfig = instantiate(config)
-    return experiment
+    return experiment, config
 
 
 def _parse_args(
@@ -146,6 +170,7 @@ def _parse_args(
         "--config_module", type=str, default="otter.experiment.config"
     )
     parser.add_argument("--config_name", type=str)
+    parser.add_argument("--root_results", type=str, default="_results")
 
     return parser.parse_known_args(args=args_list)
 
@@ -205,13 +230,19 @@ def _generate_experiment_name() -> str:
     return f"{timestamp}-{adjective}-{animal}"
 
 
-def initialize_wandb(experiment_name: str) -> None:
+def initialize_wandb(config: DictConfig) -> None:
+    config_dict: dict = OmegaConf.to_container(config)  # type: ignore
+    experiment_name = config.info.experiment_name
+    log_code = config.constants.log_code
     wandb.init(
         project="otter-deterministic",
         entity="otter-weather",
         name=experiment_name,
         id=experiment_name,
+        config=config_dict,
     )
+    if log_code:
+        log_code_to_wandb()
 
 
 def _assert_repo_is_clean(repo: git.Repo) -> None:
@@ -243,6 +274,22 @@ def _has_commits_ahead(repo: git.Repo) -> bool:
         return len(commits) > 0
 
 
+def _assert_correct_commit_hash(config: DictConfig, repo: git.Repo) -> None:
+    """
+    Asserts that the current commit hash matches the one stored in the config.
+    """
+    if "commit" not in config:
+        raise ValueError("Config does not have a 'commit' field.")
+
+    config_commit_hash = config.commit
+    current_commit_hash = _get_current_commit_hash(repo)
+
+    if config_commit_hash != current_commit_hash:
+        raise ValueError(
+            f"Config commit hash {config_commit_hash} does not match current commit hash {current_commit_hash}."
+        )
+
+
 def _get_config(
     config_module: str,
     config_name: str,
@@ -252,12 +299,7 @@ def _get_config(
     """
     Reads the config file, evaluates expressions, and merges it with overrides.
     """
-    # Register custom resolvers if not already registered.
-    if not OmegaConf.has_resolver("eval"):
-        OmegaConf.register_new_resolver("eval", eval)
-
-    if not OmegaConf.has_resolver("get_module_attr"):
-        OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+    _register_resolvers()
 
     # Initialize experiment.
     # Here, we can either load from a config module or from a config directory.
@@ -265,21 +307,29 @@ def _get_config(
         with hydra.initialize_config_module(
             config_module=config_module, version_base="1.3"
         ):
-            config_yaml = compose(config_name=config_name)
+            config = compose(config_name=config_name, overrides=extra_args)
     else:
         with hydra.initialize_config_dir(
             config_dir=config_dir, version_base="1.3"
         ):
-            config_yaml = compose(config_name=config_name)
+            config = compose(config_name=config_name, overrides=extra_args)
 
-    cli_overrides = OmegaConf.from_cli(extra_args)
+    logging.info("Config:\n" + OmegaConf.to_yaml(config))
 
-    config = OmegaConf.merge(config_yaml, cli_overrides)
     assert type(config) is DictConfig  # Check this to silence mypy.
 
     OmegaConf.set_struct(config, False)
 
     return config
+
+
+def _register_resolvers() -> None:
+    # Register custom resolvers if not already registered.
+    if not OmegaConf.has_resolver("eval"):
+        OmegaConf.register_new_resolver("eval", eval)
+
+    if not OmegaConf.has_resolver("get_module_attr"):
+        OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
 
 
 def _get_current_commit_hash(repo: git.Repo) -> str:
@@ -331,22 +381,6 @@ def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)
 
 
-def _assert_correct_commit_hash(config: DictConfig, repo: git.Repo) -> None:
-    """
-    Asserts that the current commit hash matches the one stored in the config.
-    """
-    if "commit" not in config:
-        raise ValueError("Config does not have a 'commit' field.")
-
-    config_commit_hash = config.commit
-    current_commit_hash = _get_current_commit_hash(repo)
-
-    if config_commit_hash != current_commit_hash:
-        raise ValueError(
-            f"Config commit hash {config_commit_hash} does not match current commit hash {current_commit_hash}."
-        )
-
-
 def count_parameters(module: torch.nn.Module) -> int:
     return sum(p.numel() for p in module.parameters())
 
@@ -377,6 +411,8 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
         re.compile(r"otter.egg-info.*"),
         # matches the "tests" directory
         re.compile(r"tests.*"),
+        # matches all paths containing "__pycache__"
+        re.compile(r"__pycache__.*"),
     ]
 
     return any(bool(pattern.match(path)) for pattern in patterns)
@@ -385,12 +421,19 @@ def wandb_log_code_exclude_fn(path: str) -> bool:
 def log_code_to_wandb() -> None:
     # Create code artifact to log to wandb.
     code_artifact = wandb.Artifact(name="source", type="code")
-    for path in os.listdir("."):
-        if not wandb_log_code_exclude_fn(path):
-            if os.path.isdir(path):
-                code_artifact.add_dir(path)
-            else:
-                code_artifact.add_file(path)
+    # Walk through all files and directories from the current directory.
+    for root, dirs, files in os.walk("."):
+        # Filter out unwanted directories and files.
+        dirs[:] = [d for d in dirs if not wandb_log_code_exclude_fn(d)]
+
+        for file in files:
+            file_path = os.path.join(root, file)
+            # Get relative path to preserve directory structure.
+            rel_path = os.path.relpath(file_path, start=".")
+
+            # Only add non-excluded files.
+            if not wandb_log_code_exclude_fn(rel_path):
+                code_artifact.add_file(file_path, name=rel_path)
 
     # Log code artifact to wandb.
     wandb.log_artifact(code_artifact)
@@ -416,53 +459,17 @@ def get_adamw_optimizer(
     return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
 
 
-def get_shampoo_optimizer(
-    module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
-) -> DistributedShampoo:
-    """Instantiate Shampoo optimizer with eigenvalue-corrected preconditioner.
-
-    See the docstring of the DistributedShampoo class for more information:
-    https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/distributed_shampoo.py#L101-L294
-
-    Mmemory overhead:
-    For a parameter W with shape (m, n), Adam uses an additional buffer of size m*n.
-    On top of this, eigenvalue-corrected Shampoo uses buffers of sizes 2 * m**2  and 2 * n**2, which increases its memory requirements.
-    However, if max(m, n) > max_preconditioner_dim, the preconditioner will be blocked such that the largest dimension is max_preconditioner_dim.
-
-    Computational overhead:
-    The most significant overhead is caused by the eigendecompositions of the Kronecker factor matrices.
-    Instead of computing them at a fixed frequency, we use an adaptive strategy that computes them only when the previously computed eigenbasis is no longer accurate enough.
-    This strategy is controlled by the tolerance parameter of the AdaptiveAmortizedComputationFrequencyConfig class, i.e. the smaller the tolerance, the more frequently the eigendecompositions are computed.
-
-    Arguments:
-        module: Module to optimize.
-        optimizer_kwargs: Optimizer arguments.
-
-    Returns:
-        DistributedShampoo optimizer instance.
-    """
-    # See the following docstring for more explanation on the eigenvalue correction:
-    # https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/distributed_shampoo.py#L238-L246
-    preconditioner_config = EigenvalueCorrectedShampooPreconditionerConfig(
-        amortized_computation_frequency_config=AdaptiveAmortizedComputationFrequencyConfig(
-            # Determines how frequently eigendecompositions are computed and hence also
-            # the average step time. See the following docstring for an explanation:
-            # https://github.com/facebookresearch/optimizers/blob/adaptive-update-frequency/distributed_shampoo/shampoo_types.py#L105-L112
-            tolerance=optimizer_kwargs.pop(
-                "adaptive_amortized_computation_frequency_tolerance"
-            ),
-        )
-    )
-    return DistributedShampoo(
-        params=module.parameters(),
-        preconditioner_config=preconditioner_config,
-        **optimizer_kwargs,
-    )
-
-
 def get_cosine_lr_scheduler(
     optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
 ) -> torch.optim.lr_scheduler.CosineAnnealingLR:
     return torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optimizer, **lr_scheduler_kwargs
+    )
+
+
+def get_linear_lr_scheduler(
+    optimizer: torch.optim.Optimizer, num_steps: int
+) -> torch.optim.lr_scheduler.LinearLR:
+    return torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1.0, end_factor=0.0, total_iters=num_steps
     )

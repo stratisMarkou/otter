@@ -45,6 +45,20 @@ wandb online; python otter/experiment/train.py --config_name base
 wandb online; python otter/experiment/train.py --config_name base --debug
 ```
 
+After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
+```bash
+python otter/experiment/save_samples.py <experiment_name>
+```
+The experiment name is the same as in wandb or in the _results directory.
+
+To launch a training run on HPC, from the repo root, run:
+```bash
+# ENV_PATH indicates the path to otter venv, default is set to otter.
+# submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
+ENV_PATH="otter" sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
+```
+
+
 
 __Priorities:__
 - [ ] Add spatial Fourier embeddings to model.

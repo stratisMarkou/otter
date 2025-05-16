@@ -28,7 +28,56 @@ from otter.data.utils import (
 from otter.experiment.downsample import downsample
 from otter.models.architectures.embeddings import TimeEmbedding
 from otter.models.architectures.moe import LoadBalancingLosses
-from otter.models.distributions import Distribution, product_distribution
+from otter.models.distributions import (
+    Distribution,
+    product_distribution,
+)
+
+
+def get_trg_vars_and_levels(
+    trg_variables_to_remove: Sequence[str],
+) -> Sequence[str]:
+    trg_surface_variables = filter_variables(
+        ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        trg_variables_to_remove,
+    )
+
+    trg_multilevel_variables = filter_variables(
+        ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        trg_variables_to_remove,
+    )
+
+    return _get_variable_and_level_list(
+        levels=ALL_GRID_VARIABLE_LEVELS,
+        surface_variables=trg_surface_variables,
+        multilevel_variables=trg_multilevel_variables,
+    )
+
+
+def get_ctx_vars_and_levels(
+    ctx_variables_to_remove: Sequence[str],
+) -> Sequence[str]:
+    ctx_surface_variables = filter_variables(
+        ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    ctx_multilevel_variables = filter_variables(
+        ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    ctx_static_variables = filter_variables(
+        ALL_GRID_STATIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    return _get_variable_and_level_list(
+        levels=ALL_GRID_VARIABLE_LEVELS,
+        surface_variables=ctx_surface_variables,
+        multilevel_variables=ctx_multilevel_variables,
+        static_variables=ctx_static_variables,
+    )
 
 
 def _get_variable_and_level_list(
@@ -91,18 +140,14 @@ class MultiscaleModel(torch.nn.Module):
         backbone_network: torch.nn.Module,
         time_embedding: TimeEmbedding,
         temporal_resolution_hours: int,
-        ctx_surface_variables: Sequence[str],
-        ctx_multilevel_variables: Sequence[str],
-        ctx_static_variables: Sequence[str],
-        trg_surface_variables: Sequence[str],
-        trg_multilevel_variables: Sequence[str],
-        ctx_levels: Sequence[int],
-        trg_levels: Sequence[int],
+        ctx_variables_and_levels: Sequence[str],
+        trg_variables_and_levels: Sequence[str],
         data_grid_num_lat: int,
         data_grid_num_lon: int,
         distribution_type: Type[Distribution],
         distribution_kwargs: dict[str, Any],
         device: str,
+        downsampling_noise_std: float = 0.0,
     ) -> None:
         super().__init__()
 
@@ -110,39 +155,8 @@ class MultiscaleModel(torch.nn.Module):
         self.time_embedding = time_embedding
         self.temporal_resolution_hours = temporal_resolution_hours
 
-        # Ensure ctx surface vars are subset of trg surface vars
-        if not set(ctx_surface_variables).issubset(set(trg_surface_variables)):
-            raise ValueError(
-                "Context surface variables must be a subset of target "
-                "surface variables"
-            )
-
-        # Ensure ctx multilevel vars are subset of trg multilevel vars
-        if not set(ctx_multilevel_variables).issubset(
-            set(trg_multilevel_variables)
-        ):
-            raise ValueError(
-                "Context multilevel variables must be a subset of target "
-                "multilevel variables"
-            )
-
-        self.ctx_surface_variables = ctx_surface_variables
-        self.ctx_multilevel_variables = ctx_multilevel_variables
-        self.ctx_static_variables = ctx_static_variables
-        self.ctx_variables_and_levels = _get_variable_and_level_list(
-            levels=ctx_levels,
-            surface_variables=ctx_surface_variables,
-            multilevel_variables=ctx_multilevel_variables,
-            static_variables=ctx_static_variables,
-        )
-
-        self.trg_surface_variables = trg_surface_variables
-        self.trg_multilevel_variables = trg_multilevel_variables
-        self.trg_variables_and_levels = _get_variable_and_level_list(
-            levels=trg_levels,
-            surface_variables=trg_surface_variables,
-            multilevel_variables=trg_multilevel_variables,
-        )
+        self.ctx_variables_and_levels = ctx_variables_and_levels
+        self.trg_variables_and_levels = trg_variables_and_levels
 
         self.data_grid_num_lat = data_grid_num_lat
         self.data_grid_num_lon = data_grid_num_lon
@@ -178,8 +192,12 @@ class MultiscaleModel(torch.nn.Module):
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
+        self.device = device
+
         self.distribution_type = distribution_type
         self.distribution_kwargs = distribution_kwargs
+
+        self.downsampling_noise_std = downsampling_noise_std
 
     def forward(
         self, batch: MultiscaleInput, scales: torch.Tensor
@@ -288,6 +306,18 @@ class MultiscaleModel(torch.nn.Module):
 
         return prd_dist, load_balancing_losses
 
+    def _add_downsampling_noise(
+        self, downsampled_trg: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Adds Gaussian noise to the downsampled target tensor.
+        """
+        if self.downsampling_noise_std > 0:
+            downsampled_trg = torch.normal(
+                mean=downsampled_trg, std=self.downsampling_noise_std
+            )
+        return downsampled_trg
+
     def multiscale_forward(
         self,
         ctx: torch.Tensor,
@@ -297,6 +327,9 @@ class MultiscaleModel(torch.nn.Module):
     ) -> tuple[Distribution, Distribution, list[LoadBalancingLosses]]:
         prd_dists = []
         all_load_balancing_losses = []
+
+        # Add noise to the downsampled target if specified.
+        downsampled_trg = self._add_downsampling_noise(downsampled_trg)
 
         prd_dist, load_balancing_losses = self.single_scale_forward(
             ctx=ctx,
@@ -316,6 +349,9 @@ class MultiscaleModel(torch.nn.Module):
                 int(scale),
             )  # (batch, lat, lon, 1, trg_var_and_level)
 
+            # Add noise to the downsampled target if specified.
+            downsampled_trg = self._add_downsampling_noise(downsampled_trg)
+
             prd_dist, load_balancing_losses = self.single_scale_forward(
                 ctx=ctx,
                 downsampled_trg=downsampled_trg,
@@ -329,7 +365,11 @@ class MultiscaleModel(torch.nn.Module):
             prd_dists, dim=-2
         )  # (batch, lat, lon, scale, trg_var_and_level)
 
-        return product_prd_dist, prd_dist, all_load_balancing_losses
+        return (
+            product_prd_dist,
+            prd_dist,
+            all_load_balancing_losses,
+        )
 
     def time_rollout(
         self,
@@ -365,13 +405,15 @@ class MultiscaleModel(torch.nn.Module):
         for i in range(num_rollout_steps):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
-            prd_dist, last_prd_dist, load_balancing_losses = (
-                self.multiscale_forward(
-                    ctx,
-                    downsampled_trg=downsampled_slice,
-                    zero_time=zero_time + i * self.temporal_resolution_hours,
-                    scales=scales,
-                )
+            (
+                prd_dist,
+                last_prd_dist,
+                load_balancing_losses,
+            ) = self.multiscale_forward(
+                ctx,
+                downsampled_trg=downsampled_slice,
+                zero_time=zero_time + i * self.temporal_resolution_hours,
+                scales=scales,
             )  # (batch, lat, lon, scale, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
@@ -402,7 +444,10 @@ class MultiscaleModel(torch.nn.Module):
 
         # Concat the time rollout steps along the time dimension
         product_prd_dist = product_distribution(predictions, dim=3)
-        return product_prd_dist, all_load_balancing_losses
+        return (
+            product_prd_dist,
+            all_load_balancing_losses,
+        )
 
 
 def make_multiscale_model(
@@ -416,36 +461,33 @@ def make_multiscale_model(
     device: str,
     distribution_type: Type[Distribution],
     distribution_kwargs: dict[str, Any],
+    downsampling_noise_std: float = 0.0,
 ) -> MultiscaleModel:
+    ctx_variables_and_levels = get_ctx_vars_and_levels(ctx_variables_to_remove)
+    trg_variables_and_levels = get_trg_vars_and_levels(trg_variables_to_remove)
+
+    ctx_static_variables = filter_variables(
+        ALL_GRID_STATIC_VARIABLES,
+        ctx_variables_to_remove,
+    )
+
+    # Ensure ctx surface vars are subset of trg surface vars
+    dynamic_ctx = set(ctx_variables_and_levels) - set(ctx_static_variables)
+    if not set(dynamic_ctx).issubset(set(trg_variables_and_levels)):
+        raise ValueError(
+            "Non-static context variables must be a subset of target variables"
+        )
+
     return MultiscaleModel(
         backbone_network=backbone_network,
         time_embedding=time_embedding,
         temporal_resolution_hours=temporal_resolution_hours,
-        ctx_surface_variables=filter_variables(
-            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
-            ctx_variables_to_remove,
-        ),
-        ctx_multilevel_variables=filter_variables(
-            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
-            ctx_variables_to_remove,
-        ),
-        ctx_static_variables=filter_variables(
-            ALL_GRID_STATIC_VARIABLES,
-            ctx_variables_to_remove,
-        ),
-        trg_surface_variables=filter_variables(
-            ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
-            trg_variables_to_remove,
-        ),
-        trg_multilevel_variables=filter_variables(
-            ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
-            trg_variables_to_remove,
-        ),
-        ctx_levels=ALL_GRID_VARIABLE_LEVELS,
-        trg_levels=ALL_GRID_VARIABLE_LEVELS,
+        ctx_variables_and_levels=ctx_variables_and_levels,
+        trg_variables_and_levels=trg_variables_and_levels,
         data_grid_num_lat=data_grid_num_lat,
         data_grid_num_lon=data_grid_num_lon,
         distribution_type=distribution_type,
         distribution_kwargs=distribution_kwargs,
         device=device,
+        downsampling_noise_std=downsampling_noise_std,
     )

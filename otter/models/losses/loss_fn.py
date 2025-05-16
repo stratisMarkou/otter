@@ -15,6 +15,7 @@ import torch
 from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import aggregate_load_balancing_losses
 from otter.models.distributions import Distribution, Delta, Gaussian
+from otter.models.multiscale_model import get_trg_vars_and_levels
 
 DistributionWithMean = Union[Delta, Gaussian]
 PredictionStatistics = Dict[str, torch.Tensor]
@@ -220,15 +221,16 @@ def apply_loss(
 
 
 def make_loss_fn(
-    model: torch.nn.Module,
+    trg_variables_to_remove: Sequence[str],
     loss_fn: Callable[[torch.Tensor, Distribution], torch.Tensor],
     weighting_coefficients_power: float,
     weighting_fns: Optional[Sequence[LossWeightingFunction]] = None,
 ) -> Callable[..., Tuple[torch.Tensor, LossInfo]]:
+    trg_variables_and_levels = get_trg_vars_and_levels(trg_variables_to_remove)
     return partial(
         apply_loss,
         loss_fn=loss_fn,
         weighting_fns=weighting_fns,
         weighting_coefficients_power=weighting_coefficients_power,
-        trg_variables_and_levels=model.trg_variables_and_levels,
+        trg_variables_and_levels=trg_variables_and_levels,
     )

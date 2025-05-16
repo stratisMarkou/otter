@@ -7,7 +7,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    Sequence,
 )
 
 import pickle
@@ -74,9 +73,8 @@ def get_mean_metrics(
 
 def get_validation_metrics(
     device: str,
-    results_dir: str,
     checkpoint_path: Path,
-    args_list: Optional[Sequence[str]] = None,
+    args_list: List[str] = [],
 ) -> Dict[str, float]:
     """
     Obtain validation metrics.
@@ -91,10 +89,9 @@ def get_validation_metrics(
         validation_metrics: Dictionary with validation metrics.
     """
     # Load experiment
-    experiment = initialize_experiment(
+    experiment, _ = initialize_experiment(
         device,
         args_list=args_list,
-        config_dir=results_dir,
     )
     experiment.model = experiment.model.to(device)
 
@@ -122,12 +119,34 @@ def get_validation_metrics(
     return mean_validation_metrics
 
 
+def append_args_list(
+    args_list: List[str],
+    key: str,
+    value: str,
+) -> List[str]:
+    """
+    Append a key-value pair to the args_list.
+
+    Arguments:
+        args_list: List of arguments.
+        key: Key to append.
+        value: Value to append.
+
+    Returns:
+        Updated args_list.
+    """
+    if key not in args_list:
+        args_list.append(f"--{key}")
+        args_list.append(value)
+    return args_list
+
+
 def main(
     experiment_name: str,
     results_path: str = "./_results",
     checkpoint_name: Optional[str] = None,
     device: Optional[str] = None,
-    args_list: Optional[Sequence[str]] = None,
+    args_list: List[str] = [],
 ) -> None:
     torch.set_float32_matmul_precision("high")
     # Ensure that only one device is available.
@@ -151,10 +170,15 @@ def main(
     else:
         checkpoint_path = Path(checkpoint_dir) / checkpoint_name
 
+    # Adjust args_list to include options for experiment initialization.
+    args_list = append_args_list(
+        args_list, "resume_experiment", experiment_name
+    )
+    args_list = append_args_list(args_list, "root_results", results_path)
+
     # Evaluate the model.
     validation_metrics = get_validation_metrics(
         device=device,
-        results_dir=os.path.abspath(results_dir),
         checkpoint_path=checkpoint_path,
         args_list=args_list,
     )
@@ -162,7 +186,9 @@ def main(
     # Save validation_metrics dict.
     num_val_steps = len(get_time_steps(validation_metrics=validation_metrics))
     save_path = os.path.join(
-        results_dir, (f"{checkpoint_path.stem}_rollout_{num_val_steps}.pkl")
+        results_dir,
+        "validation",
+        (f"{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
     )
     with open(save_path, "wb") as f:
         pickle.dump(validation_metrics, f)

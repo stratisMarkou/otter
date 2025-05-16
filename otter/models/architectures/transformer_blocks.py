@@ -320,7 +320,7 @@ def make_swin_stage(
     num_swin_blocks: int,
     window_size: int,
     use_efficient_attention: bool = True,
-) -> torch.nn.Module:
+) -> torch.nn.ModuleList:
     return torch.nn.ModuleList(
         [
             SwinTransformerBlock(

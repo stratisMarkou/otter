@@ -59,11 +59,11 @@ def test_config(config_name: str) -> None:
                 "otter.experiment.config",
                 "--config_name",
                 config_name,
-                f"constants.data.path_to_labelled_array={path}",
+                f"data_source.path={path}",
                 # Use a small MLP to keep test fast and prevent OOMs.
-                "backbone_network.feedforward_network.hidden_features=32",
+                "feedforward_network.hidden_features=32",
                 # Reduce model size to keep test fast and prevent OOMs.
-                "backbone_network.num_blocks_per_stage=[1,1,1]",
-                "backbone_network.token_dimensions=[16,16,16,16]",
+                "model.backbone_network.num_blocks_per_stage=[1,1,1]",
+                "model.backbone_network.token_dimensions=[16,16,16,16]",
             ],
         )
