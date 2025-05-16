@@ -190,6 +190,8 @@ def main(
         "validation",
         (f"{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
     )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
     with open(save_path, "wb") as f:
         pickle.dump(validation_metrics, f)
 
