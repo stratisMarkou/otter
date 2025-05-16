@@ -4,11 +4,11 @@ from typing import List
 import pytest
 import torch
 
-from otter.models.architectures.mlp import MLP
 from otter.models.architectures.embeddings import (
     PositionEmbedding,
     SpatialEmbedding,
 )
+from otter.models.architectures.mlp import MLP
 from otter.models.architectures.transformer import SwinTransformer
 
 
@@ -71,6 +71,7 @@ def test_swin_transformer(
         # runnable in the test environment when we don't have a GPU.
         use_efficient_attention=False,
         feedforward_network=feedforward_network,
+        pad_dont_interpolate=True,
     )
 
     # Create a random input tensor

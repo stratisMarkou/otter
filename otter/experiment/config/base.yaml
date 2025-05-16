@@ -81,6 +81,7 @@ model:
     window_size: 4
     num_heads: 8
     num_blocks_per_stage: [4, 4, 4]
+    pad_dont_interpolate: true
     feedforward_network: ${feedforward_network}
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
