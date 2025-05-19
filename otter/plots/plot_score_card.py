@@ -1,24 +1,16 @@
 import argparse
 import os
-import re
 from typing import (
     Any,
     Dict,
-    List,
     Optional,
     Tuple,
-    Set,
-    Union,
 )
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import pickle
 import seaborn as sns  # type: ignore
-
-from otter.data.source.utils import (
-    ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
-)
 
 # Map between variables names and their abbreviation.
 VAR_MAP = {
@@ -60,145 +52,101 @@ def process_index(label: str) -> Tuple[int, float]:
     )
 
 
-def get_metric(
-    metrics_dict: Dict[str, float],
-    metric: str,
-    var: str,
-    level: Union[int, None],
-    time_step: str,
-    largest_scale: str,
-) -> float:
+def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
     """
-    Extract the relevant entry from the metrics dict.
+    Convert the metrics dictionary to a DataFrame for easier manipulation.
     """
-    if metrics_dict is None:
-        raise ValueError("metrics_dict cannot be None")
-
-    if level is not None:
-        key = f"val/{metric}/{var}/level_{level}/time_{time_step}/{largest_scale}"
-    else:
-        key = f"val/{metric}/{var}/time_{time_step}/{largest_scale}"
-    return metrics_dict[key]
-
-
-def filter_for_largest_scale(
-    validation_metrics: Dict[str, float],
-) -> Dict[str, float]:
-    # Filter keys where the last element is the maximum scale
-    max_scale = max(
-        [
-            int(key.split("/")[-1].replace("scale_", ""))
-            for key in validation_metrics.keys()
-        ]
-    )
-
-    # Filter keys that have the maximum scale
-    filtered_keys = [
-        key
-        for key in validation_metrics.keys()
-        if key.endswith(f"scale_{max_scale}")
-    ]
-
-    # Filter dictionary.
-    validation_metrics = {
-        k: validation_metrics[k]
-        for k in filtered_keys
-        if k in validation_metrics
-    }
-
-    return validation_metrics
-
-
-def get_list_of_metrics(validation_metrics: Dict[str, float]) -> Set[str]:
-    metrics = set()
-    for key in validation_metrics.keys():
-        parts = key.split("/")
-        metrics.add(parts[1])
-    return metrics
-
-
-def get_list_of_vars(validation_metrics: Dict[str, float]) -> Set[str]:
-    vars = set()
-    for key in validation_metrics.keys():
-        parts = key.split("/")
-        vars.add(parts[2])
-    return vars
-
-
-def get_time_steps(validation_metrics: Dict[str, float]) -> List[str]:
-    time_steps = set()
-    for key in validation_metrics.keys():
+    temporal_resolution = metrics["val/temporal_resolution"]
+    data = []
+    for key, value in metrics.items():
         parts = key.split("/")
         if len(parts) > 4:
-            if "time_" in parts[3]:
-                time_steps.add(parts[3].split("time_")[-1])
-            elif "time_" in parts[4]:
-                time_steps.add(parts[4].split("time_")[-1])
-    return sorted(time_steps)
+            if len(parts) == 5:
+                level = ""
+                time_step = (
+                    int(parts[3].split("_")[-1]) + 1
+                ) * temporal_resolution
+            else:
+                level = parts[3].split("_")[-1]
+                time_step = (
+                    int(parts[4].split("_")[-1]) + 1
+                ) * temporal_resolution
+            metric = parts[1]
+            var = parts[2]
+            scale = parts[-1]
+            if var in VAR_MAP:
+                data.append((metric, var, level, time_step, scale, value))
+
+    df = pd.DataFrame(
+        data,
+        columns=[
+            "Metric",
+            "Variable",
+            "Pressure Level",
+            "Lead Time",
+            "Scale",
+            "Value",
+        ],
+    )
+    # Only keep results for the final scale.
+    # 128 for the basic model, 2 for the probabilistic model.
+    min_scale = df["Scale"].min()
+
+    df = df[df["Scale"] == min_scale]
+    df = df.drop(columns=["Scale"])
+    return df
 
 
-def get_all_levels(data: Dict[str, float]) -> List[int]:
-    level_pattern = re.compile(r"level_(\d+)")
-    levels = set()
+def dataframe_intersection_and_rmse(
+    validation_dataframe: pd.DataFrame,
+    base_validation_dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Find the intersection of two dataframes based on compare_cols and compute
+    the normalized RMSE difference.
+    """
 
-    for key in data.keys():
-        match = level_pattern.search(key)
-        if match:
-            levels.add(int(match.group(1)))  # Extract and convert to int
+    compare_cols = ["Metric", "Variable", "Pressure Level", "Lead Time"]
 
-    return sorted(levels)
+    # Merge on compare_cols to find intersection
+    df_intersection = pd.merge(
+        validation_dataframe,
+        base_validation_dataframe,
+        on=compare_cols,
+        how="inner",
+    )
+    metric = df_intersection["Value_x"]
+    base_metric = df_intersection["Value_y"]
+    norm_diff = (metric - base_metric) / base_metric
+    df_intersection["Normalized RMSE Difference"] = norm_diff
+    df_intersection = df_intersection.drop(columns=["Value_x", "Value_y"])
+    return df_intersection
 
 
 def plot_score_card(
     base_validation_metrics: Dict[str, float],
     validation_metrics: Dict[str, float],
-    rollout_steps: int,
     save_path: Optional[str] = None,
 ) -> None:
-    # Checks we are passing the dicts properly.
-    if base_validation_metrics is None:
-        raise ValueError("base_validation_metrics cannot be None")
-    if validation_metrics is None:
-        raise ValueError("validation_metrics cannot be None")
+    validation_df = metrics_to_dataframe(validation_metrics)
+    base_validation_df = metrics_to_dataframe(base_validation_metrics)
 
-    # Get the temporal resolution
-    temporal_resolution = validation_metrics["val/temporal_resolution"]
-    base_temporal_resolution = base_validation_metrics[
-        "val/temporal_resolution"
-    ]
-    assert temporal_resolution == base_temporal_resolution, (
-        "Temporal resolution must be the same for both experiments."
+    # Get intersection of metrics and compute RMSE difference.
+    heatmap_df = dataframe_intersection_and_rmse(
+        validation_dataframe=validation_df,
+        base_validation_dataframe=base_validation_df,
     )
-    del validation_metrics["val/temporal_resolution"]
-    del base_validation_metrics["val/temporal_resolution"]
+    metrics = heatmap_df["Metric"].unique()
+    time_steps = heatmap_df["Lead Time"].unique()
 
-    # Filter for just largest scale
-    validation_metrics = filter_for_largest_scale(validation_metrics)
-    base_validation_metrics = filter_for_largest_scale(base_validation_metrics)
-    largest_scale = list(validation_metrics.keys())[0].split("/")[-1]
-
-    # Get all the metric types from the metrics dictionary.
-    metrics = get_list_of_metrics(validation_metrics)
-
-    # Get all the variables from the metrics dictionary.
-    vars = get_list_of_vars(validation_metrics)
-    base_vars = get_list_of_vars(base_validation_metrics)
-
-    # Define variables, pressure levels, and lead times
-    variables = list(VAR_MAP.keys())
-    variables = [
-        variable
-        for variable in variables
-        if ((variable in vars) and (variable in base_vars))
-    ]
-    pressure_levels = get_all_levels(validation_metrics)
-    time_steps = get_time_steps(validation_metrics)
+    heatmap_df["Row Label"] = heatmap_df.apply(
+        lambda x: f"{VAR_MAP[x['Variable']]} {x['Pressure Level']}".strip(),
+        axis=1,
+    )
 
     # Initialise the figure.
-    scale = 0.6 * max(
-        1, 1 + 0.15 * (10 - len(time_steps))
-    )  # This seems to look decent.
-    # This seems to look decent.
+    scale = 0.6 * max(1, 1 + 0.15 * (10 - len(time_steps)))
+
     if len(metrics) > 1:
         fig, axs = plt.subplots(
             1,
@@ -213,69 +161,11 @@ def plot_score_card(
         )
         axs = [axs]
 
-    for ax, _metric in zip(axs, metrics):
-        heatmap_data = []
-
-        # Iterate over all variables, levels (for non-surface), and lead times.
-        for _var in variables:
-            levels: List[Optional[int]] = (
-                list(pressure_levels)
-                if _var in ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES
-                else [None]
-            )  # No levels for surface variables
-            for _level in levels:
-                for _time_step in time_steps:
-                    # Retrieve the metric.
-                    base_metric = get_metric(
-                        base_validation_metrics,
-                        _metric,
-                        _var,
-                        _level,
-                        _time_step,
-                        largest_scale,
-                    )
-                    metric = get_metric(
-                        validation_metrics,
-                        _metric,
-                        _var,
-                        _level,
-                        _time_step,
-                        largest_scale,
-                    )
-
-                    # Compute normalized RMSE difference
-                    norm_diff = (metric - base_metric) / base_metric
-
-                    # Store for visualization
-                    _level_vis = (
-                        _level if isinstance(_level, int) else str(_level)
-                    )
-                    heatmap_data.append(
-                        (VAR_MAP[_var], _level_vis, int(_time_step), norm_diff)
-                    )
-
-        # Convert to DataFrame for easier plotting.
-        df = pd.DataFrame(
-            heatmap_data,
-            columns=[
-                "Variable",
-                "Pressure Level",
-                "Time Step",
-                "Normalized RMSE Difference",
-            ],
-        )
-        df["Lead Time"] = (df["Time Step"] + 1) * temporal_resolution
+    for ax, metric in zip(axs, metrics):
+        df = heatmap_df[heatmap_df["Metric"] == metric]
+        df = df.drop(columns=["Metric"])
 
         # Pivot table for heatmap (rows: var + level, cols: lead time).
-        df["Row Label"] = df.apply(
-            lambda x: (
-                f"{x['Variable']} {x['Pressure Level']}"
-                if x["Pressure Level"]
-                else x["Variable"]
-            ),
-            axis=1,
-        )
-        df["Row Label"] = df["Row Label"].str.replace(" None", "")
         pivot_table = df.pivot(
             index="Row Label",
             columns="Lead Time",
@@ -306,11 +196,12 @@ def plot_score_card(
             * 100,
             1,
         )
-        ax.set_title(f"{_metric} - {perc_improv}%")
+        ax.set_title(f"{metric} - {perc_improv}%")
         ax.set_xlabel("Lead Time (h)")
         ax.set_ylabel("")
 
     fig.supylabel("Variable & Pressure Level", x=-0.001)
+
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
 
@@ -325,7 +216,9 @@ def get_metrics_path(
 ) -> str:
     experiment_path = os.path.join(results_path, experiment_name)
     experiment_metrics_path = os.path.join(
-        experiment_path, (f"{checkpoint_name}_rollout_{rollout_steps}.pkl")
+        experiment_path,
+        "validation",
+        (f"{checkpoint_name}_rollout_{rollout_steps}.pkl"),
     )
     return experiment_metrics_path
 
@@ -340,12 +233,12 @@ def main(
     experiment_name: str,
     base_experiment_name: str,
     rollout_steps: int,
+    base_rollout_steps: int,
     checkpoint_name: str,
     base_checkpoint_name: str,
     results_path: str = "./_results",
     base_results_path: str = "./_results",
 ) -> None:
-    # Assert results exist.
     experiment_metrics_path = get_metrics_path(
         experiment_name=experiment_name,
         results_path=results_path,
@@ -360,7 +253,7 @@ def main(
         experiment_name=base_experiment_name,
         results_path=base_results_path,
         checkpoint_name=base_checkpoint_name,
-        rollout_steps=rollout_steps,
+        rollout_steps=base_rollout_steps,
     )
     assert os.path.exists(base_experiment_metrics_path), (
         f"Results for {base_experiment_name} do not exist at expected location"
@@ -372,9 +265,9 @@ def main(
     save_path = os.path.join(
         score_card_dir,
         (
-            f"{experiment_name}_{checkpoint_name}_vs_"
+            f"{experiment_name}_{checkpoint_name}_rollout_{rollout_steps}_vs_"
             f"{base_experiment_name}_{base_checkpoint_name}"
-            f"_rollout_{rollout_steps}.png"
+            f"_rollout_{base_rollout_steps}.png"
         ),
     )
 
@@ -386,7 +279,6 @@ def main(
     plot_score_card(
         base_validation_metrics=base_validation_metrics,
         validation_metrics=validation_metrics,
-        rollout_steps=rollout_steps,
         save_path=save_path,
     )
 
@@ -407,6 +299,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--rollout_steps",
+        type=int,
+        help="Number of rollout steps.",
+    )
+    parser.add_argument(
+        "--base_rollout_steps",
         type=int,
         help="Number of rollout steps.",
     )
@@ -439,6 +336,7 @@ if __name__ == "__main__":
         experiment_name=args.experiment_name,
         base_experiment_name=args.base_experiment_name,
         rollout_steps=args.rollout_steps,
+        base_rollout_steps=args.base_rollout_steps,
         checkpoint_name=args.checkpoint_name,
         base_checkpoint_name=args.base_checkpoint_name,
         results_path=args.results_path,

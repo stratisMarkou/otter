@@ -21,7 +21,18 @@ from otter.experiment.run_state import (
     get_latest_checkpoint,
 )
 from otter.models.losses.loss_fn import LossInfo
-from otter.plots.plot_score_card import get_time_steps
+
+
+def get_time_steps(validation_metrics: Dict[str, float]) -> List[str]:
+    time_steps = set()
+    for key in validation_metrics.keys():
+        parts = key.split("/")
+        if len(parts) > 4:
+            if "time_" in parts[3]:
+                time_steps.add(parts[3].split("time_")[-1])
+            elif "time_" in parts[4]:
+                time_steps.add(parts[4].split("time_")[-1])
+    return sorted(time_steps)
 
 
 def get_last_ckpt_name(
