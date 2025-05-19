@@ -89,12 +89,10 @@ def initialize_experiment(
     Arguments:
         device: device to run the experiment on.
         args_list: list of arguments to parse.
-        config_dir: optional config directory if we want to load from a directory.
 
     Returns:
         experiment: experiment config object.
-        path: path to experiment.
-        writer: tensorboard writer.
+        config: DictConfig object containing the config.
     """
 
     args, extra_args = _parse_args(args_list)

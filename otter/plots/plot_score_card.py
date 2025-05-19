@@ -260,7 +260,7 @@ def main(
     )
 
     # Create path for saving score cards.
-    score_card_dir = os.path.join(results_path, "score_cards/")
+    score_card_dir = os.path.join(results_path, "score_cards")
     os.makedirs(score_card_dir, exist_ok=True)
     save_path = os.path.join(
         score_card_dir,
