@@ -153,6 +153,7 @@ def _combine_scales(
     return torch.cat([data_scale_tensor, rollout_scales])
 
 
+@torch.no_grad()
 def validation_epoch(
     model: MultiscaleModel,
     device: str,
@@ -160,10 +161,14 @@ def validation_epoch(
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
     wandb_logger: WandbLogger,
+    mixed_precision_dtype: torch.dtype,
 ) -> float:
     model = model.eval()
 
-    with torch.no_grad():
+    with torch.amp.autocast(  # type: ignore
+        device_type=device,
+        dtype=mixed_precision_dtype,
+    ):
         losses: Dict[str, List[float]] = defaultdict(list)
         loss_infos: Dict[str, List[LossInfo]] = defaultdict(list)
         for batch in tqdm(dataloader):
@@ -318,6 +323,7 @@ def train_loop(
                     loss_fns=experiment.val_loss_fns,
                     scale_scheduler=experiment.inference_scale_scheduler,
                     wandb_logger=wandb_logger,
+                    mixed_precision_dtype=mixed_precision_dtype,
                 )
 
                 if (
