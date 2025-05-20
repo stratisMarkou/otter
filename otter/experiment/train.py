@@ -163,6 +163,37 @@ def validation_epoch(
     wandb_logger: WandbLogger,
     mixed_precision_dtype: torch.dtype,
 ) -> float:
+    # Run the validation epoch
+    losses, losses_info = run_validation_epoch(
+        model=model,
+        device=device,
+        dataloader=dataloader,
+        loss_fns=loss_fns,
+        scale_scheduler=scale_scheduler,
+        mixed_precision_dtype=mixed_precision_dtype,
+    )
+
+    # Log metrics to wandb
+    log_validation_metrics_to_wandb(
+        losses, losses_info, wandb_logger=wandb_logger
+    )
+
+    train_val_loss: float = np.mean(
+        np.stack(losses["train_loss"], axis=0), axis=0
+    ).item()
+
+    return train_val_loss
+
+
+def run_validation_epoch(
+    model: torch.nn.Module,
+    device: str,
+    dataloader: Iterable[ForecastingSample],
+    loss_fns: Dict[str, LossFunction],
+    scale_scheduler: ScaleScheduler,
+    mixed_precision_dtype: torch.dtype,
+) -> Tuple[Dict[str, List[float]], Dict[str, List[LossInfo]]]:
+    # Ensure model is in evaluation mode.
     model = model.eval()
 
     with torch.amp.autocast(  # type: ignore
@@ -211,6 +242,17 @@ def validation_epoch(
                 losses[loss_name].append(loss.item())
                 loss_infos[loss_name].append(loss_info)
 
+    # Ensure model is back in training mode after validation.
+    model.train()
+
+    return losses, loss_infos
+
+
+def log_validation_metrics_to_wandb(
+    losses: Dict[str, List[float]],
+    loss_infos: Dict[str, List[LossInfo]],
+    wandb_logger: WandbLogger,
+) -> None:
     # Average the losses over the validation set.
     for loss_name, loss_values in losses.items():
         mean_loss = np.mean(np.stack(loss_values, axis=0), axis=0)
@@ -227,15 +269,6 @@ def validation_epoch(
                 axis=0,
             )
             wandb_logger.log({f"val/{loss_name}/{var}": mean_info})
-
-    # Ensure model is back in training mode after validation.
-    model.train()
-
-    train_val_loss: float = np.mean(
-        np.stack(losses["train_loss"], axis=0), axis=0
-    ).item()
-
-    return train_val_loss
 
 
 def main() -> None:

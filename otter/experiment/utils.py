@@ -92,8 +92,7 @@ def initialize_experiment(
 
     Returns:
         experiment: experiment config object.
-        path: path to experiment.
-        writer: tensorboard writer.
+        config: DictConfig object containing the config.
     """
 
     args, extra_args = _parse_args(args_list)
