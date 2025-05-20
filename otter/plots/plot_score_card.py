@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pickle
 import seaborn as sns  # type: ignore
+import numpy as np
 
 # Map between variables names and their abbreviation.
 VAR_MAP = {
@@ -52,6 +53,20 @@ def process_index(label: str) -> Tuple[int, float]:
     )
 
 
+def _is_val_metric(metric: str) -> bool:
+    """
+    Check whether the key is a metric or not.
+    """
+    parts = metric.split("/")
+    return (
+        len(parts) in (5, 6)
+        and parts[0] == "val"
+        and parts[2] in VAR_MAP
+        and parts[-2].startswith("time_")
+        and parts[-1].startswith("scale_")
+    )
+
+
 def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
     """
     Convert the metrics dictionary to a DataFrame for easier manipulation.
@@ -59,23 +74,23 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
     temporal_resolution = metrics["val/temporal_resolution"]
     data = []
     for key, value in metrics.items():
-        parts = key.split("/")
-        if len(parts) > 4:
-            if len(parts) == 5:
-                level = ""
-                time_step = (
-                    int(parts[3].split("_")[-1]) + 1
-                ) * temporal_resolution
-            else:
-                level = parts[3].split("_")[-1]
-                time_step = (
-                    int(parts[4].split("_")[-1]) + 1
-                ) * temporal_resolution
+        if _is_val_metric(key):
+            parts = key.split("/")
+
             metric = parts[1]
             var = parts[2]
+            time_step = (
+                int(parts[-2].split("_")[-1]) + 1
+            ) * temporal_resolution
             scale = parts[-1]
-            if var in VAR_MAP:
-                data.append((metric, var, level, time_step, scale, value))
+
+            if len(parts) == 5:
+                # If the metric is not a pressure level metric, set level to "".
+                level = ""
+            else:
+                level = parts[3].split("_")[-1]
+
+            data.append((metric, var, level, time_step, scale, value))
 
     df = pd.DataFrame(
         data,
@@ -147,19 +162,14 @@ def plot_score_card(
     # Initialise the figure.
     scale = 0.6 * max(1, 1 + 0.15 * (10 - len(time_steps)))
 
-    if len(metrics) > 1:
-        fig, axs = plt.subplots(
-            1,
-            len(metrics),
-            figsize=(scale * len(time_steps), scale * len(time_steps)),
-            gridspec_kw={"wspace": 1.2},
-        )
-    else:
-        fig, axs = plt.subplots(
-            figsize=(scale * len(time_steps), scale * len(time_steps)),
-            gridspec_kw={"wspace": 1.2},
-        )
-        axs = [axs]
+    fig, axs = plt.subplots(
+        1,
+        len(metrics),
+        figsize=(scale * len(time_steps), scale * len(time_steps)),
+        gridspec_kw={"wspace": 1.2},
+    )
+
+    axs = np.atleast_1d(axs)
 
     for ax, metric in zip(axs, metrics):
         df = heatmap_df[heatmap_df["Metric"] == metric]
