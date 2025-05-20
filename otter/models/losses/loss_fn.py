@@ -14,7 +14,7 @@ import torch
 
 from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import aggregate_load_balancing_losses
-from otter.models.distributions import Distribution, Delta, Gaussian
+from otter.models.distributions import Delta, Distribution, Gaussian
 from otter.models.multiscale_model import get_trg_vars_and_levels
 
 DistributionWithMean = Union[Delta, Gaussian]
@@ -214,8 +214,18 @@ def apply_loss(
     # Also log aggregate losses along scales.
     for i_scale, scale in enumerate(scales):
         loss_val = loss_per_scale[i_scale].item()
-        loss_key = f"loss/scale_{scale}"
+        loss_key = f"scale_{scale}"
         loss_info[loss_key] = float(loss_val)
+
+    # If we have multiple times also log different times for the last scale.
+    if loss_per_time_var_scale.shape[0] > 1:
+        loss_per_time = torch.mean(
+            loss_per_time_var_scale[:, -1, :], dim=-1
+        )  # (time)
+        for t in range(loss_per_time.shape[0]):
+            loss_val = loss_per_time[t].item()
+            loss_key = f"time_{t:02d}/scale_{scales[-1]}"
+            loss_info[loss_key] = float(loss_val)
 
     return aggregated_loss, loss_info
 
