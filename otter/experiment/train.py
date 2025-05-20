@@ -170,6 +170,7 @@ def validation_epoch(
         dataloader=dataloader,
         loss_fns=loss_fns,
         scale_scheduler=scale_scheduler,
+        mixed_precision_dtype=mixed_precision_dtype,
     )
 
     # Log metrics to wandb
@@ -190,6 +191,7 @@ def run_validation_epoch(
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
+    mixed_precision_dtype: torch.dtype,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[LossInfo]]]:
     # Ensure model is in evaluation mode.
     model = model.eval()

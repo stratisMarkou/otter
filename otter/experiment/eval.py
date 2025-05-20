@@ -111,6 +111,8 @@ def get_validation_metrics(
         torch.load(checkpoint_path)["model_state"]
     )
 
+    mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
+
     # Perform validation
     _, validation_metrics = run_validation_epoch(
         model=experiment.model,
@@ -118,6 +120,7 @@ def get_validation_metrics(
         dataloader=experiment.valid_dataloader,
         loss_fns=experiment.val_loss_fns,
         scale_scheduler=experiment.inference_scale_scheduler,
+        mixed_precision_dtype=mixed_precision_dtype,
     )
 
     mean_validation_metrics = get_mean_metrics(validation_metrics)
