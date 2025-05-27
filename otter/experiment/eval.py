@@ -7,7 +7,9 @@ from typing import (
     Dict,
     List,
     Optional,
+    Tuple,
 )
+import numpy.typing as npt
 
 import pickle
 import torch
@@ -86,7 +88,7 @@ def get_validation_metrics(
     device: str,
     checkpoint_path: Path,
     args_list: List[str] = [],
-) -> Dict[str, float]:
+) -> Tuple[Dict[str, float], Dict[str, npt.NDArray[np.float32]]]:
     """
     Obtain validation metrics.
 
@@ -114,13 +116,14 @@ def get_validation_metrics(
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
 
     # Perform validation
-    _, validation_metrics = run_validation_epoch(
+    _, validation_metrics, psd_mse = run_validation_epoch(
         model=experiment.model,
         device=device,
         dataloader=experiment.valid_dataloader,
         loss_fns=experiment.val_loss_fns,
         scale_scheduler=experiment.inference_scale_scheduler,
         mixed_precision_dtype=mixed_precision_dtype,
+        return_power_spectrum_mse=True,
     )
 
     mean_validation_metrics = get_mean_metrics(validation_metrics)
@@ -130,7 +133,22 @@ def get_validation_metrics(
         experiment.valid_dataloader.dataset.temporal_resolution
     ).astype(int)
 
-    return mean_validation_metrics
+    if len(psd_mse):
+        psd_mse_batch_mean = torch.stack(psd_mse, dim=0).mean(dim=0).numpy()
+        psd_mse_dict = {
+            f"val/psd_mse/{var_name}": psd_mse_batch_mean[:, i]
+            for i, var_name in enumerate(
+                experiment.model.trg_variables_and_levels
+            )
+        }
+    else:
+        psd_mse_dict = {}
+
+    psd_mse_dict["val/temporal_resolution"] = np.array(
+        mean_validation_metrics["val/temporal_resolution"], dtype=np.float32
+    )
+
+    return mean_validation_metrics, psd_mse_dict
 
 
 def append_args_list(
@@ -191,7 +209,7 @@ def main(
     args_list = append_args_list(args_list, "root_results", results_path)
 
     # Evaluate the model.
-    validation_metrics = get_validation_metrics(
+    validation_metrics, psd_mse_per_var = get_validation_metrics(
         device=device,
         checkpoint_path=checkpoint_path,
         args_list=args_list,
@@ -202,12 +220,23 @@ def main(
     save_path = os.path.join(
         results_dir,
         "validation",
-        (f"{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
+        (f"metrics_{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
     )
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     with open(save_path, "wb") as f:
         pickle.dump(validation_metrics, f)
+
+    # Save power spectrum density MSE per variable dict.
+    save_path = os.path.join(
+        results_dir,
+        "validation",
+        (f"psd_mse_{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    with open(save_path, "wb") as f:
+        pickle.dump(psd_mse_per_var, f)
 
 
 if __name__ == "__main__":

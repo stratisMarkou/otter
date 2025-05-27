@@ -33,6 +33,7 @@ from otter.models.losses.loss_fn import (
     gather_load_balancing_losses,
 )
 from otter.models.multiscale_model import MultiscaleInput, MultiscaleModel
+from otter.eval_utils.power_spectrum import power_spectum_density_mse
 
 LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
@@ -164,7 +165,7 @@ def validation_epoch(
     mixed_precision_dtype: torch.dtype,
 ) -> float:
     # Run the validation epoch
-    losses, losses_info = run_validation_epoch(
+    losses, losses_info, _ = run_validation_epoch(
         model=model,
         device=device,
         dataloader=dataloader,
@@ -192,9 +193,14 @@ def run_validation_epoch(
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
     mixed_precision_dtype: torch.dtype,
-) -> Tuple[Dict[str, List[float]], Dict[str, List[LossInfo]]]:
+    return_power_spectrum_mse: bool = False,
+) -> Tuple[
+    Dict[str, List[float]], Dict[str, List[LossInfo]], List[torch.Tensor]
+]:
     # Ensure model is in evaluation mode.
     model = model.eval()
+
+    psd_mse_list = []
 
     with torch.amp.autocast(  # type: ignore
         device_type=device,
@@ -242,10 +248,18 @@ def run_validation_epoch(
                 losses[loss_name].append(loss.item())
                 loss_infos[loss_name].append(loss_info)
 
+            if return_power_spectrum_mse:
+                psd_mse_list.append(
+                    power_spectum_density_mse(
+                        trg=batch.trg,
+                        prd_dist=prd_dist,
+                    ).cpu()
+                )
+
     # Ensure model is back in training mode after validation.
     model.train()
 
-    return losses, loss_infos
+    return losses, loss_infos, psd_mse_list
 
 
 def log_validation_metrics_to_wandb(
