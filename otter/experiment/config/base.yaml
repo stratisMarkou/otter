@@ -96,7 +96,7 @@ loss_fn:
   weighting_fns:
     - ${get_module_attr:otter.models.losses.weighting.apply_pressure_weighting}
     - ${get_module_attr:otter.models.losses.weighting.apply_surface_weighting}
-    - ${get_module_attr:otter.models.losses.weighting.apply_division_by_variable_diff_std}
+    - ${get_module_attr:otter.models.losses.weighting.apply_division_by_variable_std}
 
 val_loss_fns:
   # Always include the training loss function in the validation loss functions.
