@@ -93,7 +93,7 @@ def plot_power_spectrum_heatmaps_per_var(
 
 
 def filter_validation_metrics(
-    validation_metrics: Dict[str, float | npt.NDArray[np.float32]],
+    validation_metrics: Dict[str, npt.NDArray[np.float32]],
 ) -> Dict[str, npt.NDArray[np.float32]]:
     """
     Filter validation metrics to get only the PSD MSE.
@@ -106,7 +106,7 @@ def filter_validation_metrics(
     """
     psd_mse_dict = {}
     for key, value in validation_metrics.items():
-        if "psd_mse" in key and isinstance(value, np.ndarray):
+        if "psd_mse" in key:
             psd_mse_dict[key] = value
     return psd_mse_dict
 
@@ -142,7 +142,9 @@ def main(
     # Load metrics
     validation_metrics = load_metrics(experiment_metrics_path)
 
-    time_resolution = validation_metrics["val/temporal_resolution"]
+    time_resolution = (
+        validation_metrics["val/temporal_resolution"].item().astype(int)
+    )
     psd_mse_dict = filter_validation_metrics(validation_metrics)
 
     # Save score card.
