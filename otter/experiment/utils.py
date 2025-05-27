@@ -81,7 +81,7 @@ def get_module_attr(string: str) -> Any:
 def initialize_experiment(
     device: str,
     args_list: Optional[Sequence[str]] = None,
-) -> Experiment:
+) -> tuple[Experiment, DictConfig]:
     """Initialize experiment by parsing the config file, checking that the
     repo is clean, creating a path for the experiment, and creating a
     writer for tensorboard.
@@ -92,8 +92,7 @@ def initialize_experiment(
 
     Returns:
         experiment: experiment config object.
-        path: path to experiment.
-        writer: tensorboard writer.
+        config: DictConfig object containing the config.
     """
 
     args, extra_args = _parse_args(args_list)
@@ -141,7 +140,7 @@ def initialize_experiment(
     logging.info("Instantiating dependencies.")
 
     experiment: DictConfig = instantiate(config)
-    return experiment
+    return experiment, config
 
 
 def _parse_args(
@@ -229,14 +228,16 @@ def _generate_experiment_name() -> str:
     return f"{timestamp}-{adjective}-{animal}"
 
 
-def initialize_wandb(
-    experiment_name: str, log_code: Optional[bool] = True
-) -> None:
+def initialize_wandb(config: DictConfig) -> None:
+    config_dict: dict = OmegaConf.to_container(config)  # type: ignore
+    experiment_name = config.info.experiment_name
+    log_code = config.constants.log_code
     wandb.init(
         project="otter-deterministic",
         entity="otter-weather",
         name=experiment_name,
         id=experiment_name,
+        config=config_dict,
     )
     if log_code:
         log_code_to_wandb()
@@ -461,4 +462,12 @@ def get_cosine_lr_scheduler(
 ) -> torch.optim.lr_scheduler.CosineAnnealingLR:
     return torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optimizer, **lr_scheduler_kwargs
+    )
+
+
+def get_linear_lr_scheduler(
+    optimizer: torch.optim.Optimizer, num_steps: int
+) -> torch.optim.lr_scheduler.LinearLR:
+    return torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1.0, end_factor=0.0, total_iters=num_steps
     )
