@@ -8,9 +8,23 @@ import pandas as pd
 import seaborn as sns  # type: ignore
 import numpy as np
 from otter.plots.plot_score_card import (
-    get_metrics_path,
     load_metrics,
 )
+
+
+def get_psd_mse_path(
+    experiment_name: str,
+    results_path: str,
+    checkpoint_name: str,
+    rollout_steps: int,
+) -> str:
+    experiment_path = os.path.join(results_path, experiment_name)
+    experiment_metrics_path = os.path.join(
+        experiment_path,
+        "validation",
+        (f"psd_mse_{checkpoint_name}_rollout_{rollout_steps}.pkl"),
+    )
+    return experiment_metrics_path
 
 
 def plot_power_spectrum_heatmaps_per_var(
@@ -117,7 +131,7 @@ def main(
     checkpoint_name: str,
     results_path: str = "./_results",
 ) -> None:
-    experiment_metrics_path = get_metrics_path(
+    experiment_metrics_path = get_psd_mse_path(
         experiment_name=experiment_name,
         results_path=results_path,
         checkpoint_name=checkpoint_name,
@@ -142,9 +156,7 @@ def main(
     # Load metrics
     validation_metrics = load_metrics(experiment_metrics_path)
 
-    time_resolution = (
-        validation_metrics["val/temporal_resolution"].item().astype(int)
-    )
+    time_resolution = int(validation_metrics["val/temporal_resolution"].item())
     psd_mse_dict = filter_validation_metrics(validation_metrics)
 
     # Save score card.
