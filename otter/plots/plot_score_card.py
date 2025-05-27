@@ -228,7 +228,7 @@ def get_metrics_path(
     experiment_metrics_path = os.path.join(
         experiment_path,
         "validation",
-        (f"{checkpoint_name}_rollout_{rollout_steps}.pkl"),
+        (f"metrics_{checkpoint_name}_rollout_{rollout_steps}.pkl"),
     )
     return experiment_metrics_path
 

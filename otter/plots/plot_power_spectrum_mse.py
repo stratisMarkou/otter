@@ -136,7 +136,7 @@ def main(
 
     save_path = os.path.join(
         psd_mse_dir,
-        f"{checkpoint_name}_rollout_{rollout_steps}.png",
+        f"psd_mse_{checkpoint_name}_rollout_{rollout_steps}.png",
     )
 
     # Load metrics
