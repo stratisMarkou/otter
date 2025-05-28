@@ -39,7 +39,7 @@ def apply_division_by_variable_diff_std(
     variable_and_level: Sequence[str],
     weighting_coefficients_power: float,
 ) -> torch.Tensor:
-    std_array = VAR_STD_DATA_ARRAY.sel(
+    std_array = VAR_DIFF_STD_DATA_ARRAY.sel(
         variable_and_level=variable_and_level
     ).values
     std_tensor = torch.tensor(std_array).float().to(tensor.device)
@@ -57,7 +57,7 @@ def apply_division_by_variable_std(
     variable_and_level: Sequence[str],
     weighting_coefficients_power: float,
 ) -> torch.Tensor:
-    std_array = VAR_DIFF_STD_DATA_ARRAY.sel(
+    std_array = VAR_STD_DATA_ARRAY.sel(
         variable_and_level=variable_and_level
     ).values
     std_tensor = torch.tensor(std_array).float().to(tensor.device)
