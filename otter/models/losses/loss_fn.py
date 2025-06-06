@@ -20,6 +20,7 @@ from otter.models.multiscale_model import get_trg_vars_and_levels
 DistributionWithMean = Union[Delta, Gaussian]
 PredictionStatistics = Dict[str, torch.Tensor]
 LossInfo = Dict[str, float]
+LossInfoArray = Dict[str, torch.Tensor]
 LossWeightingFunction = Callable[
     [torch.Tensor, Sequence[str], float], torch.Tensor
 ]
@@ -148,6 +149,36 @@ def gather_load_balancing_losses(
         }
         return total_loss, loss_info
     return None, None
+
+
+def gather_array_losses(
+    array_losses: torch.Tensor,
+    trg_variables_and_levels: Sequence[str],
+) -> LossInfoArray:
+    """Gather losses from the array losses tensor.
+    Args:
+        array_losses: tensor of shape # (time, var_and_level, loss_dim)
+            containing vectorized losses for each variable and level.
+        trg_variables_and_levels: list of target variables and levels.
+
+    Returns:
+        loss_info: dictionary with losses for each variable and level,
+            indexed by variable/time.
+    """
+
+    assert array_losses.ndim == 3, (
+        "array_losses should be a 3D tensor of shape "
+        "(time, scale, var_and_level), but got shape "
+        f"{array_losses.shape}"
+    )
+
+    loss_info = {}
+    for i_var, var in enumerate(trg_variables_and_levels):
+        for t in range(array_losses.shape[0]):
+            loss_val = array_losses[t, i_var]
+            loss_key = f"{var}/time_{t:02d}"
+            loss_info[loss_key] = loss_val
+    return loss_info
 
 
 def apply_loss(

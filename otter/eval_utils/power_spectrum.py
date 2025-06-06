@@ -9,7 +9,7 @@ from typing import (
 DistributionWithMean = Union[Delta, Gaussian]
 
 
-def _power_spectum_density_mse(
+def _power_spectrum_density_mse(
     pred: torch.Tensor, trg: torch.Tensor
 ) -> torch.Tensor:
     """
@@ -79,7 +79,7 @@ def _batch_tensor(input: torch.Tensor) -> torch.Tensor:
     return input
 
 
-def power_spectum_density_mse(
+def power_spectrum_density_mse(
     trg: torch.Tensor,  # (batch, lat, lon, time_idx, var_and_level)
     prd_dist: DistributionWithMean,
 ) -> torch.Tensor:
@@ -94,7 +94,7 @@ def power_spectum_density_mse(
     trg_batched = _batch_tensor(trg)  # (batch * time * var, lat, lon)
 
     psd_mse = (
-        _power_spectum_density_mse(pred_batched, trg_batched)
+        _power_spectrum_density_mse(pred_batched, trg_batched)
         .reshape(B, T, V, -1)
         .mean(dim=0)
     )  # (time_idx, var_and_level, r_max)
