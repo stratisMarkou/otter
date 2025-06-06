@@ -53,7 +53,8 @@ The experiment name is the same as in wandb or in the _results directory.
 
 For model evaluation (to save evaluation metrics), run:
 ```bash
-python otter/experiment/eval.py --experiment_name <experiment_name> --results_path <results_path> --checkpoint_name <checkpoint_name> constants.data.valid_num_target_frames=<num_target_frames>
+python otter/experiment/eval.py --experiment_name <experiment_name> --results_path <results_path> --checkpoint_name <checkpoint_name>
+constants.data.valid_num_target_frames=<num_target_frames>
 ```
 The experiment name is the same as in wandb or in the <results_path> directory.
 
