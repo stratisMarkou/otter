@@ -7,24 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns  # type: ignore
 import numpy as np
-from otter.plots.plot_score_card import (
-    load_metrics,
-)
-
-
-def get_psd_mse_path(
-    experiment_name: str,
-    results_path: str,
-    checkpoint_name: str,
-    rollout_steps: int,
-) -> str:
-    experiment_path = os.path.join(results_path, experiment_name)
-    experiment_metrics_path = os.path.join(
-        experiment_path,
-        "validation",
-        (f"psd_mse_{checkpoint_name}_rollout_{rollout_steps}.pkl"),
-    )
-    return experiment_metrics_path
+from otter.plots.plot_score_card import load_metrics, get_metrics_path
 
 
 def plot_power_spectrum_heatmaps_per_var(
@@ -131,7 +114,7 @@ def main(
     checkpoint_name: str,
     results_path: str = "./_results",
 ) -> None:
-    experiment_metrics_path = get_psd_mse_path(
+    experiment_metrics_path = get_metrics_path(
         experiment_name=experiment_name,
         results_path=results_path,
         checkpoint_name=checkpoint_name,
