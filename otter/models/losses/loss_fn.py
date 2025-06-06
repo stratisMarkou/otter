@@ -163,7 +163,7 @@ def gather_array_losses(
 
     Returns:
         loss_info: dictionary with losses for each variable and level,
-            indexed by variable/time.
+            indexed by variable.
     """
 
     assert array_losses.ndim == 3, (
@@ -174,10 +174,8 @@ def gather_array_losses(
 
     loss_info = {}
     for i_var, var in enumerate(trg_variables_and_levels):
-        for t in range(array_losses.shape[0]):
-            loss_val = array_losses[t, i_var]
-            loss_key = f"{var}/time_{t:02d}"
-            loss_info[loss_key] = loss_val
+        loss_val = array_losses[:, i_var]
+        loss_info[var] = loss_val
     return loss_info
 
 

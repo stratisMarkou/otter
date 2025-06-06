@@ -106,7 +106,7 @@ def filter_validation_metrics(
     """
     psd_mse_dict = {}
     for key, value in validation_metrics.items():
-        if "psd_mse" in key:
+        if "val/power_spectrum_mse" in key:
             psd_mse_dict[key] = value
     return psd_mse_dict
 
@@ -122,12 +122,13 @@ def main(
         results_path=results_path,
         checkpoint_name=checkpoint_name,
         rollout_steps=rollout_steps,
+        load_array_metrics=True,
     )
     assert os.path.exists(experiment_metrics_path), (
         f"Results for {experiment_name} do not exist at expected location"
     )
 
-    # Create path for saving score cards.
+    # Create path for saving PSD MSE.
     psd_mse_dir = os.path.join(
         results_path, experiment_name, "power_spectrum_mse"
     )

@@ -250,7 +250,7 @@ def main(
     save_path = os.path.join(
         results_dir,
         "validation",
-        (f"psd_mse_{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
+        (f"metrics_array_{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
     )
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 

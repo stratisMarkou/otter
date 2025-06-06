@@ -223,12 +223,20 @@ def get_metrics_path(
     results_path: str,
     checkpoint_name: str,
     rollout_steps: int,
+    load_array_metrics: bool = False,
 ) -> str:
+    if load_array_metrics:
+        pkl_name = (
+            f"metrics_array_{checkpoint_name}_rollout_{rollout_steps}.pkl"
+        )
+    else:
+        pkl_name = f"metrics_{checkpoint_name}_rollout_{rollout_steps}.pkl"
+
     experiment_path = os.path.join(results_path, experiment_name)
     experiment_metrics_path = os.path.join(
         experiment_path,
         "validation",
-        (f"metrics_{checkpoint_name}_rollout_{rollout_steps}.pkl"),
+        pkl_name,
     )
     return experiment_metrics_path
 
