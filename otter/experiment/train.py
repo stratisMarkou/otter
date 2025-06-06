@@ -188,6 +188,7 @@ def validation_epoch(
     return train_val_loss
 
 
+@torch.no_grad()
 def run_validation_epoch(
     model: torch.nn.Module,
     device: str,
