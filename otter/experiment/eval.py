@@ -7,7 +7,9 @@ from typing import (
     Dict,
     List,
     Optional,
+    Tuple,
 )
+import numpy.typing as npt
 
 import pickle
 import torch
@@ -20,7 +22,7 @@ from otter.experiment.utils import initialize_experiment
 from otter.experiment.run_state import (
     get_latest_checkpoint,
 )
-from otter.models.losses.loss_fn import LossInfo
+from otter.models.losses.loss_fn import LossInfo, LossInfoArray
 
 
 def get_time_steps(validation_metrics: Dict[str, float]) -> List[str]:
@@ -82,11 +84,35 @@ def get_mean_metrics(
     return mean_validation_metrics
 
 
+def get_mean_array_metrics(
+    validation_metrics_array: Dict[str, List[LossInfoArray]],
+) -> Dict[str, npt.NDArray[np.float32]]:
+    """
+    Obtain mean over batch for each loss with array output.
+    Arguments:
+        validation_metrics_array: Dictionary with validation metrics.
+    Returns:
+        validation_metrics_array: Dictionary with mean validation metrics.
+    """
+    mean_validation_metrics_array: Dict[str, npt.NDArray[np.float32]] = {}
+
+    for loss_name, info in validation_metrics_array.items():
+        for var in info[0].keys():
+            mean_validation_metrics_array[f"val/{loss_name}/{var}"] = np.mean(
+                np.stack(
+                    [info[var].numpy() for info in info],
+                    axis=0,
+                ),
+                axis=0,
+            )
+    return mean_validation_metrics_array
+
+
 def get_validation_metrics(
     device: str,
     checkpoint_path: Path,
     args_list: List[str] = [],
-) -> Dict[str, float]:
+) -> Tuple[Dict[str, float], Dict[str, npt.NDArray[np.float32]]]:
     """
     Obtain validation metrics.
 
@@ -114,23 +140,34 @@ def get_validation_metrics(
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
 
     # Perform validation
-    _, validation_metrics = run_validation_epoch(
-        model=experiment.model,
-        device=device,
-        dataloader=experiment.valid_dataloader,
-        loss_fns=experiment.val_loss_fns,
-        scale_scheduler=experiment.inference_scale_scheduler,
-        mixed_precision_dtype=mixed_precision_dtype,
+    _, validation_metrics_scalar, validation_metrics_array = (
+        run_validation_epoch(
+            model=experiment.model,
+            device=device,
+            dataloader=experiment.valid_dataloader,
+            loss_fns=experiment.val_loss_fns,
+            scale_scheduler=experiment.inference_scale_scheduler,
+            mixed_precision_dtype=mixed_precision_dtype,
+            compute_power_spectrum_mse=True,
+        )
     )
 
-    mean_validation_metrics = get_mean_metrics(validation_metrics)
+    mean_validation_metrics = get_mean_metrics(validation_metrics_scalar)
 
     # Also record temporal resolution
     mean_validation_metrics["val/temporal_resolution"] = (
         experiment.valid_dataloader.dataset.temporal_resolution
     ).astype(int)
 
-    return mean_validation_metrics
+    mean_validation_metrics_array = get_mean_array_metrics(
+        validation_metrics_array
+    )
+
+    mean_validation_metrics_array["val/temporal_resolution"] = np.array(
+        mean_validation_metrics["val/temporal_resolution"], dtype=np.float32
+    )
+
+    return mean_validation_metrics, mean_validation_metrics_array
 
 
 def append_args_list(
@@ -191,7 +228,7 @@ def main(
     args_list = append_args_list(args_list, "root_results", results_path)
 
     # Evaluate the model.
-    validation_metrics = get_validation_metrics(
+    validation_metrics, validation_metrics_array = get_validation_metrics(
         device=device,
         checkpoint_path=checkpoint_path,
         args_list=args_list,
@@ -202,12 +239,23 @@ def main(
     save_path = os.path.join(
         results_dir,
         "validation",
-        (f"{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
+        (f"metrics_{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
     )
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     with open(save_path, "wb") as f:
         pickle.dump(validation_metrics, f)
+
+    # Save power spectrum density MSE per variable dict.
+    save_path = os.path.join(
+        results_dir,
+        "validation",
+        (f"metrics_array_{checkpoint_path.stem}_rollout_{num_val_steps}.pkl"),
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    with open(save_path, "wb") as f:
+        pickle.dump(validation_metrics_array, f)
 
 
 if __name__ == "__main__":

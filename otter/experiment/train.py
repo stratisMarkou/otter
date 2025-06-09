@@ -30,9 +30,12 @@ from otter.experiment.utils import initialize_experiment, initialize_wandb
 from otter.models.architectures.schedulers import ScaleScheduler
 from otter.models.losses.loss_fn import (
     LossInfo,
+    LossInfoArray,
     gather_load_balancing_losses,
+    gather_array_losses,
 )
 from otter.models.multiscale_model import MultiscaleInput, MultiscaleModel
+from otter.eval_utils.power_spectrum import power_spectrum_density_mse
 
 LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
@@ -164,7 +167,7 @@ def validation_epoch(
     mixed_precision_dtype: torch.dtype,
 ) -> float:
     # Run the validation epoch
-    losses, losses_info = run_validation_epoch(
+    losses, losses_info, _ = run_validation_epoch(
         model=model,
         device=device,
         dataloader=dataloader,
@@ -185,6 +188,7 @@ def validation_epoch(
     return train_val_loss
 
 
+@torch.no_grad()
 def run_validation_epoch(
     model: torch.nn.Module,
     device: str,
@@ -192,7 +196,12 @@ def run_validation_epoch(
     loss_fns: Dict[str, LossFunction],
     scale_scheduler: ScaleScheduler,
     mixed_precision_dtype: torch.dtype,
-) -> Tuple[Dict[str, List[float]], Dict[str, List[LossInfo]]]:
+    compute_power_spectrum_mse: bool = False,
+) -> Tuple[
+    Dict[str, List[float]],
+    Dict[str, List[LossInfo]],
+    Dict[str, List[LossInfoArray]],
+]:
     # Ensure model is in evaluation mode.
     model = model.eval()
 
@@ -202,6 +211,10 @@ def run_validation_epoch(
     ):
         losses: Dict[str, List[float]] = defaultdict(list)
         loss_infos: Dict[str, List[LossInfo]] = defaultdict(list)
+
+        # Dict to store metrics which are arrays, e.g. power spectrum MSE.
+        metrics_array: Dict[str, List[LossInfoArray]] = defaultdict(list)
+
         for batch in tqdm(dataloader):
             batch = batch.to(device)
             data_scale = scale_scheduler.sample_data_scale()
@@ -242,10 +255,24 @@ def run_validation_epoch(
                 losses[loss_name].append(loss.item())
                 loss_infos[loss_name].append(loss_info)
 
+            if compute_power_spectrum_mse:
+                psd_mean_mse_per_batch = power_spectrum_density_mse(
+                    trg=batch.trg,
+                    prd_dist=prd_dist,
+                ).cpu()
+
+                psd_mean_mse_per_batch_per_var = gather_array_losses(
+                    array_losses=psd_mean_mse_per_batch,
+                    trg_variables_and_levels=model.trg_variables_and_levels,
+                )
+                metrics_array["power_spectrum_mse"].append(
+                    psd_mean_mse_per_batch_per_var
+                )
+
     # Ensure model is back in training mode after validation.
     model.train()
 
-    return losses, loss_infos
+    return losses, loss_infos, metrics_array
 
 
 def log_validation_metrics_to_wandb(
