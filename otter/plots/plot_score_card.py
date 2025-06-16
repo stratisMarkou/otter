@@ -192,7 +192,7 @@ def plot_score_card(
         # Plot heatmap.
         sns.heatmap(
             pivot_table,
-            cmap="RdBu_r",
+            cmap="bwr",
             center=0,
             ax=ax,
         )
@@ -207,7 +207,7 @@ def plot_score_card(
         ax.set_xlabel("Lead Time (h)")
         ax.set_ylabel("")
 
-    fig.supylabel("Variable & Pressure Level", x=-0.001)
+    fig.supylabel("Variable & Pressure Level", x=-0.1)
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", dpi=300)

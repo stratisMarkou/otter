@@ -37,7 +37,7 @@ def plot_power_spectrum_heatmaps_per_var(
     rows = (num_vars + cols - 1) // cols
 
     base_cell_width = 0.5  # width per lead time step (tune this)
-    cell_height = 2.5  # fixed height per row
+    cell_height = 4.0  # fixed height per row
 
     fig_width = cols * max(2.2, (base_cell_width * T))
     fig_height = rows * cell_height
@@ -84,13 +84,13 @@ def plot_power_spectrum_heatmaps_per_var(
     for idx in range(num_vars, rows * cols):
         fig.delaxes(axs[idx // cols][idx % cols])
 
-    fig.supylabel("Wavenumber", x=-0.001)
-    fig.suptitle(
-        "RRMSE vs. Wavenumber and Lead Time (All Variables)"
-        if relative_rmse
-        else "Log(1 + PSD MSE) vs. Wavenumber and Lead Time (All Variables)",
-        y=1.001,
-    )
+    # fig.supylabel("Wavenumber", x=-0.001)
+    # fig.suptitle(
+    #     "RRMSE vs. Wavenumber and Lead Time (All Variables)"
+    #     if relative_rmse
+    #     else "Log(1 + PSD MSE) vs. Wavenumber and Lead Time (All Variables)",
+    #     y=1.001,
+    # )
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
@@ -156,7 +156,6 @@ def main(
         validation_metrics, relative_rmse=False
     )
 
-    # Save score card.
     plot_power_spectrum_heatmaps_per_var(
         psd_mse_all_vars=psd_mse_dict,
         save_path=save_path,
@@ -173,7 +172,6 @@ def main(
         validation_metrics, relative_rmse=True
     )
 
-    # Save score card.
     plot_power_spectrum_heatmaps_per_var(
         psd_mse_all_vars=psd_rrmse_dict,
         save_path=save_path,
