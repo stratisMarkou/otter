@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 import wandb
 from otter.data.datasets import ForecastingSample
+from otter.eval_utils.power_spectrum import power_spectrum_density_mse
 from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
     WandbLogger,
@@ -31,11 +32,10 @@ from otter.models.architectures.schedulers import ScaleScheduler
 from otter.models.losses.loss_fn import (
     LossInfo,
     LossInfoArray,
-    gather_load_balancing_losses,
     gather_array_losses,
+    gather_load_balancing_losses,
 )
 from otter.models.multiscale_model import MultiscaleInput, MultiscaleModel
-from otter.eval_utils.power_spectrum import power_spectrum_density_mse
 
 LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 

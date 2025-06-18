@@ -4,11 +4,11 @@ from typing import List
 import pytest
 import torch
 
-from otter.models.architectures.mlp import MLP
 from otter.models.architectures.embeddings import (
     PositionEmbedding,
     SpatialEmbedding,
 )
+from otter.models.architectures.mlp import MLP
 from otter.models.architectures.transformer import SwinTransformer
 
 
@@ -16,11 +16,11 @@ from otter.models.architectures.transformer import SwinTransformer
 # different token dims, input / output dims and number of blocks per stage.
 @pytest.mark.parametrize(
     "grid_width, grid_height, grid_channel_dim, token_dim, patch_size, "
-    "window_size, num_blocks_per_stage, pos_embedding",
+    "window_size, num_blocks_per_stage, num_bottom_blocks, pos_embedding",
     [
-        (64, 32, 7, 12, 2, 2, [1, 1], PositionEmbedding(12, 16, 32)),
-        (64, 32, 7, 12, 2, 4, [2, 2], SpatialEmbedding(32, 0.1, 720, 12)),
-        (64, 32, 9, 16, 4, 2, [1, 1], PositionEmbedding(16, 8, 16)),
+        (64, 32, 7, 12, 2, 2, [1, 1], 4, PositionEmbedding(12, 16, 32)),
+        (64, 32, 7, 12, 2, 4, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
+        (64, 32, 9, 16, 4, 2, [1, 1], 4, PositionEmbedding(16, 8, 16)),
         (
             128,
             64,
@@ -29,9 +29,10 @@ from otter.models.architectures.transformer import SwinTransformer
             4,
             4,
             [2, 2],
+            8,
             SpatialEmbedding(64, 0.1, 720, 16),
         ),
-        (64, 32, 7, 12, 2, 2, [1, 1], PositionEmbedding(12, 16, 32)),
+        (64, 32, 7, 12, 2, 2, [1, 1], 4, PositionEmbedding(12, 16, 32)),
     ],
 )
 def test_swin_transformer(
@@ -42,6 +43,7 @@ def test_swin_transformer(
     patch_size: int,
     window_size: int,
     num_blocks_per_stage: List[int],
+    num_bottom_blocks: int,
     pos_embedding: PositionEmbedding | SpatialEmbedding,
 ) -> None:
     batch_dim = 2
@@ -65,6 +67,7 @@ def test_swin_transformer(
         window_size=window_size,
         num_heads=num_heads,
         num_blocks_per_stage=num_blocks_per_stage,
+        num_bottom_blocks=num_bottom_blocks,
         pos_embedding=pos_embedding,
         # Seting use_efficient attention to False uses nn.MultiheadAttention
         # instead of xformers.ops.memory_efficient_attention, which is not

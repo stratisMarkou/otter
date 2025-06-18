@@ -34,6 +34,7 @@ class SwinTransformer(nn.Module):
         width: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
+        num_bottom_blocks: int,
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
@@ -51,55 +52,20 @@ class SwinTransformer(nn.Module):
             num_stages = len(num_blocks_per_stage)
             token_dimensions = [token_dimensions] * (num_stages + 1)
 
+        token_in_out_dims = list(
+            zip(token_dimensions[:-1], token_dimensions[1:])
+        )
+
         down_swin_stages = []
         up_swin_stages = []
         patch_downsampling_layers = []
         patch_upsampling_layers = []
 
-        intermediate_token_in_out_dims = list(
-            zip(token_dimensions[:-1], token_dimensions[1:])
-        )
-        # Ignore the first token dimension (before downsampling)
-        intemediate_blocks_per_stage = num_blocks_per_stage[1:]
-
-        self.initial_swin_stage = make_swin_stage(
-            token_dim=first_token_dim,
-            feedforward_network=feedforward_network,
-            num_heads=num_heads,
-            num_swin_blocks=num_blocks_per_stage[0],
-            window_size=window_size,
-            use_efficient_attention=use_efficient_attention,
-        )
-
         for num_blocks, (t1, t2) in zip(
-            intemediate_blocks_per_stage,
-            intermediate_token_in_out_dims,
+            num_blocks_per_stage,
+            token_in_out_dims,
         ):
-            patch_downsampling_layers.append(
-                nn.Conv2d(
-                    in_channels=t1,
-                    out_channels=t2,
-                    kernel_size=2,
-                    stride=2,
-                )
-            )
-
             down_swin_stages.append(
-                make_swin_stage(
-                    token_dim=t2,
-                    feedforward_network=feedforward_network,
-                    num_heads=num_heads,
-                    num_swin_blocks=num_blocks,
-                    window_size=window_size,
-                    use_efficient_attention=use_efficient_attention,
-                )
-            )
-
-        for num_blocks, (t2, t1) in zip(
-            intemediate_blocks_per_stage[::-1],
-            intermediate_token_in_out_dims[::-1],
-        ):
-            up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t1,
                     feedforward_network=feedforward_network,
@@ -109,6 +75,28 @@ class SwinTransformer(nn.Module):
                     use_efficient_attention=use_efficient_attention,
                 )
             )
+            patch_downsampling_layers.append(
+                nn.Conv2d(
+                    in_channels=t1,
+                    out_channels=t2,
+                    kernel_size=2,
+                    stride=2,
+                )
+            )
+
+        self.bottom_swin_stage = make_swin_stage(
+            token_dim=token_dimensions[-1],
+            feedforward_network=feedforward_network,
+            num_heads=num_heads,
+            num_swin_blocks=num_bottom_blocks,
+            window_size=window_size,
+            use_efficient_attention=use_efficient_attention,
+        )
+
+        for num_blocks, (t2, t1) in zip(
+            num_blocks_per_stage[::-1],
+            token_in_out_dims[::-1],
+        ):
             patch_upsampling_layers.append(
                 nn.ConvTranspose2d(
                     in_channels=t1,
@@ -117,15 +105,16 @@ class SwinTransformer(nn.Module):
                     stride=2,
                 )
             )
-
-        self.final_swin_stage = make_swin_stage(
-            token_dim=first_token_dim,
-            feedforward_network=feedforward_network,
-            num_heads=num_heads,
-            num_swin_blocks=num_blocks_per_stage[0],
-            window_size=window_size,
-            use_efficient_attention=use_efficient_attention,
-        )
+            up_swin_stages.append(
+                make_swin_stage(
+                    token_dim=t2,
+                    feedforward_network=feedforward_network,
+                    num_heads=num_heads,
+                    num_swin_blocks=num_blocks,
+                    window_size=window_size,
+                    use_efficient_attention=use_efficient_attention,
+                )
+            )
 
         self.down_swin_stages = torch.nn.ModuleList(down_swin_stages)
         self.up_swin_stages = torch.nn.ModuleList(up_swin_stages)
@@ -179,36 +168,30 @@ class SwinTransformer(nn.Module):
         skips = []
         load_balancing_losses_list: List[LoadBalancingLosses] = list()
 
-        # First SWIN block at native resolution without downsampling
-        for swin_transformer_block in self.initial_swin_stage:
-            x, load_balancing_losses_per_block = swin_transformer_block(x)
-            load_balancing_losses_list += load_balancing_losses_per_block
-
         for downsampling_conv, down_swin_stage in zip(
             self.patch_downsampling_layers,
             self.down_swin_stages,
         ):
-            skips.append(x)
-            x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
             for swin_transformer_block in down_swin_stage:
                 x, load_balancing_losses_per_block = swin_transformer_block(x)
                 load_balancing_losses_list += load_balancing_losses_per_block
+            skips.append(x)
+            x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+
+        for swin_transformer_block in self.bottom_swin_stage:
+            x, load_balancing_losses_per_block = swin_transformer_block(x)
+            load_balancing_losses_list += load_balancing_losses_per_block
 
         for upsampling_conv, up_swin_stage, skip in zip(
             self.patch_upsampling_layers,
             self.up_swin_stages,
             skips[::-1],
         ):
+            x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            x = x + skip
             for swin_transformer_block in up_swin_stage:
                 x, load_balancing_losses_per_block = swin_transformer_block(x)
                 load_balancing_losses_list += load_balancing_losses_per_block
-            x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-            x = x + skip
-
-        # Final SWIN block at native resolution
-        for swin_transformer_block in self.final_swin_stage:
-            x, load_balancing_losses_per_block = swin_transformer_block(x)
-            load_balancing_losses_list += load_balancing_losses_per_block
 
         x = conv_channel_last(self.final_conv, x)
 
