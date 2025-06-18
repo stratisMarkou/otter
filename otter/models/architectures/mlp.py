@@ -1,6 +1,6 @@
 """Base MLP model, for use within the transformer."""
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import torch
 
@@ -15,6 +15,7 @@ class MLP(torch.nn.Module):
         output_features: int,
         hidden_features: int,
         num_hidden_layers: int,
+        dropout_rate: float = 0.0,
     ):
         super().__init__()
         self.in_features = in_features
@@ -29,6 +30,7 @@ class MLP(torch.nn.Module):
                         hidden_features,
                     ),
                     torch.nn.GELU(),
+                    torch.nn.Dropout(dropout_rate),
                 )
                 for i in range(num_hidden_layers)
             ]

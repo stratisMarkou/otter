@@ -74,6 +74,7 @@ def test_swin_transformer(
         # runnable in the test environment when we don't have a GPU.
         use_efficient_attention=False,
         feedforward_network=feedforward_network,
+        dropout_rate=0.1,
     )
 
     # Create a random input tensor
