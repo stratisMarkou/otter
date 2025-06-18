@@ -54,7 +54,7 @@ inference_scale_scheduler: ${train_scale_scheduler}
 feedforward_network:
   _target_: otter.models.architectures.mlp.MLP
   _partial_: true
-  hidden_features: 1024
+  hidden_features: 4096
   num_hidden_layers: 2
 
 model:
@@ -76,11 +76,11 @@ model:
     height: 128
     width: 256
     patch_size: 2
-    token_dimensions: [512, 1024, 2048]
+    token_dimensions: [1024, 1024, 1024, 1024]
     output_dimension: ${constants.data.num_output_channels}
     window_size: 4
     num_heads: 8
-    num_blocks_per_stage: [1, 6, 4]
+    num_blocks_per_stage: [1, 4, 4, 4]
     feedforward_network: ${feedforward_network}
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
@@ -156,7 +156,7 @@ constants:
     initial_learning_rate: 1e-4
     betas: [0.9, 0.999] # AdamW default values.
     weight_decay: 0.1
-    epochs: 40
+    epochs: 45
     num_training_steps:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}
