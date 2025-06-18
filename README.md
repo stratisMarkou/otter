@@ -51,6 +51,36 @@ python otter/experiment/save_samples.py <experiment_name>
 ```
 The experiment name is the same as in wandb or in the _results directory.
 
+For model evaluation (to save evaluation metrics), run:
+```bash
+python otter/experiment/eval.py --experiment_name <experiment_name> \
+--results_path <results_path> --checkpoint_name <checkpoint_name> \
+constants.data.valid_num_target_frames=<num_target_frames>
+```
+The experiment name is the same as in wandb or in the <results_path> directory.
+
+Number of target frames determines the forecasting horizon.
+
+Checkpoint name (e.g. latest, best) determines which model weights to load.
+
+When evaluation is done, to create a plot for power spectrum density MSE per variable, run:
+```bash
+python otter/plots/plot_power_spectrum_mse.py --experiment_name <experiment_name> \
+--rollout_steps <num_target_frames> --checkpoint_name <checkpoint_name>
+```
+
+It will create a PNG image in the `experiment_name/power_spectrum_mse` folder.
+
+To create a score card to compare two models, run:
+```bash
+python otter/plots/plot_score_card.py --experiment_name <experiment_name> \
+--base_experiment_name <base_experiment_name> --rollout_steps <num_target_frames> \
+--base_rollout_steps <base_num_target_frames> --checkpoint_name <checkpoint_name> \
+--base_checkpoint_name <base_checkpoint_name>
+```
+
+To compare to Arches Weather M model, use `_baselines/arches_weather/validation/metrics_latest_rollout_40.pkl`.
+
 To launch a training run on HPC, from the repo root, run:
 ```bash
 # ENV_PATH indicates the path to otter venv, default is set to otter.

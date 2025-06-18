@@ -39,13 +39,11 @@ class GeoPlotter:
     def __init__(
         self,
         cmap: str = "jet",
-        n_levels: int = 30,
         projection: ccrs.Projection = ccrs.PlateCarree(),
         map_width: int = 6,
         map_height: int = 3,
     ):
         self.cmap = cmap
-        self.n_levels = n_levels
         self.projection = projection
         self.map_width = map_width
         self.map_height = map_height
@@ -78,17 +76,16 @@ class GeoPlotter:
         data_np = data_tensor.detach().cpu().numpy()
         n_lat, n_lon = data_np.shape
 
-        lat_coords = np.linspace(-90, 90, n_lat)
-        lon_coords = np.linspace(0, 360, n_lon)
+        lat_coords = np.linspace(-90, 90, n_lat + 1)
+        lon_coords = np.linspace(0, 360, n_lon + 1)
 
-        ax.contourf(
+        ax.pcolormesh(
             lon_coords,
             lat_coords,
             data_np,
             cmap=self.cmap,
             vmin=vmin,
             vmax=vmax,
-            levels=self.n_levels,
             transform=ccrs.PlateCarree(),
         )
 
