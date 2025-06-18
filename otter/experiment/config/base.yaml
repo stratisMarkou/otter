@@ -81,8 +81,9 @@ model:
     window_size: 8
     num_heads: 8
     num_blocks_per_stage: [1, 4, 4]
-    num_bottom_blocks: 8
+    num_bottom_blocks: 4
     feedforward_network: ${feedforward_network}
+    use_simple_skip: false
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
       num_scales: 128

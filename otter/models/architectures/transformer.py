@@ -38,6 +38,7 @@ class SwinTransformer(nn.Module):
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
+        use_simple_skip: bool = False,
     ):
         super().__init__()
 
@@ -60,6 +61,7 @@ class SwinTransformer(nn.Module):
         up_swin_stages = []
         patch_downsampling_layers = []
         patch_upsampling_layers = []
+        fusion_conv_layers = []
 
         for num_blocks, (t1, t2) in zip(
             num_blocks_per_stage,
@@ -105,6 +107,16 @@ class SwinTransformer(nn.Module):
                     stride=2,
                 )
             )
+            if not use_simple_skip:
+                fusion_conv_layers.append(
+                    nn.Conv2d(
+                        in_channels=t2 + t2,
+                        out_channels=t2,
+                        kernel_size=1,  # 1x1 conv is efficient
+                        padding=0,
+                    )
+                )
+
             up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t2,
@@ -124,6 +136,9 @@ class SwinTransformer(nn.Module):
         self.patch_upsampling_layers = torch.nn.ModuleList(
             patch_upsampling_layers
         )
+        if not use_simple_skip:
+            self.fusion_conv_layers = torch.nn.ModuleList(fusion_conv_layers)
+        self.use_simple_skip = use_simple_skip
 
         self.tokeniser = ImageTokeniser(
             in_channels=in_channels,
@@ -182,16 +197,41 @@ class SwinTransformer(nn.Module):
             x, load_balancing_losses_per_block = swin_transformer_block(x)
             load_balancing_losses_list += load_balancing_losses_per_block
 
-        for upsampling_conv, up_swin_stage, skip in zip(
-            self.patch_upsampling_layers,
-            self.up_swin_stages,
-            skips[::-1],
-        ):
-            x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-            x = x + skip
-            for swin_transformer_block in up_swin_stage:
-                x, load_balancing_losses_per_block = swin_transformer_block(x)
-                load_balancing_losses_list += load_balancing_losses_per_block
+        if self.use_simple_skip:
+            for upsampling_conv, up_swin_stage, skip in zip(
+                self.patch_upsampling_layers,
+                self.up_swin_stages,
+                skips[::-1],
+            ):
+                x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                x = x + skip
+
+                for swin_transformer_block in up_swin_stage:
+                    x, load_balancing_losses_per_block = (
+                        swin_transformer_block(x)
+                    )
+                    load_balancing_losses_list += (
+                        load_balancing_losses_per_block
+                    )
+        else:
+            for upsampling_conv, up_swin_stage, skip, fusion_conv in zip(
+                self.patch_upsampling_layers,
+                self.up_swin_stages,
+                skips[::-1],
+                self.fusion_conv_layers,
+            ):
+                x = upsampling_conv(x.permute(0, 3, 1, 2))
+                x = torch.cat((x, skip.permute(0, 3, 1, 2)), dim=1)
+                x = fusion_conv(x)
+                x = x.permute(0, 2, 3, 1)
+
+                for swin_transformer_block in up_swin_stage:
+                    x, load_balancing_losses_per_block = (
+                        swin_transformer_block(x)
+                    )
+                    load_balancing_losses_list += (
+                        load_balancing_losses_per_block
+                    )
 
         x = conv_channel_last(self.final_conv, x)
 
