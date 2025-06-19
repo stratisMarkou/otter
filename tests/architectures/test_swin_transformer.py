@@ -76,12 +76,14 @@ def test_swin_transformer(
         feedforward_network=feedforward_network,
         dropout_rate=0.1,
     )
-
+    # -2 to test internal padding
+    im_width = grid_width - 2
+    im_height = grid_height - 2
     # Create a random input tensor
-    x = torch.randn(batch_dim, grid_height, grid_width, grid_channel_dim)
+    x = torch.randn(batch_dim, im_height, im_width, grid_channel_dim)
 
     # Run the forward pass
     y, _ = swin_transformer(x)
 
     # Check that the output tensor has the correct shape
-    assert y.shape == (batch_dim, grid_height, grid_width, grid_channel_dim)
+    assert y.shape == (batch_dim, im_height, im_width, grid_channel_dim)

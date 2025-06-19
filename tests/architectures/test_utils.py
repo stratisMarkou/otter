@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from otter.models.architectures.utils import pad_bottom_right
+from otter.models.architectures.utils import geopad
 
 BATCH_SIZE = 4
 IN_H = 121
@@ -20,15 +20,19 @@ def input_tensor() -> torch.Tensor:
 def test_pad(input_tensor: torch.Tensor) -> None:
     """Test that the pad function works correctly."""
 
-    padded_tensor = pad_bottom_right(input_tensor, OUT_H, OUT_W)
+    padded_tensor, pad_left, pad_top = geopad(input_tensor, OUT_H, OUT_W)
     assert padded_tensor.shape == (
         BATCH_SIZE,
         OUT_H,
         OUT_W,
         N_CHANNELS,
     )
+
+    print("padded_tensor.shape:", padded_tensor.shape)
+    recovered_tensor = padded_tensor[
+        :, pad_top : pad_top + IN_H, pad_left : pad_left + IN_W, :
+    ]
     assert torch.allclose(
-        padded_tensor[:, :IN_H, :IN_W, :],
-        input_tensor[:, :, :, :],
+        recovered_tensor,
+        input_tensor,
     )
-    assert torch.all(padded_tensor[:, IN_H:, IN_W:, :] == 0)

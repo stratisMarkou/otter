@@ -18,7 +18,7 @@ from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     aggregate_load_balancing_losses,
     conv_channel_last,
-    pad_bottom_right,
+    geopad,
 )
 
 
@@ -177,7 +177,7 @@ class SwinTransformer(nn.Module):
         _, original_height, original_width, _ = x.shape
 
         # Pad input to target dimensions
-        x = pad_bottom_right(
+        x, pad_left, pad_top = geopad(
             x, target_height=self.height, target_width=self.width
         )
 
@@ -240,6 +240,11 @@ class SwinTransformer(nn.Module):
         x = conv_channel_last(self.final_conv, x)
 
         # Crop the padding to restore original dimensions
-        x = x[:, :original_height, :original_width, :]
+        x = x[
+            :,
+            pad_top : original_height + pad_top,
+            pad_left : original_width + pad_left,
+            :,
+        ]
 
         return x, aggregate_load_balancing_losses(load_balancing_losses_list)
