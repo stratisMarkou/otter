@@ -55,7 +55,8 @@ class FourierExpansionEmbedding(nn.Module):
             torch.log(torch.tensor(np.array(max_scale))),
             num_scales,
         )
-        self.scales = torch.exp(log_scales)
+        scales = torch.exp(log_scales)
+        self.register_buffer("scales", scales)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Create Fourier embeddings from input tensor x.
@@ -70,10 +71,8 @@ class FourierExpansionEmbedding(nn.Module):
         # TODO: Check if we want to use float64 here like in Aurora
         x = x.double()
 
-        scales = self.scales.to(x.device)
-
         # Compute the Fourier embeddings.
-        prod = torch.einsum("...d, s->...ds", x, scales**-1.0)
+        prod = torch.einsum("...d, s->...ds", x, self.scales**-1.0)
 
         sin = torch.sin(2 * torch.pi * prod)  # (..., num_scales)
         cos = torch.cos(2 * torch.pi * prod)  # (..., num_scales)
@@ -103,7 +102,9 @@ class TimeEmbedding(FourierExpansionEmbedding):
         x: npt.NDArray[np.datetime64],  # type: ignore
     ) -> torch.Tensor:
         hours = _get_hours_from_reference_time(x)
-        return super().forward(torch.tensor(hours).float())
+        return super().forward(
+            torch.tensor(hours, device=self.scales.device).float()
+        )
 
 
 class SpatialEmbedding(FourierExpansionEmbedding):

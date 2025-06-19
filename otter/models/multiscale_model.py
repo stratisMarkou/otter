@@ -276,7 +276,6 @@ class MultiscaleModel(torch.nn.Module):
         time_embedding = time_embedding.repeat(
             1, *ctx_and_downsampled_trg.shape[1:-1], 1
         )  # (batch, lat, lon, embedding_dim)
-        time_embedding = time_embedding.to(ctx_and_downsampled_trg.device)
 
         # Concatenate the time embedding with the reshaped context.
         ctx_with_time_embedding = torch.cat(
