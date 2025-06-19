@@ -152,11 +152,17 @@ class SwinTransformer(nn.Module):
 
         self.embedding = pos_embedding
 
-        self.final_conv = nn.ConvTranspose2d(
+        self.unpatch_conv = nn.ConvTranspose2d(
             in_channels=first_token_dim,
-            out_channels=output_dimension,
+            out_channels=first_token_dim,
             stride=(patch_size, patch_size),
             kernel_size=(patch_size, patch_size),
+        )
+        self.final_conv = nn.Conv2d(
+            in_channels=first_token_dim,
+            out_channels=output_dimension,
+            kernel_size=3,
+            padding=0,  # this cuts into the geopad padding, but we crop it later
         )
 
         self.width = width
@@ -237,7 +243,11 @@ class SwinTransformer(nn.Module):
                         load_balancing_losses_per_block
                     )
 
+        x = conv_channel_last(self.unpatch_conv, x)
         x = conv_channel_last(self.final_conv, x)
+        # The final convolution cuts into the padding, so we need to crop it
+        pad_left = pad_left - 1
+        pad_top = pad_top - 1
 
         # Crop the padding to restore original dimensions
         x = x[
