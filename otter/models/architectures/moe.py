@@ -42,6 +42,7 @@ class MixtureOfExperts(torch.nn.Module):
         apply_softmax_before_top_k: bool = False,
         w_importance: float = 1.0,
         w_load: float = 1.0,
+        dropout_rate: float = 0.0,
     ):
         super().__init__()
 
@@ -58,6 +59,7 @@ class MixtureOfExperts(torch.nn.Module):
                     num_hidden_layers=num_hidden_layers,
                     hidden_features=hidden_features,
                     output_features=output_features,
+                    dropout_rate=dropout_rate,
                 )
                 for _ in range(num_experts)
             ]
