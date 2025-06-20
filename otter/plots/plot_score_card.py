@@ -165,7 +165,7 @@ def plot_score_card(
     fig, axs = plt.subplots(
         1,
         len(metrics),
-        figsize=(scale * len(time_steps), scale * len(time_steps)),
+        figsize=(scale * len(time_steps), 5 * scale * len(time_steps)),
         gridspec_kw={"wspace": 1.2},
     )
 
