@@ -192,6 +192,11 @@ class MultiscaleModel(torch.nn.Module):
         self.trg_mean = trg_mean_tensor[None, None, None, None, :]
         self.trg_std = trg_std_tensor[None, None, None, None, :]
 
+        arches_means = torch.zeros(1, 1, 1, 1, 3, device=device)
+        arches_stds = torch.ones(1, 1, 1, 1, 3, device=device)
+        self.ctx_mean = torch.cat([self.ctx_mean, arches_means], dim=-1)
+        self.ctx_std = torch.cat([self.ctx_std, arches_stds], dim=-1)
+
         self.device = device
 
         self.distribution_type = distribution_type

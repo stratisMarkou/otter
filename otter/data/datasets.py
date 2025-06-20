@@ -71,6 +71,21 @@ def _combine_variables_and_levels(
     return [f"{var}/level_{level}" for var in variables for level in levels]
 
 
+def reverse_default_preprocessor(tensor):
+    # first
+    half_lon = tensor.shape[-1] // 2
+    tensor = torch.cat(
+        [tensor[..., :, half_lon:], tensor[..., :, :half_lon]], dim=-1
+    )
+    # add back south pole
+    tensor = torch.cat([tensor, tensor[..., -1:, :]], dim=-2)
+
+    # flip back
+    tensor = torch.flip(tensor, dims=[-2])
+
+    return tensor
+
+
 class GriddedWeatherTask(Dataset[ForecastingSample]):
     def __init__(
         self,
@@ -99,6 +114,12 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         super().__init__()
         assert num_context_frames > 0
         assert num_target_frames > 0
+        masks_path = "./archesweather_constant_masks.pt"
+        masks = torch.load(masks_path)
+        masks = reverse_default_preprocessor(masks).squeeze()  # (C, H, W)
+        masks = masks.permute(1, 2, 0).unsqueeze(2)  # (H, W, 1, C)
+        # Repeat along time dimension to match the number of context frames.
+        self.arches_masks = masks.expand(-1, -1, num_context_frames, -1)
 
         # Start and end dates that will be used to form training tasks,
         # i.e. no tasks will contain data outside of this range.
@@ -198,6 +219,7 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         ctx_tensor = torch.from_numpy(ctx.to_numpy()).permute(
             2, 1, 0, 3
         )  # (lat, lon, time, var_and_level)
+        ctx_tensor = torch.cat([ctx_tensor, self.arches_masks], dim=-1)
         trg_tensor = torch.from_numpy(trg.to_numpy()).permute(
             2, 1, 0, 3
         )  # (lat, lon, time, var_and_level)
