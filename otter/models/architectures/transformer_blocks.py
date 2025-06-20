@@ -181,6 +181,7 @@ class TransformerBlock(nn.Module):
     def __init__(
         self,
         token_dim: int,
+        time_emb_dim: int,
         feedforward_network: Callable[[int, int], nn.Module],
         num_heads: int,
         dropout_rate: float,
@@ -211,10 +212,17 @@ class TransformerBlock(nn.Module):
 
         self.ln1 = nn.LayerNorm(token_dim)
         self.ln2 = nn.LayerNorm(token_dim)
+        self.time_proj1 = nn.Linear(
+            in_features=time_emb_dim, out_features=2 * token_dim
+        )
+        self.time_proj2 = nn.Linear(
+            in_features=time_emb_dim, out_features=2 * token_dim
+        )
 
     def forward(
         self,
         x: torch.Tensor,
+        time_emb: torch.Tensor,
     ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply the transformer block to input tokens `x`.
 
@@ -225,17 +233,38 @@ class TransformerBlock(nn.Module):
             output tensor of shape (B, N, D)
         """
 
-        x = x + self.mhsa(self.ln1(x))
-        x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
+        x = self.ln1(x)
+        x = self.inject_time_emb(x, time_emb, self.time_proj1)
+        x = x + self.mhsa(x)
+
+        x = self.ln2(x)
+        x = self.inject_time_emb(x, time_emb, self.time_proj2)
+        x_ffn, load_balancing_losses = self.ffn(x)
+
         x = x + x_ffn
 
         return x, load_balancing_losses
+
+    def inject_time_emb(
+        self, x: torch.Tensor, time_emb: torch.Tensor, time_proj: nn.Linear
+    ) -> torch.Tensor:
+        time_emb_proj = time_proj(time_emb)
+
+        # x has patches folded into the batch dim, so we need to repeat the
+        # time embedding to match the batch size.
+        time_emb_proj = time_emb_proj.repeat_interleave(
+            x.shape[0] // time_emb.shape[0], dim=0
+        )
+        time_emb_proj = time_emb_proj[:, None, :]
+        mult, shift = torch.chunk(time_emb_proj, chunks=2, dim=-1)
+        return x * (1 + mult) + shift
 
 
 class SwinTransformerBlock(torch.nn.Module):
     def __init__(
         self,
         token_dim: int,
+        time_emb_dim: int,
         feedforward_network: Callable[[int, int], nn.Module],
         num_heads: int,
         window_size: int,
@@ -247,6 +276,7 @@ class SwinTransformerBlock(torch.nn.Module):
         # Transformer block applied before the shift operation.
         self.first_block = TransformerBlock(
             token_dim=token_dim,
+            time_emb_dim=time_emb_dim,
             feedforward_network=feedforward_network,
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
@@ -256,6 +286,7 @@ class SwinTransformerBlock(torch.nn.Module):
         # Transformer block applied after the shift operation.
         self.second_block = TransformerBlock(
             token_dim=token_dim,
+            time_emb_dim=time_emb_dim,
             feedforward_network=feedforward_network,
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
@@ -268,6 +299,7 @@ class SwinTransformerBlock(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        time_emb: torch.Tensor,
     ) -> tuple[torch.Tensor, List[LoadBalancingLosses]]:
         """Apply the Swin Transformer block to input tokens `x`.
 
@@ -288,7 +320,7 @@ class SwinTransformerBlock(torch.nn.Module):
             x, S
         )  # (B*H//S*W//S, S**2, D)
         x, load_balancing_losses = self.first_block(
-            x
+            x, time_emb
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
@@ -306,7 +338,7 @@ class SwinTransformerBlock(torch.nn.Module):
         )  # (B*H//S*W//S, S**2, D)
 
         x, load_balancing_losses = self.second_block(
-            x
+            x, time_emb
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
@@ -322,6 +354,7 @@ class SwinTransformerBlock(torch.nn.Module):
 
 def make_swin_stage(
     token_dim: int,
+    time_emb_dim: int,
     feedforward_network: Callable[[int, int], nn.Module],
     num_heads: int,
     num_swin_blocks: int,
@@ -333,6 +366,7 @@ def make_swin_stage(
         [
             SwinTransformerBlock(
                 token_dim=token_dim,
+                time_emb_dim=time_emb_dim,
                 feedforward_network=feedforward_network,
                 num_heads=num_heads,
                 window_size=window_size,

@@ -26,6 +26,7 @@ class SwinTransformer(nn.Module):
     def __init__(
         self,
         token_dimensions: Sequence[int] | int,
+        time_embedding_dimension: int,
         output_dimension: int,
         window_size: int,
         num_heads: int,
@@ -71,6 +72,7 @@ class SwinTransformer(nn.Module):
             down_swin_stages.append(
                 make_swin_stage(
                     token_dim=t1,
+                    time_emb_dim=time_embedding_dimension,
                     feedforward_network=feedforward_network,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
@@ -90,6 +92,7 @@ class SwinTransformer(nn.Module):
 
         self.bottom_swin_stage = make_swin_stage(
             token_dim=token_dimensions[-1],
+            time_emb_dim=time_embedding_dimension,
             feedforward_network=feedforward_network,
             num_heads=num_heads,
             num_swin_blocks=num_bottom_blocks,
@@ -123,6 +126,7 @@ class SwinTransformer(nn.Module):
             up_swin_stages.append(
                 make_swin_stage(
                     token_dim=t2,
+                    time_emb_dim=time_embedding_dimension,
                     feedforward_network=feedforward_network,
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
@@ -165,6 +169,7 @@ class SwinTransformer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        time_embedding: torch.Tensor,
     ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply vision transformer to batch of images.
 
@@ -192,13 +197,17 @@ class SwinTransformer(nn.Module):
             self.down_swin_stages,
         ):
             for swin_transformer_block in down_swin_stage:
-                x, load_balancing_losses_per_block = swin_transformer_block(x)
+                x, load_balancing_losses_per_block = swin_transformer_block(
+                    x, time_embedding
+                )
                 load_balancing_losses_list += load_balancing_losses_per_block
             skips.append(x)
             x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
 
         for swin_transformer_block in self.bottom_swin_stage:
-            x, load_balancing_losses_per_block = swin_transformer_block(x)
+            x, load_balancing_losses_per_block = swin_transformer_block(
+                x, time_embedding
+            )
             load_balancing_losses_list += load_balancing_losses_per_block
 
         if self.use_simple_skip:
@@ -212,7 +221,7 @@ class SwinTransformer(nn.Module):
 
                 for swin_transformer_block in up_swin_stage:
                     x, load_balancing_losses_per_block = (
-                        swin_transformer_block(x)
+                        swin_transformer_block(x, time_embedding)
                     )
                     load_balancing_losses_list += (
                         load_balancing_losses_per_block
@@ -231,7 +240,7 @@ class SwinTransformer(nn.Module):
 
                 for swin_transformer_block in up_swin_stage:
                     x, load_balancing_losses_per_block = (
-                        swin_transformer_block(x)
+                        swin_transformer_block(x, time_embedding)
                     )
                     load_balancing_losses_list += (
                         load_balancing_losses_per_block
