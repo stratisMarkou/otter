@@ -71,6 +71,7 @@ def test_transformer_block(
         # instead of xformers.ops.memory_efficient_attention, which is not
         # runnable in the test environment when we don't have a GPU.
         use_efficient_attention=False,
+        dropout_rate=0.1,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y, _ = transformer_block(x)
