@@ -78,7 +78,7 @@ model:
     width: 256
     patch_size: 2
     token_dimensions: [1024, 1024, 1024, 1024]
-    time_embedding_dimension: 36
+    time_embedding_dimension: 4
     output_dimension: ${constants.data.num_output_channels}
     window_size: 8
     num_heads: 8

@@ -178,7 +178,9 @@ class TimeEmbedding(FourierExpansionEmbedding):
         results = torch.cat(
             [fourier_embeds, additional_embeds], dim=-1
         ).float()
-        return results
+        # TODO: DEBUG
+        # return results
+        return additional_embeds.float()
 
 
 class SpatialEmbedding(FourierExpansionEmbedding):
