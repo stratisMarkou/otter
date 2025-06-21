@@ -212,11 +212,16 @@ class TransformerBlock(nn.Module):
 
         self.ln1 = nn.LayerNorm(token_dim)
         self.ln2 = nn.LayerNorm(token_dim)
-        self.time_proj1 = nn.Linear(
-            in_features=time_emb_dim, out_features=2 * token_dim
+        hidden_features = token_dim // 2
+        self.time_proj1 = nn.Sequential(
+            nn.Linear(in_features=time_emb_dim, out_features=hidden_features),
+            nn.SiLU(),
+            nn.Linear(in_features=hidden_features, out_features=2 * token_dim),
         )
-        self.time_proj2 = nn.Linear(
-            in_features=time_emb_dim, out_features=2 * token_dim
+        self.time_proj2 = nn.Sequential(
+            nn.Linear(in_features=time_emb_dim, out_features=hidden_features),
+            nn.SiLU(),
+            nn.Linear(in_features=hidden_features, out_features=2 * token_dim),
         )
 
     def forward(
@@ -246,7 +251,7 @@ class TransformerBlock(nn.Module):
         return x, load_balancing_losses
 
     def inject_time_emb(
-        self, x: torch.Tensor, time_emb: torch.Tensor, time_proj: nn.Linear
+        self, x: torch.Tensor, time_emb: torch.Tensor, time_proj: nn.Module
     ) -> torch.Tensor:
         time_emb_proj = time_proj(time_emb)
 
