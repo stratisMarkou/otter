@@ -310,6 +310,7 @@ def main() -> None:
     logging.info(f"Initialized experiment {experiment.info.experiment_name}")
 
     experiment.model = experiment.model.to(device)
+    experiment.model = torch.compile(experiment.model)
     optimizer = experiment.optimizer(experiment.model)
     lr_scheduler = experiment.lr_scheduler(optimizer)
 

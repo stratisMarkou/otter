@@ -265,26 +265,8 @@ class MultiscaleModel(torch.nn.Module):
             [ctx_reshaped, downsampled_trg_reshaped], dim=-1
         )
 
-        time_embedding: torch.Tensor = self.time_embedding(
-            zero_time
-        )  # (batch, embedding_dim)
-
-        # Repeat-tile the time embedding to match the dimensions of
-        # ctx_reshaped except the batch dimension (first) and the
-        # feature dimension (last).
-        time_embedding = time_embedding[:, None, None, :]
-        time_embedding = time_embedding.repeat(
-            1, *ctx_and_downsampled_trg.shape[1:-1], 1
-        )  # (batch, lat, lon, embedding_dim)
-        time_embedding = time_embedding.to(ctx_and_downsampled_trg.device)
-
-        # Concatenate the time embedding with the reshaped context.
-        ctx_with_time_embedding = torch.cat(
-            [ctx_and_downsampled_trg, time_embedding], dim=-1
-        )
-
         prediction, load_balancing_losses = self.backbone_network(
-            ctx_with_time_embedding
+            ctx_and_downsampled_trg
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
