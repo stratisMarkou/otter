@@ -81,10 +81,74 @@ class FourierExpansionEmbedding(nn.Module):
         return torch.cat([sin, cos], dim=-1).float()  # (..., 2 * num_scales)
 
 
-def _get_hours_from_reference_time(
-    x: npt.NDArray[np.datetime64],
-) -> npt.NDArray[np.int32]:
-    return (x - REFERENCE_DATETIME).astype("timedelta64[h]").astype(int)
+def create_time_embedding_numpy(datetimes: np.ndarray) -> torch.Tensor:
+    """
+    Creates a 4D time embedding for a numpy array of np.datetime64 using
+    only NumPy.
+
+    The embedding captures the cyclical nature of:
+    1. Time of day (2 features: sin, cos)
+    2. Day of year (2 features: sin, cos)
+
+    Args:
+        datetimes: A 1D numpy array of dtype 'datetime64'.
+
+    Returns:
+        A 2D numpy array of shape (n_datetimes, 4) containing the embeddings.
+    """
+    # --- 1. Time of Day Embedding ---
+
+    # Get the start of the day by casting to 'datetime64[D]'
+    start_of_day = datetimes.astype("datetime64[D]")
+
+    # Calculate the time elapsed since the start of the day
+    # This results in a timedelta64 array
+    time_since_midnight = datetimes - start_of_day
+
+    # Convert timedelta to seconds. The result must be float for division.
+    seconds_since_midnight = time_since_midnight.astype(
+        "timedelta64[s]"
+    ).astype(float)
+
+    seconds_in_day = 24 * 60 * 60
+
+    time_of_day_sin = np.sin(
+        2 * np.pi * seconds_since_midnight / seconds_in_day
+    )
+    time_of_day_cos = np.cos(
+        2 * np.pi * seconds_since_midnight / seconds_in_day
+    )
+
+    # --- 2. Day of Year Embedding ---
+
+    # Get the start of the year by casting to 'datetime64[Y]'
+    start_of_year = datetimes.astype("datetime64[Y]")
+
+    # Calculate the day number within the year (1-indexed)
+    # The first difference is in days (timedelta64[D]), then we convert to a number
+    day_of_year = (start_of_day - start_of_year).astype(
+        "timedelta64[D]"
+    ).astype(float) + 1.0
+
+    # To accurately handle leap years, find the number of days in each specific year
+    next_year_start = start_of_year + np.timedelta64(1, "Y")
+    days_in_year = (
+        (next_year_start - start_of_year)
+        .astype("timedelta64[D]")
+        .astype(float)
+    )
+
+    day_of_year_sin = np.sin(2 * np.pi * day_of_year / days_in_year)
+    day_of_year_cos = np.cos(2 * np.pi * day_of_year / days_in_year)
+
+    # --- 3. Combine into a Final Embedding Array ---
+
+    embedding = np.stack(
+        [time_of_day_sin, time_of_day_cos, day_of_year_sin, day_of_year_cos],
+        axis=1,
+    )
+
+    return torch.from_numpy(embedding)
 
 
 class TimeEmbedding(FourierExpansionEmbedding):
@@ -102,8 +166,7 @@ class TimeEmbedding(FourierExpansionEmbedding):
         self,
         x: npt.NDArray[np.datetime64],  # type: ignore
     ) -> torch.Tensor:
-        hours = _get_hours_from_reference_time(x)
-        return super().forward(torch.tensor(hours).float())
+        return create_time_embedding_numpy(x).float()
 
 
 class SpatialEmbedding(FourierExpansionEmbedding):
