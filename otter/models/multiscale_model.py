@@ -154,6 +154,9 @@ class MultiscaleModel(torch.nn.Module):
         self.backbone_network = backbone_network
         self.time_embedding = time_embedding
         self.temporal_resolution_hours = temporal_resolution_hours
+        self.temporal_resolution_timedelta = np.timedelta64(
+            temporal_resolution_hours, "h"
+        )
 
         self.ctx_variables_and_levels = ctx_variables_and_levels
         self.trg_variables_and_levels = trg_variables_and_levels
@@ -412,7 +415,7 @@ class MultiscaleModel(torch.nn.Module):
             ) = self.multiscale_forward(
                 ctx,
                 downsampled_trg=downsampled_slice,
-                zero_time=zero_time + i * self.temporal_resolution_hours,
+                zero_time=zero_time + i * self.temporal_resolution_timedelta,
                 scales=scales,
             )  # (batch, lat, lon, scale, trg_var_and_level)
 
