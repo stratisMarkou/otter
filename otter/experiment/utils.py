@@ -78,6 +78,15 @@ def get_module_attr(string: str) -> Any:
     return getattr(module, class_name)
 
 
+def load_model_weights_from_experiment(
+    path: Path | str,
+    model: torch.nn.Module,
+) -> torch.nn.Module:
+    state_dict = torch.load(path, weights_only=False)
+    model.load_state_dict(state_dict["model_state"])
+    return model
+
+
 def initialize_experiment(
     device: str,
     args_list: Optional[Sequence[str]] = None,
@@ -470,4 +479,14 @@ def get_linear_lr_scheduler(
 ) -> torch.optim.lr_scheduler.LinearLR:
     return torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1.0, end_factor=0.0, total_iters=num_steps
+    )
+
+
+def get_constant_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    factor: float,
+    total_iters: int,
+) -> torch.optim.lr_scheduler.ConstantLR:
+    return torch.optim.lr_scheduler.ConstantLR(
+        optimizer, factor=factor, total_iters=total_iters
     )

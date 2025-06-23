@@ -16,6 +16,10 @@ from otter.experiment.run_state import (
     save_run_state,
 )
 
+from otter.models.architectures.schedulers import (
+    ForecastHorizonScheduler,
+)
+
 
 class SimpleModel(nn.Module):
     def __init__(self) -> None:
@@ -49,8 +53,22 @@ def scaler() -> GradScaler:
 
 
 @pytest.fixture
+def forecast_horizon_scheduler() -> ForecastHorizonScheduler:
+    return ForecastHorizonScheduler(
+        num_steps=1,
+        max_frame_forecast_horizon=1,
+        min_frame_forecast_horizon=1,
+        temporal_resolution_hours=6,
+    )
+
+
+@pytest.fixture
 def run_state(
-    model: SimpleModel, optimizer: Adam, scheduler: StepLR, scaler: GradScaler
+    model: SimpleModel,
+    optimizer: Adam,
+    scheduler: StepLR,
+    scaler: GradScaler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
 ) -> RunState:
     # Get initial states
     return RunState(
@@ -58,6 +76,7 @@ def run_state(
         optimizer_state=optimizer.state_dict(),
         scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
+        forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=5,
         step=100,
     )
@@ -100,6 +119,7 @@ def test_runstate_creation(run_state: RunState) -> None:
     assert isinstance(run_state.optimizer_state, dict)
     assert isinstance(run_state.scheduler_state, dict)
     assert isinstance(run_state.scaler_state, dict)
+    assert isinstance(run_state.forecast_horizon_scheduler_state, dict)
 
 
 def test_to_dict_from_dict(run_state: RunState) -> None:
@@ -128,6 +148,7 @@ def test_restore(
     optimizer: Adam,
     scheduler: StepLR,
     scaler: GradScaler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
 ) -> None:
     """Test restoring state to PyTorch objects."""
     # Modify the objects to ensure they're different from initial state
@@ -138,13 +159,16 @@ def test_restore(
     optimizer.step()
     scheduler.step()
 
-    run_state.restore(model, optimizer, scheduler, scaler)
+    run_state.restore(
+        model, optimizer, scheduler, scaler, forecast_horizon_scheduler
+    )
 
     current_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
         scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
+        forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=run_state.epoch,
         step=run_state.step,
     )
@@ -153,7 +177,11 @@ def test_restore(
 
 
 def test_runstate_with_training(
-    model: SimpleModel, optimizer: Adam, scheduler: StepLR, scaler: GradScaler
+    model: SimpleModel,
+    optimizer: Adam,
+    scheduler: StepLR,
+    scaler: GradScaler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
 ) -> None:
     """Test RunState in a simulated training scenario."""
     initial_state: RunState = RunState(
@@ -161,6 +189,7 @@ def test_runstate_with_training(
         optimizer_state=optimizer.state_dict(),
         scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
+        forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=0,
         step=0,
     )
@@ -179,12 +208,14 @@ def test_runstate_with_training(
     scaler.step(optimizer)
     scaler.update()
     scheduler.step()
+    forecast_horizon_scheduler.step()
 
     trained_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
         scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
+        forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=1,
         step=1,
         best_val_loss=0.1,
@@ -213,6 +244,7 @@ class MockExperiment:
     optimizer: torch.optim.Optimizer
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler
     scaler: GradScaler
+    forecast_horizon_scheduler: ForecastHorizonScheduler
     info: MockExperimentInfo
 
 
@@ -221,6 +253,7 @@ def test_get_latest_checkpoint(
     optimizer: Adam,
     scheduler: StepLR,
     scaler: GradScaler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
 ) -> None:
     """Test the wrapping functions' ability to get the latest checkpoint."""
 
@@ -231,6 +264,7 @@ def test_get_latest_checkpoint(
             optimizer=optimizer,
             lr_scheduler=scheduler,
             scaler=scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
             info=MockExperimentInfo(
                 experiment_path=str(path),
             ),
@@ -242,6 +276,7 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
             epoch=0,
             step=0,
             checkpoint_name="step_00000000.pt",
@@ -253,6 +288,7 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
             epoch=1,
             step=300,
             checkpoint_name="step_00000300.pt",
@@ -264,6 +300,7 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
             epoch=1,
             step=1000,
             checkpoint_name="step_00001000.pt",
@@ -276,7 +313,11 @@ def test_get_latest_checkpoint(
 
         # This method should find and load the latest checkpoint
         state = load_run_state_from_latest_checkpoint(
-            experiment, optimizer, scheduler, scaler
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            forecast_horizon_scheduler,
         )
         assert state.epoch == 1
         assert state.step == 1000
@@ -287,6 +328,7 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
             epoch=2,
             step=2000,
             checkpoint_name="latest.pt",
@@ -298,6 +340,7 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
             epoch=1,
             step=500,
             checkpoint_name="best.pt",
@@ -308,7 +351,11 @@ def test_get_latest_checkpoint(
 
         # This method should now load the latest.pt checkpoint
         state = load_run_state_from_latest_checkpoint(
-            experiment, optimizer, scheduler, scaler
+            experiment,
+            optimizer,
+            scheduler,
+            scaler,
+            forecast_horizon_scheduler,
         )
 
         assert state.epoch == 2

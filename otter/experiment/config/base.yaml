@@ -51,6 +51,13 @@ train_scale_scheduler:
 
 inference_scale_scheduler: ${train_scale_scheduler}
 
+forecast_horizon_scheduler:
+  _target_: otter.models.architectures.schedulers.ForecastHorizonScheduler
+  num_steps: ${constants.training.num_training_steps}
+  max_frame_forecast_horizon: 1
+  min_frame_forecast_horizon: 1
+  temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
+
 feedforward_network:
   _target_: otter.models.architectures.mlp.MLP
   _partial_: true

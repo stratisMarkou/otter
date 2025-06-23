@@ -27,8 +27,15 @@ from otter.experiment.run_state import (
     load_run_state_from_latest_checkpoint,
     save_run_state,
 )
-from otter.experiment.utils import initialize_experiment, initialize_wandb
-from otter.models.architectures.schedulers import ScaleScheduler
+from otter.experiment.utils import (
+    initialize_experiment,
+    initialize_wandb,
+    load_model_weights_from_experiment,
+)
+from otter.models.architectures.schedulers import (
+    ScaleScheduler,
+    ForecastHorizonScheduler,
+)
 from otter.models.losses.loss_fn import (
     LossInfo,
     LossInfoArray,
@@ -49,6 +56,23 @@ def assert_single_device() -> None:
         )
 
 
+def update_batch_with_forecast_horizon(
+    batch: ForecastingSample,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
+) -> ForecastingSample:
+    """Shrink the batch target to the forecast horizon."""
+
+    num_forecasting_steps = (
+        forecast_horizon_scheduler.get_frame_forecast_horizon()
+    )
+    target_timedelta_hours = (
+        forecast_horizon_scheduler.get_temporal_forecast_horizon_hours()
+    )
+    batch.trg = batch.trg[..., :num_forecasting_steps, :]
+    batch.trg_timedelta_hours = target_timedelta_hours
+    return batch
+
+
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
@@ -57,6 +81,7 @@ def train_step(
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
     scale_scheduler: ScaleScheduler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
@@ -66,12 +91,17 @@ def train_step(
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
 
-    data_scale = scale_scheduler.sample_data_scale()
-    processed_batch = w.timed(
-        "preprocess_batch",
-        preprocess_batch,
+    batch = w.timed(
+        "update_batch_with_forecast_horizon",
+        update_batch_with_forecast_horizon,
         batch=batch,
-        scale=data_scale,
+        forecast_horizon_scheduler=forecast_horizon_scheduler,
+    )
+
+    data_scale = scale_scheduler.sample_data_scale()
+
+    processed_batch = w.timed(
+        "preprocess_batch", preprocess_batch, batch=batch, scale=data_scale
     )
     processed_batch = processed_batch.to(device)
 
@@ -122,12 +152,18 @@ def train_step(
     w.timed("scaler.update", scaler.update)
     w.timed("optimizer.zero_grad", optimizer.zero_grad)
     w.timed("scheduler.step", lr_scheduler.step)
+    w.timed("forecast_horizon_scheduler.step", forecast_horizon_scheduler.step)
 
     log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
 
     current_lr = lr_scheduler.get_last_lr()[0]
     w.log({"misc/learning_rate": current_lr})
     w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
+    w.log(
+        {
+            "misc/forecast_horizon": forecast_horizon_scheduler.get_frame_forecast_horizon()
+        }
+    )
 
 
 def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
@@ -325,6 +361,15 @@ def main() -> None:
 
     scaler = GradScaler(device=device)
 
+    forecast_horizon_scheduler = experiment.forecast_horizon_scheduler
+
+    if experiment.constants.load_weights_from_experiment:
+        logging.info("Loading weights from another experiment. ")
+        experiment.model = load_model_weights_from_experiment(
+            path=experiment.constants.load_weights_from_experiment,
+            model=experiment.model,
+        )
+
     if experiment.info.start_from_checkpoint:
         logging.info("Loading initial state from checkpoint.")
         initial_state = load_run_state_from_latest_checkpoint(
@@ -332,6 +377,7 @@ def main() -> None:
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             scaler=scaler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
         )
         logging.info("Successfully loaded initial state.")
     else:
@@ -347,6 +393,7 @@ def main() -> None:
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        forecast_horizon_scheduler=forecast_horizon_scheduler,
         best_val_loss=initial_state.best_val_loss,
     )
 
@@ -369,6 +416,7 @@ def train_loop(
     device: str,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
     scaler: GradScaler,
     best_val_loss: float = float("inf"),
 ) -> None:
@@ -407,6 +455,7 @@ def train_loop(
                         optimizer=optimizer,
                         lr_scheduler=lr_scheduler,
                         scaler=scaler,
+                        forecast_horizon_scheduler=forecast_horizon_scheduler,
                         epoch=epoch,
                         step=step,
                         best_val_loss=best_val_loss,
@@ -428,6 +477,7 @@ def train_loop(
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
+                    forecast_horizon_scheduler=forecast_horizon_scheduler,
                 )
                 step += 1
             except StopIteration:
@@ -439,6 +489,7 @@ def train_loop(
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
+                    forecast_horizon_scheduler=forecast_horizon_scheduler,
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
@@ -452,6 +503,7 @@ def train_loop(
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
+                    forecast_horizon_scheduler=forecast_horizon_scheduler,
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
