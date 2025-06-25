@@ -85,6 +85,7 @@ def train_step(
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
+    grad_ckpt_start_timestep: int,
     device: str = "cuda",
 ) -> None:
     w = wandb_logger
@@ -119,6 +120,7 @@ def train_step(
             model.forward,
             processed_batch,
             scales=rollout_scales,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )
 
         loss, loss_info = w.timed(
@@ -265,8 +267,17 @@ def run_validation_epoch(
             preprocessed_batch = preprocess_batch(batch, data_scale)
             preprocessed_batch = preprocessed_batch.to(device)
 
+            # Compute the number of rollout steps not to use any gradient checkpointing
+            num_rollout_steps = np.max(
+                (
+                    preprocessed_batch.trg_timedelta_hours
+                    // model.temporal_resolution_hours
+                )
+            )
             prd_dist, load_balancing_losses = model(
-                preprocessed_batch, scales=rollout_scales
+                preprocessed_batch,
+                scales=rollout_scales,
+                grad_ckpt_start_timestep=num_rollout_steps,
             )
 
             # Compute the loss for each loss function and store results.
@@ -425,6 +436,9 @@ def train_loop(
     """
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     clip_grad_norm = experiment.constants.training.clip_grad_norm
+    grad_ckpt_start_timestep = (
+        experiment.constants.training.grad_ckpt_start_timestep
+    )
 
     log_num_params(experiment.model)
 
@@ -478,6 +492,7 @@ def train_loop(
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
                     forecast_horizon_scheduler=forecast_horizon_scheduler,
+                    grad_ckpt_start_timestep=grad_ckpt_start_timestep,
                 )
                 step += 1
             except StopIteration:

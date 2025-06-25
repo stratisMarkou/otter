@@ -53,7 +53,7 @@ forecast_horizon_scheduler:
   _target_: otter.models.architectures.schedulers.ForecastHorizonScheduler
   num_steps: ${constants.training.num_training_steps}
   max_frame_forecast_horizon: ${constants.data.train_num_target_frames}
-  min_frame_forecast_horizon: 2
+  min_frame_forecast_horizon: 4
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
 
 inference_scale_scheduler: ${train_scale_scheduler}
@@ -166,7 +166,7 @@ constants:
     # lots of time validating while training.
     val_task_subsampling_factor: 5
   training:
-    initial_learning_rate: 1e-4
+    initial_learning_rate: 3e-7
     betas: [0.9, 0.999] # AdamW default values.
     weight_decay: 0.1
     dropout_rate: 0.1
@@ -179,7 +179,8 @@ constants:
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
     clip_grad_norm: 1000.0
-  load_weights_from_experiment: _results/2025-06-23_07-28-loyal-jaguar/checkpoints/best.pt
+    grad_ckpt_start_timestep: 1
+  load_weights_from_experiment: /home/as2975/rds/rds-vlm-weather-dHudQI6NhiE/otter/js2731/2025-06-18_12-26-elegant-owl/checkpoints/latest.pt
   save_best_checkpoint: true
   save_checkpoint_every: 1_000
   save_persistent_checkpoint_every: 100_000
