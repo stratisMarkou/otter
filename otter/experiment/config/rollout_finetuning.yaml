@@ -187,5 +187,5 @@ constants:
   log_code: True
 
 info:
-  root_results: _results
+  root_results: /home/as2975/rds/rds-vlm-weather-dHudQI6NhiE/otter/results/
   wandb_project: otter-base
