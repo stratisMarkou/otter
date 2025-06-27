@@ -419,7 +419,8 @@ class MultiscaleModel(torch.nn.Module):
                 ) = self.multiscale_forward(
                     ctx=ctx,
                     downsampled_trg=downsampled_slice,
-                    zero_time=zero_time + i * self.temporal_resolution_hours,
+                    zero_time=zero_time
+                    + np.timedelta64(i * self.temporal_resolution_hours, "h"),
                     scales=scales,
                 )  # (batch, lat, lon, scale, trg_var_and_level)
             else:
@@ -429,7 +430,9 @@ class MultiscaleModel(torch.nn.Module):
                         ctx=ctx,
                         downsampled_trg=downsampled_slice,
                         zero_time=zero_time
-                        + i * self.temporal_resolution_hours,
+                        + np.timedelta64(
+                            i * self.temporal_resolution_hours, "h"
+                        ),
                         scales=scales,
                         use_reentrant=False,
                     )

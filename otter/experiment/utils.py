@@ -26,6 +26,8 @@ from omegaconf import (
     OmegaConf,
 )
 
+from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
+
 import wandb
 
 Experiment = DictConfig
@@ -470,6 +472,14 @@ def get_cosine_lr_scheduler(
     optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
 ) -> torch.optim.lr_scheduler.CosineAnnealingLR:
     return torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer=optimizer, **lr_scheduler_kwargs
+    )
+
+
+def get_linear_warmup_cosine_lr_scheduler(
+    optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
+) -> LinearWarmupCosineAnnealingLR:
+    return LinearWarmupCosineAnnealingLR(
         optimizer=optimizer, **lr_scheduler_kwargs
     )
 
