@@ -173,7 +173,7 @@ constants:
     # lots of time validating while training.
     val_task_subsampling_factor: 5
   training:
-    initial_learning_rate: 1e-5
+    initial_learning_rate: 1e-4
     betas: [0.9, 0.999] # AdamW default values.
     weight_decay: 0.1
     dropout_rate: 0.1
@@ -182,10 +182,10 @@ constants:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
-    validate_every: 5000
+    validate_every: 500
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
-    clip_grad_norm: 1000.0
+    clip_grad_norm: 1.0
     grad_ckpt_start_timestep: 4
   load_weights_from_experiment: /home/as2975/rds/rds-vlm-weather-dHudQI6NhiE/otter/js2731/2025-06-18_12-26-elegant-owl/checkpoints/latest.pt
   save_best_checkpoint: true
