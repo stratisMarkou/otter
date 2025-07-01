@@ -129,6 +129,7 @@ lr_scheduler:
   _target_: otter.experiment.utils.get_linear_lr_scheduler
   _partial_: true
   num_steps: ${constants.training.num_training_steps}
+  end_factor: 0.02
 constants:
   num_stats: 1
   data:
