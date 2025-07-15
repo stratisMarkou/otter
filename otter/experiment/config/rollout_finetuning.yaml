@@ -148,7 +148,7 @@ lr_scheduler:
 constants:
   num_stats: 1
   data:
-    train_start_date: "1979-01-01 00:00:00"
+    train_start_date: "2007-01-01 00:00:00"
     train_end_date: "2019-12-31 18:00:00"
     valid_start_date: "2020-01-01 00:00:00"
     valid_end_date: "2020-12-31 18:00:00"
@@ -185,9 +185,10 @@ constants:
     validate_every: 500
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
-    clip_grad_norm: 1.0
-    grad_ckpt_start_timestep: 4
-  load_weights_from_experiment: /home/as2975/rds/rds-vlm-weather-dHudQI6NhiE/otter/js2731/2025-06-18_12-26-elegant-owl/checkpoints/latest.pt
+    clip_grad_norm: 1000.0
+    grad_ckpt_start_timestep: 0
+  load_weights_from_experiment: /home/as2975/rds/rds-vlm-weather-dHudQI6NhiE/otter/js2731/2025-06-19_11-49-graceful-jaguar/checkpoints/best.pt
+  # load_weights_from_experiment: null
   save_best_checkpoint: true
   save_checkpoint_every: 1_000
   save_persistent_checkpoint_every: 100_000
