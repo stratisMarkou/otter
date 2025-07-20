@@ -243,6 +243,13 @@ class MultiscaleModel(torch.nn.Module):
             grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )  # (batch, lat, lon, trg_time_idx, scale, trg_var_and_level)
 
+        if torch.cuda.is_available():
+            cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
+        else:
+            cuda_rng_state_before_ckpt = None
+
+        print("after forward", cuda_rng_state_before_ckpt)
+
         prd_dist = prd_dist * self.trg_std
         prd_dist = prd_dist + self.trg_mean
 
@@ -333,6 +340,13 @@ class MultiscaleModel(torch.nn.Module):
         prd_dists = []
         all_load_balancing_losses = []
 
+        if torch.cuda.is_available():
+            cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
+        else:
+            cuda_rng_state_before_ckpt = None
+
+        print("multiscale forward", cuda_rng_state_before_ckpt)
+
         # Add noise to the downsampled target if specified.
         downsampled_trg = self._add_downsampling_noise(downsampled_trg)
 
@@ -369,6 +383,13 @@ class MultiscaleModel(torch.nn.Module):
         product_prd_dist = product_distribution(
             prd_dists, dim=-2
         )  # (batch, lat, lon, scale, trg_var_and_level)
+
+        if torch.cuda.is_available():
+            cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
+        else:
+            cuda_rng_state_before_ckpt = None
+
+        print("multiscale forward after", cuda_rng_state_before_ckpt)
 
         return (
             product_prd_dist,
@@ -411,6 +432,13 @@ class MultiscaleModel(torch.nn.Module):
         for i in range(num_rollout_steps):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
+
+            if torch.cuda.is_available():
+                cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
+            else:
+                cuda_rng_state_before_ckpt = None
+
+            print(cuda_rng_state_before_ckpt)
             if i < grad_ckpt_start_timestep:
                 (
                     prd_dist,
@@ -424,6 +452,7 @@ class MultiscaleModel(torch.nn.Module):
                     scales=scales,
                 )  # (batch, lat, lon, scale, trg_var_and_level)
             else:
+                print("doing checkpointing")
                 (prd_dist, last_prd_dist, load_balancing_losses) = (
                     checkpoint.checkpoint(
                         self.multiscale_forward,
@@ -435,6 +464,7 @@ class MultiscaleModel(torch.nn.Module):
                         ),
                         scales=scales,
                         use_reentrant=False,
+                        preserve_rng_state=True,
                     )
                 )
 
@@ -466,6 +496,14 @@ class MultiscaleModel(torch.nn.Module):
 
         # Concat the time rollout steps along the time dimension
         product_prd_dist = product_distribution(predictions, dim=3)
+
+        if torch.cuda.is_available():
+            cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
+        else:
+            cuda_rng_state_before_ckpt = None
+
+        print("time rollout", cuda_rng_state_before_ckpt)
+
         return (
             product_prd_dist,
             all_load_balancing_losses,
