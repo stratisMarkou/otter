@@ -1,0 +1,36 @@
+defaults:
+  - base
+  - _self_
+  - host: default
+
+optimizer:
+  _target_: otter.experiment.utils.get_adamw_optimizer
+  _partial_: true
+  optimizer_kwargs:
+    betas: ${constants.training.betas}
+    weight_decay: ${constants.training.weight_decay}
+
+lr_scheduler:
+  _target_: otter.experiment.utils.get_linear_warmup_cosine_lr_scheduler
+  _partial_: true
+
+forecast_horizon_scheduler:
+  _target_: otter.models.architectures.schedulers.ForecastHorizonScheduler
+  num_steps: [16000, 8000, 8000, 4000]
+  initial_learning_rates: [1e-5, 1e-5, 1e-5, 1e-5]
+  warmup_steps: [4000, 2000, 2000, 1000]
+  max_frame_forecast_horizon: ${constants.data.train_num_target_frames}
+  min_frame_forecast_horizon: 2
+  temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
+
+constants:
+  data:
+    train_start_date: "2007-01-01 00:00:00"
+    train_num_target_frames: 4
+    valid_num_target_frames: 4
+  training:
+    dropout_rate: 0.0
+    num_training_steps: ${eval:"sum(${forecast_horizon_scheduler.num_steps})"}
+    validate_every: 500
+
+  load_weights_from_experiment: null
