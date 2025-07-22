@@ -53,7 +53,7 @@ forecast_horizon_scheduler:
   _target_: otter.models.architectures.schedulers.ForecastHorizonScheduler
   num_steps: ${constants.training.num_training_steps}
   max_frame_forecast_horizon: ${constants.data.train_num_target_frames}
-  min_frame_forecast_horizon: 1
+  min_frame_forecast_horizon: 2
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
 
 inference_scale_scheduler: ${train_scale_scheduler}
@@ -156,8 +156,8 @@ constants:
     ctx_variables_to_remove: ["sea_surface_temperature"]
     trg_variables_to_remove: ["sea_surface_temperature"]
     num_context_frames: 2
-    train_num_target_frames: 1
-    valid_num_target_frames: 1
+    train_num_target_frames: 2
+    valid_num_target_frames: 2
     num_ctx_variables: 87
     num_trg_variables: 82
     # TODO(jonas, stratis): refactor these calculations in a python helper.

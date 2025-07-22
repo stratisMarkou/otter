@@ -243,13 +243,6 @@ class MultiscaleModel(torch.nn.Module):
             grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )  # (batch, lat, lon, trg_time_idx, scale, trg_var_and_level)
 
-        if torch.cuda.is_available():
-            cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
-        else:
-            cuda_rng_state_before_ckpt = None
-
-        print("after forward", cuda_rng_state_before_ckpt)
-
         prd_dist = prd_dist * self.trg_std
         prd_dist = prd_dist + self.trg_mean
 
@@ -296,7 +289,7 @@ class MultiscaleModel(torch.nn.Module):
         )
 
         prediction, load_balancing_losses = self.backbone_network(
-            ctx_with_time_embedding
+            x=ctx_with_time_embedding
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
@@ -336,9 +329,16 @@ class MultiscaleModel(torch.nn.Module):
         downsampled_trg: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
         scales: torch.Tensor,
+        cpu_rng_state: Optional[torch.Tensor] = None,
+        cuda_rng_state: Optional[torch.Tensor] = None,
     ) -> tuple[Distribution, Distribution, list[LoadBalancingLosses]]:
         prd_dists = []
         all_load_balancing_losses = []
+
+        if cpu_rng_state is not None:
+            torch.set_rng_state(cpu_rng_state)
+        if cuda_rng_state is not None:
+            torch.cuda.set_rng_state(cuda_rng_state)
 
         if torch.cuda.is_available():
             cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
@@ -433,12 +433,6 @@ class MultiscaleModel(torch.nn.Module):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
 
-            if torch.cuda.is_available():
-                cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
-            else:
-                cuda_rng_state_before_ckpt = None
-
-            print(cuda_rng_state_before_ckpt)
             if i < grad_ckpt_start_timestep:
                 (
                     prd_dist,
@@ -453,18 +447,23 @@ class MultiscaleModel(torch.nn.Module):
                 )  # (batch, lat, lon, scale, trg_var_and_level)
             else:
                 print("doing checkpointing")
+
+                cpu_rng_state = torch.get_rng_state()
+                cuda_rng_state = torch.cuda.get_rng_state()
+
                 (prd_dist, last_prd_dist, load_balancing_losses) = (
                     checkpoint.checkpoint(
                         self.multiscale_forward,
-                        ctx=ctx,
-                        downsampled_trg=downsampled_slice,
-                        zero_time=zero_time
+                        ctx,
+                        downsampled_slice,
+                        zero_time
                         + np.timedelta64(
                             i * self.temporal_resolution_hours, "h"
                         ),
-                        scales=scales,
+                        scales,
+                        cpu_rng_state=cpu_rng_state,
+                        cuda_rng_state=cuda_rng_state,
                         use_reentrant=False,
-                        preserve_rng_state=True,
                     )
                 )
 
@@ -496,13 +495,6 @@ class MultiscaleModel(torch.nn.Module):
 
         # Concat the time rollout steps along the time dimension
         product_prd_dist = product_distribution(predictions, dim=3)
-
-        if torch.cuda.is_available():
-            cuda_rng_state_before_ckpt = torch.cuda.get_rng_state()
-        else:
-            cuda_rng_state_before_ckpt = None
-
-        print("time rollout", cuda_rng_state_before_ckpt)
 
         return (
             product_prd_dist,
