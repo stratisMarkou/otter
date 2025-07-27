@@ -129,7 +129,7 @@ optimizer:
 lr_scheduler:
   _target_: otter.experiment.utils.get_linear_lr_scheduler
   _partial_: true
-  num_steps: ${constants.training.num_training_steps}
+  num_steps: ${constants.training.num_lr_decay_steps}
   end_factor: 0.02
 constants:
   num_stats: 1
@@ -163,10 +163,10 @@ constants:
     betas: [0.9, 0.999] # AdamW default values.
     weight_decay: 0.1
     dropout_rate: 0.1
-    epochs: 45
-    num_training_steps:
+    epochs: 60
+    num_lr_decay_steps:
       _target_: otter.experiment.utils.get_num_training_steps
-      num_epochs: ${constants.training.epochs}
+      num_epochs: 45
       dataloader: ${train_dataloader}
     validate_every: 5000
     log_gradients_every: 500
@@ -174,8 +174,8 @@ constants:
     clip_grad_norm: 1000.0
   load_weights_from_experiment: null
   save_best_checkpoint: true
-  save_checkpoint_every: 1_000
-  save_persistent_checkpoint_every: 100_000
+  save_checkpoint_every: 1_000_000
+  save_persistent_checkpoint_every: 100_000_000
   log_code: True
 
 info:
