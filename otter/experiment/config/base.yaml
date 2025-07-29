@@ -174,8 +174,8 @@ constants:
     clip_grad_norm: 1000.0
   load_weights_from_experiment: null
   save_best_checkpoint: true
-  save_checkpoint_every: 1_000_000
-  save_persistent_checkpoint_every: 100_000_000
+  save_checkpoint_every: 1_000
+  save_persistent_checkpoint_every: 200_000
   log_code: True
 
 info:
