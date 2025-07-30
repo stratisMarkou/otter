@@ -21,6 +21,7 @@ import xarray as xr
 import yaml
 from hydra import compose
 from hydra.utils import instantiate
+from muon import SingleDeviceMuonWithAuxAdam  # type: ignore
 from omegaconf import (
     DictConfig,
     OmegaConf,
@@ -455,6 +456,53 @@ def get_adamw_optimizer(
     module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
 ) -> torch.optim.AdamW:
     return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
+
+
+def get_muon_optimizer(
+    model: torch.nn.Module,
+    muon_lr: float,
+    muon_weight_decay: float,
+    adamw_lr: float,
+    adamw_betas: tuple[float, float],
+    adamw_weight_decay: float,
+) -> torch.optim.Optimizer:
+    """Get a Muon optimizer for the given module."""
+    # Get parameter sets to exclude
+    excluded_params = set(
+        p for p in model.backbone_network.tokeniser.parameters()
+    )
+    excluded_params.update(
+        p for p in model.backbone_network.final_conv.parameters()
+    )
+    hidden_weights = [
+        p
+        for p in model.backbone_network.parameters()
+        if p.ndim >= 2 and p not in excluded_params
+    ]
+    hidden_gains_biases = [
+        p
+        for p in model.backbone_network.parameters()
+        if p.ndim < 2 and p not in excluded_params
+    ]
+
+    nonhidden_params = list(excluded_params)
+    param_groups = [
+        dict(
+            params=hidden_weights,
+            use_muon=True,
+            lr=muon_lr,
+            weight_decay=muon_weight_decay,
+        ),
+        dict(
+            params=hidden_gains_biases + nonhidden_params,
+            use_muon=False,
+            lr=adamw_lr,
+            betas=adamw_betas,
+            weight_decay=adamw_weight_decay,
+        ),
+    ]
+
+    return SingleDeviceMuonWithAuxAdam(param_groups)  # type: ignore
 
 
 def get_cosine_lr_scheduler(

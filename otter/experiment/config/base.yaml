@@ -118,13 +118,22 @@ val_loss_fns:
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
     weighting_coefficients_power: 1
 
+#optimizer:
+#  _target_: otter.experiment.utils.get_adamw_optimizer
+#  _partial_: true
+#  optimizer_kwargs:
+#    lr: ${constants.training.initial_learning_rate}
+#    betas: ${constants.training.betas}
+#    weight_decay: ${constants.training.weight_decay}
+
 optimizer:
-  _target_: otter.experiment.utils.get_adamw_optimizer
+  _target_: otter.experiment.utils.get_muon_optimizer
   _partial_: true
-  optimizer_kwargs:
-    lr: ${constants.training.initial_learning_rate}
-    betas: ${constants.training.betas}
-    weight_decay: ${constants.training.weight_decay}
+  muon_lr: 3e-4
+  muon_weight_decay: ${constants.training.weight_decay}
+  adamw_lr: ${constants.training.initial_learning_rate}
+  adamw_betas: ${constants.training.betas}
+  adamw_weight_decay: ${constants.training.weight_decay}
 
 lr_scheduler:
   _target_: otter.experiment.utils.get_linear_lr_scheduler
