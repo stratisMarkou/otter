@@ -1,6 +1,10 @@
+from typing import Optional
+
 import torch
 from torch import nn
 from xformers.ops import memory_efficient_attention  # type: ignore
+
+from otter.models.architectures.rope import apply_rotary_emb
 
 
 class EfficientMultiHeadAttention(nn.Module):
@@ -29,6 +33,7 @@ class EfficientMultiHeadAttention(nn.Module):
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
+        freq_cis: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         assert q.shape == k.shape == v.shape
         B, N, D = q.shape
@@ -36,6 +41,9 @@ class EfficientMultiHeadAttention(nn.Module):
         q = self.Uq(q).reshape(B, N, self.num_heads, D // self.num_heads)
         k = self.Uk(k).reshape(B, N, self.num_heads, D // self.num_heads)
         v = self.Uv(v).reshape(B, N, self.num_heads, D // self.num_heads)
+
+        if freq_cis is not None:
+            q, k = apply_rotary_emb(q, k, freq_cis)
 
         x: torch.Tensor = memory_efficient_attention(q, k, v)
         x = x.reshape(B, N, D)
