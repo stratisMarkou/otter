@@ -10,20 +10,16 @@ class ImageTokeniser(nn.Module):
         in_channels: int,
         token_dimension: int,
         patch_size: int,
+        kernel_size: tuple[int, int],
     ):
         super().__init__()
-
-        assert patch_size == 1 or patch_size % 2 == 0, (
-            "Patch size must be one or even"
-        )
 
         self.patch_size = patch_size
         self.conv = nn.Conv2d(
             in_channels=in_channels,
             out_channels=token_dimension,
-            kernel_size=(patch_size, patch_size),
+            kernel_size=kernel_size,
             stride=(patch_size, patch_size),
-            padding=0,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -38,12 +34,4 @@ class ImageTokeniser(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        _, H, W, _ = x.shape
-        Hk, Wk = self.conv.kernel_size
-
-        assert H % Hk == 0 and W % Wk == 0, (
-            f"Input shape dims {x.shape=} must be divisible by "
-            f"corresponding kernel dims, found {self.conv.kernel_size}."
-        )
-
         return conv_channel_last(self.conv, x)
