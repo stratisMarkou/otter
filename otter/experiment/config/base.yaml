@@ -142,7 +142,7 @@ constants:
     temporal_resolution_hours: 6
     ctx_variables_to_remove: ["sea_surface_temperature"]
     trg_variables_to_remove: ["sea_surface_temperature"]
-    num_context_frames: 2
+    num_context_frames: 4
     train_num_target_frames: 1
     valid_num_target_frames: 4
     num_ctx_variables: 87
