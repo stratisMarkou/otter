@@ -61,6 +61,7 @@ def test_swin_transformer(
         in_channels=grid_channel_dim,
         height=grid_height,
         width=grid_width,
+        batch_size=batch_dim,
         patch_size=patch_size,
         token_dimensions=token_dim,
         output_dimension=grid_channel_dim,
@@ -69,6 +70,7 @@ def test_swin_transformer(
         num_blocks_per_stage=num_blocks_per_stage,
         num_bottom_blocks=num_bottom_blocks,
         pos_embedding=pos_embedding,
+        upsize_method="pad",
         # Seting use_efficient attention to False uses nn.MultiheadAttention
         # instead of xformers.ops.memory_efficient_attention, which is not
         # runnable in the test environment when we don't have a GPU.

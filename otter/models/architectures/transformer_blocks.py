@@ -188,7 +188,9 @@ class TransformerBlock(nn.Module):
     ):
         super().__init__()
 
-        self.mhsa: Callable[[torch.Tensor], torch.Tensor]
+        self.mhsa: Callable[
+            [torch.Tensor, Optional[torch.Tensor]], torch.Tensor
+        ]
 
         if use_efficient_attention:
             self.efficient_mha_layer = EfficientMultiHeadAttention(
@@ -197,15 +199,21 @@ class TransformerBlock(nn.Module):
                 attn_drop=dropout_rate,
                 proj_drop=dropout_rate,
             )
-            self.mhsa = lambda x: (self.efficient_mha_layer(x, x, x))
+            self.mhsa = lambda x, attn_mask: (
+                self.efficient_mha_layer(x, x, x, attn_mask=attn_mask)
+            )
 
         else:
             self.mha_layer = nn.MultiheadAttention(
                 embed_dim=token_dim,
                 num_heads=num_heads,
                 dropout=dropout_rate,
+                batch_first=True,
             )
-            self.mhsa = lambda x: (self.mha_layer(x, x, x)[0])
+            self.mhsa = lambda x, attn_mask: (
+                self.mha_layer(x, x, x, attn_mask=attn_mask)[0]
+            )
+            # Just skip using attention mask for the CPU-based attention.
 
         self.ffn = feedforward_network(token_dim, token_dim)
 
@@ -215,6 +223,7 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply the transformer block to input tokens `x`.
 
@@ -224,8 +233,7 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-
-        x = x + self.mhsa(self.ln1(x))
+        x = x + self.mhsa(self.ln1(x), attention_mask)
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
         x = x + x_ffn
 
@@ -240,6 +248,9 @@ class SwinTransformerBlock(torch.nn.Module):
         num_heads: int,
         window_size: int,
         dropout_rate: float,
+        height: int,
+        width: int,
+        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -264,6 +275,80 @@ class SwinTransformerBlock(torch.nn.Module):
 
         # Window size for extracting subimages.
         self.window_size = window_size
+
+        attention_mask = self._compute_attention_mask(
+            window_size=window_size,
+            batch_size=batch_size,
+            height=height,
+            width=width,
+            num_heads=num_heads,
+        )
+        # (num_windows * B, num_heads, window_size**2, window_size**2)
+        if not use_efficient_attention:
+            # nn.MultiheadAttention expects the attention mask to be
+            # (num_windows * B * num_heads, window_size**2, window_size**2)
+            # See https://docs.pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
+            attention_mask = attention_mask.reshape(
+                -1, window_size**2, window_size**2
+            )
+        self.register_buffer("attention_mask", attention_mask)
+
+    def _compute_attention_mask(
+        self,
+        window_size: int,
+        batch_size: int,
+        height: int,
+        width: int,
+        num_heads: int,
+    ) -> torch.Tensor:
+        """Compute the attention mask for the Swin Transformer block.
+
+        This mask ensures that attention is only applied across the East/West
+        boundary within each swin window, and not across the North/South.
+        """
+        shift = window_size // 2
+
+        # Note: it's slightly memory inefficient to create the batch size
+        # dimension here, but it allows us to use the same code for folding
+        # and unfolding the subimages.
+        image_mask = torch.zeros((batch_size, height, width, 1))
+
+        # Divide the image into 3 regions from top to bottom (north to south):
+        # 1. Top region: all of these windows should share information via attention,
+        #   so we won't need a mask here.
+        # 2. Middle region: this is the the last shift-sized region at the very bottom
+        #   of the original image, which should not share information with the top region.
+        # 3. Bottom region: this is the first shift-sized region at the very top of the
+        #   original image, which has been rolled to the bottom of the image. It should
+        #   not share information with the middle region.
+        h_slices = (
+            slice(0, -self.window_size),
+            slice(-self.window_size, -shift),
+            slice(-shift, None),
+        )
+        for count, h_slice in enumerate(h_slices):
+            image_mask[:, h_slice, :, :] = count
+
+        im_mask_windows = extract_subimages_and_fold_into_batch_dim(
+            image_mask, self.window_size
+        )  # (num_windows * B, window_size**2, 1)
+
+        # This mask ensures that attention is only applied for regions with the same
+        # value in the mask, i.e., the top region can attend to itself, but
+        # not to the middle or bottom regions.
+        attention_mask = im_mask_windows.unsqueeze(
+            1
+        ) - im_mask_windows.unsqueeze(2)
+        attention_mask = attention_mask.masked_fill(
+            attention_mask != 0, float("-inf")
+        )
+        attention_mask = attention_mask.masked_fill(
+            attention_mask == 0, float(0.0)
+        )
+        attention_mask = attention_mask.squeeze().unsqueeze(1)
+        # (num_windows * B, 1, window_size**2, window_size**2)
+
+        return attention_mask.expand(-1, num_heads, -1, -1)
 
     def forward(
         self,
@@ -300,13 +385,13 @@ class SwinTransformerBlock(torch.nn.Module):
 
         # Apply second transformer block same as the first block, but
         # shifting the windows before and after the block.
-        x = shift_horizontally_and_vertically(x, S // 2)  # (B, H, W, D)
+        x = shift_horizontally_and_vertically(x, -S // 2)  # (B, H, W, D)
         x = extract_subimages_and_fold_into_batch_dim(
             x, S
         )  # (B*H//S*W//S, S**2, D)
 
         x, load_balancing_losses = self.second_block(
-            x
+            x, self.attention_mask.to(x.dtype)
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
@@ -315,7 +400,7 @@ class SwinTransformerBlock(torch.nn.Module):
         x = unfold_from_batch_dim_and_combine_subimages(
             x, original_shape, S
         )  # (B, H, W, D)
-        x = shift_horizontally_and_vertically(x, -(S // 2))  # (B, H, W, D)
+        x = shift_horizontally_and_vertically(x, S // 2)  # (B, H, W, D)
 
         return x, load_balancing_losses_list
 
@@ -327,6 +412,9 @@ def make_swin_stage(
     num_swin_blocks: int,
     window_size: int,
     dropout_rate: float,
+    height: int,
+    width: int,
+    batch_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.ModuleList:
     return torch.nn.ModuleList(
@@ -338,6 +426,9 @@ def make_swin_stage(
                 window_size=window_size,
                 use_efficient_attention=use_efficient_attention,
                 dropout_rate=dropout_rate,
+                height=height,
+                width=width,
+                batch_size=batch_size,
             )
             for _ in range(num_swin_blocks)
         ]

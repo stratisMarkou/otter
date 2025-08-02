@@ -18,6 +18,7 @@ from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     aggregate_load_balancing_losses,
     conv_channel_last,
+    interpolate_channel_last,
     pad_bottom_right,
 )
 
@@ -32,12 +33,14 @@ class SwinTransformer(nn.Module):
         in_channels: int,
         height: int,
         width: int,
+        batch_size: int,
         patch_size: int,
         num_blocks_per_stage: Sequence[int],
         num_bottom_blocks: int,
         dropout_rate: float,
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
+        upsize_method: str = "bicubic",
         use_efficient_attention: bool = True,
         use_simple_skip: bool = False,
     ):
@@ -64,6 +67,8 @@ class SwinTransformer(nn.Module):
         patch_upsampling_layers = []
         fusion_conv_layers = []
 
+        current_height = height // patch_size
+        current_width = width // patch_size
         for num_blocks, (t1, t2) in zip(
             num_blocks_per_stage,
             token_in_out_dims,
@@ -75,10 +80,15 @@ class SwinTransformer(nn.Module):
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
+                    height=current_height,
+                    width=current_width,
+                    batch_size=batch_size,
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
                 )
             )
+            current_height //= 2
+            current_width //= 2
             patch_downsampling_layers.append(
                 nn.Conv2d(
                     in_channels=t1,
@@ -94,6 +104,9 @@ class SwinTransformer(nn.Module):
             num_heads=num_heads,
             num_swin_blocks=num_bottom_blocks,
             window_size=window_size,
+            height=current_height,
+            width=current_width,
+            batch_size=batch_size,
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
         )
@@ -110,6 +123,8 @@ class SwinTransformer(nn.Module):
                     stride=2,
                 )
             )
+            current_height *= 2
+            current_width *= 2
             if not use_simple_skip:
                 fusion_conv_layers.append(
                     nn.Conv2d(
@@ -127,6 +142,9 @@ class SwinTransformer(nn.Module):
                     num_heads=num_heads,
                     num_swin_blocks=num_blocks,
                     window_size=window_size,
+                    height=current_height,
+                    width=current_width,
+                    batch_size=batch_size,
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
                 )
@@ -161,6 +179,7 @@ class SwinTransformer(nn.Module):
 
         self.width = width
         self.height = height
+        self.upsize_method = upsize_method
 
     def forward(
         self,
@@ -177,9 +196,17 @@ class SwinTransformer(nn.Module):
         _, original_height, original_width, _ = x.shape
 
         # Pad input to target dimensions
-        x = pad_bottom_right(
-            x, target_height=self.height, target_width=self.width
-        )
+        if self.upsize_method == "pad":
+            x = pad_bottom_right(
+                x, target_height=self.height, target_width=self.width
+            )
+        else:
+            x = interpolate_channel_last(
+                x,
+                height=self.height,
+                width=self.width,
+                mode=self.upsize_method,
+            )
 
         x = self.tokeniser(x)
         x = self.embedding(x)
@@ -240,6 +267,14 @@ class SwinTransformer(nn.Module):
         x = conv_channel_last(self.final_conv, x)
 
         # Crop the padding to restore original dimensions
-        x = x[:, :original_height, :original_width, :]
+        if self.upsize_method == "pad":
+            x = x[:, :original_height, :original_width, :]
+        else:
+            x = interpolate_channel_last(
+                x,
+                height=original_height,
+                width=original_width,
+                mode=self.upsize_method,
+            )
 
         return x, aggregate_load_balancing_losses(load_balancing_losses_list)

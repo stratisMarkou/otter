@@ -48,6 +48,18 @@ def pad_bottom_right(
     return out
 
 
+def interpolate_channel_last(
+    x: torch.Tensor, height: int, width: int, mode: str = "bicubic"
+) -> torch.Tensor:
+    out: torch.Tensor = torch.nn.functional.interpolate(
+        x.permute(0, 3, 1, 2),
+        size=(height, width),
+        mode=mode,
+        align_corners=False,
+    ).permute(0, 2, 3, 1)
+    return out
+
+
 def aggregate_load_balancing_losses(
     x: List[LoadBalancingLosses],
     mean: bool = False,

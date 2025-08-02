@@ -77,6 +77,7 @@ model:
     height: 128
     width: 256
     patch_size: 2
+    batch_size: ${constants.data.batch_size}
     token_dimensions: [1024, 1024, 1024, 1024]
     output_dimension: ${constants.data.num_output_channels}
     window_size: 8
@@ -86,6 +87,7 @@ model:
     dropout_rate: ${constants.training.dropout_rate}
     feedforward_network: ${feedforward_network}
     use_simple_skip: false
+    upsize_method: "bicubic"
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
       num_scales: 128

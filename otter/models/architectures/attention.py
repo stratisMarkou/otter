@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from torch import nn
 from xformers.ops import memory_efficient_attention  # type: ignore
@@ -29,6 +31,7 @@ class EfficientMultiHeadAttention(nn.Module):
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         assert q.shape == k.shape == v.shape
         B, N, D = q.shape
@@ -37,7 +40,9 @@ class EfficientMultiHeadAttention(nn.Module):
         k = self.Uk(k).reshape(B, N, self.num_heads, D // self.num_heads)
         v = self.Uv(v).reshape(B, N, self.num_heads, D // self.num_heads)
 
-        x: torch.Tensor = memory_efficient_attention(q, k, v)
+        x: torch.Tensor = memory_efficient_attention(
+            q, k, v, attn_bias=attn_mask
+        )
         x = x.reshape(B, N, D)
         x = self.proj_drop(self.proj(x))
 
