@@ -18,8 +18,6 @@ from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     aggregate_load_balancing_losses,
     conv_channel_last,
-    interpolate_channel_last,
-    pad_bottom_right,
 )
 
 
@@ -35,6 +33,7 @@ class SwinTransformer(nn.Module):
         width: int,
         batch_size: int,
         patch_size: int,
+        patchify_kernel_size: tuple[int, int],
         num_blocks_per_stage: Sequence[int],
         num_bottom_blocks: int,
         dropout_rate: float,
@@ -166,6 +165,7 @@ class SwinTransformer(nn.Module):
             in_channels=in_channels,
             token_dimension=first_token_dim,
             patch_size=patch_size,
+            kernel_size=patchify_kernel_size,
         )
 
         self.embedding = pos_embedding
@@ -174,7 +174,7 @@ class SwinTransformer(nn.Module):
             in_channels=first_token_dim,
             out_channels=output_dimension,
             stride=(patch_size, patch_size),
-            kernel_size=(patch_size, patch_size),
+            kernel_size=patchify_kernel_size,
         )
 
         self.width = width
@@ -193,21 +193,6 @@ class SwinTransformer(nn.Module):
         Returns:
             output logits tensor of shape (B, H, W, C)
         """
-        _, original_height, original_width, _ = x.shape
-
-        # Pad input to target dimensions
-        if self.upsize_method == "pad":
-            x = pad_bottom_right(
-                x, target_height=self.height, target_width=self.width
-            )
-        else:
-            x = interpolate_channel_last(
-                x,
-                height=self.height,
-                width=self.width,
-                mode=self.upsize_method,
-            )
-
         x = self.tokeniser(x)
         x = self.embedding(x)
 
@@ -265,16 +250,5 @@ class SwinTransformer(nn.Module):
                     )
 
         x = conv_channel_last(self.final_conv, x)
-
-        # Crop the padding to restore original dimensions
-        if self.upsize_method == "pad":
-            x = x[:, :original_height, :original_width, :]
-        else:
-            x = interpolate_channel_last(
-                x,
-                height=original_height,
-                width=original_width,
-                mode=self.upsize_method,
-            )
 
         return x, aggregate_load_balancing_losses(load_balancing_losses_list)
