@@ -40,6 +40,12 @@ class EfficientMultiHeadAttention(nn.Module):
         k = self.Uk(k).reshape(B, N, self.num_heads, D // self.num_heads)
         v = self.Uv(v).reshape(B, N, self.num_heads, D // self.num_heads)
 
+        if attn_mask is not None:
+            seq_len = q.shape[1]
+            # Xformers demands the underlying tensor needs to have a sequence length divisible by 8,
+            # so we need to slice it to the correct length here.
+            attn_mask = attn_mask[..., :seq_len]
+
         x: torch.Tensor = memory_efficient_attention(
             q, k, v, attn_bias=attn_mask
         )

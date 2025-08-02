@@ -282,15 +282,9 @@ class SwinTransformerBlock(torch.nn.Module):
             height=height,
             width=width,
             num_heads=num_heads,
+            use_efficient_attention=use_efficient_attention,
         )
         # (num_windows * B, num_heads, window_size**2, window_size**2)
-        if not use_efficient_attention:
-            # nn.MultiheadAttention expects the attention mask to be
-            # (num_windows * B * num_heads, window_size**2, window_size**2)
-            # See https://docs.pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
-            attention_mask = attention_mask.reshape(
-                -1, window_size**2, window_size**2
-            )
         self.register_buffer("attention_mask", attention_mask)
 
     def _compute_attention_mask(
@@ -300,6 +294,7 @@ class SwinTransformerBlock(torch.nn.Module):
         height: int,
         width: int,
         num_heads: int,
+        use_efficient_attention: bool,
     ) -> torch.Tensor:
         """Compute the attention mask for the Swin Transformer block.
 
@@ -348,7 +343,31 @@ class SwinTransformerBlock(torch.nn.Module):
         attention_mask = attention_mask.squeeze().unsqueeze(1)
         # (num_windows * B, 1, window_size**2, window_size**2)
 
-        return attention_mask.expand(-1, num_heads, -1, -1)
+        attention_mask = attention_mask.expand(-1, num_heads, -1, -1)
+
+        if use_efficient_attention:
+            if window_size**2 % 8 != 0:
+                seq_len = window_size**2
+                rounded_seq_len = seq_len + (8 - seq_len % 8)
+                # Sequence length needs to be divisible by 8 for xformers.
+                # Solution is to pad and then crop the attention mask.
+                padded = torch.zeros(
+                    attention_mask.shape[0],
+                    attention_mask.shape[1],
+                    seq_len,
+                    rounded_seq_len,
+                )
+                padded[..., :seq_len] = attention_mask
+                attention_mask = padded
+
+        else:
+            # nn.MultiheadAttention expects the attention mask to be
+            # (num_windows * B * num_heads, window_size**2, window_size**2)
+            # See https://docs.pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
+            attention_mask = attention_mask.reshape(
+                -1, window_size**2, window_size**2
+            )
+        return attention_mask
 
     def forward(
         self,

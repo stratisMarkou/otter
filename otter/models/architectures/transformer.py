@@ -39,7 +39,6 @@ class SwinTransformer(nn.Module):
         dropout_rate: float,
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
-        upsize_method: str = "bicubic",
         use_efficient_attention: bool = True,
         use_simple_skip: bool = False,
     ):
@@ -179,7 +178,6 @@ class SwinTransformer(nn.Module):
 
         self.width = width
         self.height = height
-        self.upsize_method = upsize_method
 
     def forward(
         self,
