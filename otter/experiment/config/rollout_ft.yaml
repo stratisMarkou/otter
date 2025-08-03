@@ -40,4 +40,4 @@ constants:
       num_training_steps: ${constants.training.num_training_steps}
       dataloader: ${train_dataloader}
 
-  load_weights_from_experiment: _results/2025-07-17_13-12-fierce-buffalo/checkpoints/latest.pt
+  load_weights_from_experiment: null
