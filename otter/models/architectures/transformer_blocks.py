@@ -229,8 +229,7 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        x = self.ln1(x)
-        x = x + self.mhsa(x, freq_cis)
+        x = x + self.mhsa(self.ln1(x), freq_cis)
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
         x = x + x_ffn
 
