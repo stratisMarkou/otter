@@ -301,7 +301,6 @@ class SwinTransformerBlock(torch.nn.Module):
         This mask ensures that attention is only applied across the East/West
         boundary within each swin window, and not across the North/South.
         """
-
         if height == window_size:
             return None
 
@@ -408,7 +407,8 @@ class SwinTransformerBlock(torch.nn.Module):
 
         # Apply second transformer block same as the first block, but
         # shifting the windows before and after the block.
-        x = shift_horizontally_and_vertically(x, -S // 2)  # (B, H, W, D)
+        shift = S // 2
+        x = shift_horizontally_and_vertically(x, -shift)  # (B, H, W, D)
         x = extract_subimages_and_fold_into_batch_dim(
             x, S
         )  # (B*H//S*W//S, S**2, D)
@@ -428,7 +428,7 @@ class SwinTransformerBlock(torch.nn.Module):
         x = unfold_from_batch_dim_and_combine_subimages(
             x, original_shape, S
         )  # (B, H, W, D)
-        x = shift_horizontally_and_vertically(x, S // 2)  # (B, H, W, D)
+        x = shift_horizontally_and_vertically(x, shift)  # (B, H, W, D)
 
         return x, load_balancing_losses_list
 
