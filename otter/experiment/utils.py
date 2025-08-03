@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import math
 import logging
 import os
 import random
@@ -12,6 +13,8 @@ from typing import (
     Iterator,
     Optional,
     Sequence,
+    Union,
+    Callable,
 )
 
 import git
@@ -27,6 +30,8 @@ from omegaconf import (
 )
 
 import wandb
+
+from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 Experiment = DictConfig
 
@@ -62,6 +67,12 @@ def get_num_training_steps(
     return num_epochs * len(dataloader)
 
 
+def get_num_epochs(
+    num_training_steps: int, dataloader: torch.utils.data.DataLoader[Any]
+) -> int:
+    return math.ceil(num_training_steps / len(dataloader))
+
+
 def get_num_parameters(module: torch.nn.Module) -> int:
     return sum(p.numel() for p in module.parameters())
 
@@ -76,6 +87,15 @@ def get_module_attr(string: str) -> Any:
     module_name, class_name = string.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, class_name)
+
+
+def load_model_weights_from_experiment(
+    path: Path | str,
+    model: torch.nn.Module,
+) -> torch.nn.Module:
+    state_dict = torch.load(path, weights_only=False)
+    model.load_state_dict(state_dict["model_state"])
+    return model
 
 
 def initialize_experiment(
@@ -452,9 +472,15 @@ def load_std_dataset() -> xr.DataArray:
 
 
 def get_adamw_optimizer(
-    module: torch.nn.Module, optimizer_kwargs: Dict[str, Any]
-) -> torch.optim.AdamW:
-    return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
+    optimizer_kwargs: Dict[str, Any],
+) -> Callable[[Union[torch.nn.Module, Any]], torch.optim.AdamW]:
+    def optimizer_fn(
+        module: torch.nn.Module, **override_kwargs: Any
+    ) -> torch.optim.AdamW:
+        final_kwargs = {**optimizer_kwargs, **override_kwargs}
+        return torch.optim.AdamW(params=module.parameters(), **final_kwargs)
+
+    return optimizer_fn
 
 
 def get_cosine_lr_scheduler(
@@ -474,3 +500,32 @@ def get_linear_lr_scheduler(
         end_factor=end_factor,
         total_iters=num_steps,
     )
+
+
+def get_linear_warmup_cosine_lr_scheduler(
+    lr_scheduler_kwargs: Dict[str, Any],
+    **kwargs: Any,
+) -> Callable[
+    [Union[torch.optim.Optimizer, Any]], LinearWarmupCosineAnnealingLR
+]:
+    """
+    Returns a callable that builds a LinearWarmupCosineAnnealingLR with default args,
+    but allows runtime overrides.
+
+    Args:
+        lr_scheduler_kwargs (Dict[str, Any]): Default keyword arguments for scheduler.
+
+    Returns:
+        Callable[[Optimizer], LinearWarmupCosineAnnealingLR]: Scheduler constructor function.
+    """
+
+    def scheduler_fn(
+        optimizer: torch.optim.Optimizer,
+        **override_kwargs: Any,
+    ) -> LinearWarmupCosineAnnealingLR:
+        final_kwargs = {**lr_scheduler_kwargs, **override_kwargs}
+        return LinearWarmupCosineAnnealingLR(
+            optimizer=optimizer, **final_kwargs
+        )
+
+    return scheduler_fn

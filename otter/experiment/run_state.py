@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import (
     Any,
     Dict,
+    Optional,
 )
+
+from otter.models.architectures.schedulers import ForecastHorizonScheduler
 
 import torch
 from torch.amp.grad_scaler import GradScaler
@@ -26,6 +29,7 @@ class RunState:
     epoch: int
     step: int
     best_val_loss: float = float("inf")
+    forecast_horizon_scheduler_state: Optional[Dict[str, Any]] = None
 
     @staticmethod
     def from_objects(
@@ -36,6 +40,7 @@ class RunState:
         epoch: int,
         step: int,
         best_val_loss: float = float("inf"),
+        forecast_horizon_scheduler: Optional[ForecastHorizonScheduler] = None,
     ) -> "RunState":
         """Create RunState from torch objects."""
         return RunState(
@@ -46,6 +51,11 @@ class RunState:
             epoch=epoch,
             step=step,
             best_val_loss=best_val_loss,
+            forecast_horizon_scheduler_state=(
+                forecast_horizon_scheduler.state_dict()
+                if forecast_horizon_scheduler is not None
+                else None
+            ),
         )
 
     @staticmethod
@@ -59,6 +69,9 @@ class RunState:
             epoch=state_dict["epoch"],
             step=state_dict["step"],
             best_val_loss=state_dict["best_val_loss"],
+            forecast_horizon_scheduler_state=(
+                state_dict.get("forecast_horizon_scheduler_state")
+            ),
         )
 
     @staticmethod
@@ -77,6 +90,7 @@ class RunState:
             "epoch": self.epoch,
             "step": self.step,
             "best_val_loss": self.best_val_loss,
+            "forecast_horizon_scheduler_state": self.forecast_horizon_scheduler_state,
         }
 
     def save(self, path: Path) -> None:
@@ -90,12 +104,20 @@ class RunState:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
         scaler: GradScaler,
+        forecast_horizon_scheduler: Optional[ForecastHorizonScheduler] = None,
     ) -> None:
         """Restore state to provided objects."""
         model.load_state_dict(self.model_state)
         optimizer.load_state_dict(self.optimizer_state)
         lr_scheduler.load_state_dict(self.scheduler_state)
         scaler.load_state_dict(self.scaler_state)
+        if (
+            forecast_horizon_scheduler is not None
+            and self.forecast_horizon_scheduler_state is not None
+        ):
+            forecast_horizon_scheduler.load_state_dict(
+                self.forecast_horizon_scheduler_state
+            )
 
 
 def load_run_state_from_latest_checkpoint(
@@ -103,6 +125,7 @@ def load_run_state_from_latest_checkpoint(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
+    forecast_horizon_scheduler: Optional[ForecastHorizonScheduler] = None,
 ) -> TrainState:
     """
     Load the initial state of the run from the given experiment_name.
@@ -125,6 +148,7 @@ def load_run_state_from_latest_checkpoint(
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        forecast_horizon_scheduler=forecast_horizon_scheduler,
     )
     step = run_state.step
     epoch = run_state.epoch
@@ -159,6 +183,7 @@ def save_run_state(
     step: int,
     checkpoint_name: str,
     best_val_loss: float = float("inf"),
+    forecast_horizon_scheduler: Optional[ForecastHorizonScheduler] = None,
 ) -> None:
     """Save the complete run state to disk."""
     logging.info(f"Saving checkpoint {checkpoint_name} at step {step}")
@@ -170,6 +195,7 @@ def save_run_state(
         epoch=epoch,
         step=step,
         best_val_loss=best_val_loss,
+        forecast_horizon_scheduler=forecast_horizon_scheduler,
     )
     logging.info("Checkpoint saved.")
 

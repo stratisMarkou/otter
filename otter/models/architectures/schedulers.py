@@ -96,25 +96,39 @@ class ForecastHorizonScheduler:
             f"forecast horizons {max_frame_forecast_horizon - min_frame_forecast_horizon + 1}"
         )
 
+        self.initial_learning_rates = initial_learning_rates
+        self.warmup_steps = warmup_steps
+
         self.current_frame_forecast_horizon = min_frame_forecast_horizon
         self.current_step = 0
 
-        self.increment_every_num_steps = 1  # TODO: change this
+        self.current_iteration_per_step = 0
 
         self.temporal_resolution_hours = temporal_resolution_hours
 
-    def step(self) -> None:
+    def step(self) -> bool:
         """
         Increments the current step and updates the forecast horizon if is devisible by `increment_every_num_steps`.
+        Return bool indicating whether the forecast horizon has been updated.
         """
-        self.current_step += 1
+        self.current_iteration_per_step += 1
 
-        if self.current_step % self.increment_every_num_steps == 0:
-            if (
+        if self.current_iteration_per_step > self.num_steps[self.current_step]:
+            self.current_frame_forecast_horizon += 1
+
+            assert (
                 self.current_frame_forecast_horizon
-                < self.max_frame_forecast_horizon
-            ):
-                self.current_frame_forecast_horizon += 1
+                <= self.max_frame_forecast_horizon
+            ), (
+                f"Current forecast horizon {self.current_frame_forecast_horizon} "
+                f"exceeds maximum forecast horizon {self.max_frame_forecast_horizon}"
+            )
+            self.current_step += 1
+            self.current_iteration_per_step = 0
+
+            return True
+
+        return False
 
     def get_frame_forecast_horizon(self) -> int:
         """
@@ -142,3 +156,20 @@ class ForecastHorizonScheduler:
                 from a call to :meth:`state_dict`.
         """
         self.__dict__.update(state_dict)
+
+    def get_current_optimizer_params(self) -> Dict[str, Any]:
+        """
+        Returns the current optimizer parameters for the learning rate scheduler.
+        """
+        return {
+            "lr": self.initial_learning_rates[self.current_step],
+        }
+
+    def get_current_lr_scheduler_params(self) -> Dict[str, Any]:
+        """
+        Returns the current learning rate scheduler parameters.
+        """
+        return {
+            "num_steps": self.num_steps[self.current_step],
+            "warmup_steps": self.warmup_steps[self.current_step],
+        }

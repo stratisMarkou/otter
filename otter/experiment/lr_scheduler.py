@@ -8,11 +8,6 @@ from typing import List
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
-from typing import (
-    Any,
-    Dict,
-)
-
 
 class LinearWarmupCosineAnnealingLR(LRScheduler):
     """Sets the learning rate of each parameter group to follow a linear warmup schedule between
@@ -22,8 +17,8 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
     def __init__(
         self,
         optimizer: Optimizer,
-        warmup_epochs: int,
-        T_max: int,
+        warmup_steps: int,
+        num_steps: int,
         warmup_start_lr: float = 0.0,
         eta_min: float = 0.0,
         last_epoch: int = -1,
@@ -37,8 +32,8 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
             eta_min (float): Minimum learning rate. Default: 0.
             last_epoch (int): The index of last epoch. Default: -1.
         """
-        self.warmup_epochs = warmup_epochs
-        self.max_epochs = T_max
+        self.warmup_epochs = warmup_steps
+        self.max_epochs = num_steps
         self.warmup_start_lr = warmup_start_lr
         self.eta_min = eta_min
 
@@ -130,11 +125,3 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
             )
             for base_lr in self.base_lrs
         ]
-
-
-def get_linear_warmup_cosine_annealing_lr_scheduler(
-    optimizer: Optimizer, lr_scheduler_kwargs: Dict[str, Any]
-) -> LinearWarmupCosineAnnealingLR:
-    return LinearWarmupCosineAnnealingLR(
-        optimizer=optimizer, **lr_scheduler_kwargs
-    )

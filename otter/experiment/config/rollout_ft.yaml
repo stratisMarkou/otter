@@ -1,36 +1,43 @@
 defaults:
   - base
   - _self_
-  - host: default
 
 optimizer:
   _target_: otter.experiment.utils.get_adamw_optimizer
-  _partial_: true
   optimizer_kwargs:
+    lr: ${forecast_horizon_scheduler.initial_learning_rates[0]}
     betas: ${constants.training.betas}
     weight_decay: ${constants.training.weight_decay}
 
 lr_scheduler:
   _target_: otter.experiment.utils.get_linear_warmup_cosine_lr_scheduler
-  _partial_: true
+  _partial_: false
+  lr_scheduler_kwargs:
+    num_steps: ${forecast_horizon_scheduler.num_steps[0]}
+    warmup_steps: ${forecast_horizon_scheduler.warmup_steps[0]}
 
 forecast_horizon_scheduler:
   _target_: otter.models.architectures.schedulers.ForecastHorizonScheduler
-  num_steps: [16000, 8000, 8000, 4000]
-  initial_learning_rates: [1e-5, 1e-5, 1e-5, 1e-5]
-  warmup_steps: [4000, 2000, 2000, 1000]
-  max_frame_forecast_horizon: ${constants.data.train_num_target_frames}
+  num_steps: [8000, 4000, 4000]
+  initial_learning_rates: [1e-5, 1e-6, 1e-6]
+  warmup_steps: [800, 400, 400]
+  max_frame_forecast_horizon: 4
   min_frame_forecast_horizon: 2
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
 
 constants:
   data:
     train_start_date: "2007-01-01 00:00:00"
-    train_num_target_frames: 4
+    train_num_target_frames: ${forecast_horizon_scheduler.max_frame_forecast_horizon}
     valid_num_target_frames: 4
   training:
     dropout_rate: 0.0
     num_training_steps: ${eval:"sum(${forecast_horizon_scheduler.num_steps})"}
     validate_every: 500
+    grad_ckpt_start_timestep: 0
+    epochs:
+      target_: otter.experiment.utils.get_num_epochs
+      num_training_steps: ${constants.training.num_training_steps}
+      dataloader: ${train_dataloader}
 
-  load_weights_from_experiment: null
+  load_weights_from_experiment: _results/2025-07-17_13-12-fierce-buffalo/checkpoints/latest.pt
