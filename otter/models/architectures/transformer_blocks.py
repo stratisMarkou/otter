@@ -295,12 +295,16 @@ class SwinTransformerBlock(torch.nn.Module):
         width: int,
         num_heads: int,
         use_efficient_attention: bool,
-    ) -> torch.Tensor:
+    ) -> Optional[torch.Tensor]:
         """Compute the attention mask for the Swin Transformer block.
 
         This mask ensures that attention is only applied across the East/West
         boundary within each swin window, and not across the North/South.
         """
+
+        if height == window_size:
+            return None
+
         shift = window_size // 2
 
         # Note: it's slightly memory inefficient to create the batch size
@@ -409,8 +413,13 @@ class SwinTransformerBlock(torch.nn.Module):
             x, S
         )  # (B*H//S*W//S, S**2, D)
 
+        attention_mask = self.attention_mask
+        # It can be None if the height is equal to the window size.
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(x.dtype)
+
         x, load_balancing_losses = self.second_block(
-            x, self.attention_mask.to(x.dtype)
+            x, attention_mask
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
