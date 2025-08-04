@@ -116,7 +116,8 @@ def train_step(
 
     scaler.unscale_(optimizer)
 
-    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
+    w.log({"misc/gradient_norm": norm.item()})
 
     w.timed("scaler.step", scaler.step, optimizer)
     w.timed("scaler.update", scaler.update)
