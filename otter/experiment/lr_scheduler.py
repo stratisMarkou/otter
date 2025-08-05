@@ -26,8 +26,8 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
         """
         Args:
             optimizer (Optimizer): Wrapped optimizer.
-            warmup_epochs (int): Maximum number of iterations for linear warmup
-            T_max (int): Maximum number of iterations
+            warmup_steps (int): Maximum number of iterations for linear warmup
+            num_steps (int): Maximum number of iterations
             warmup_start_lr (float): Learning rate to start the linear warmup. Default: 0.
             eta_min (float): Minimum learning rate. Default: 0.
             last_epoch (int): The index of last epoch. Default: -1.

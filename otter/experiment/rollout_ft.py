@@ -161,10 +161,10 @@ def rollout_fine_tuning_loop(
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
                     epoch=step // len(experiment.train_dataloader),
-                    forecast_horizon_scheduler=forecast_horizon_scheduler,
                     step=step,
                     best_val_loss=best_val_loss,
                     checkpoint_name="best.pt",
+                    forecast_horizon_scheduler=forecast_horizon_scheduler,
                 )
 
         try:
@@ -217,6 +217,7 @@ def rollout_fine_tuning_loop(
                 step=step,
                 best_val_loss=best_val_loss,
                 checkpoint_name="latest.pt",
+                forecast_horizon_scheduler=forecast_horizon_scheduler,
             )
 
         interval = experiment.constants.save_persistent_checkpoint_every
@@ -230,6 +231,7 @@ def rollout_fine_tuning_loop(
                 step=step,
                 best_val_loss=best_val_loss,
                 checkpoint_name=f"step_{step:08d}.pt",
+                forecast_horizon_scheduler=forecast_horizon_scheduler,
             )
 
 

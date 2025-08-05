@@ -63,7 +63,7 @@ class ForecastHorizonScheduler:
         Args:
             num_steps: number of steps for each horizon
             initial_learning_rates: initial learning rates for each horizon
-            warmup_steps: number of warmup steps for each horizon for lr sheduler
+            warmup_steps: number of warmup steps for each horizon for lr scheduler
             max_frame_forecast_horizon: maximum forecast horizon in frames
             min_frame_forecast_horizon: minimum forecast horizon in frames
             temporal_resolution_hours: temporal resolution in hours
@@ -108,7 +108,7 @@ class ForecastHorizonScheduler:
 
     def step(self) -> bool:
         """
-        Increments the current step and updates the forecast horizon if is devisible by `increment_every_num_steps`.
+        Increments the current step and updates the forecast horizon if is divisible by `increment_every_num_steps`.
         Return bool indicating whether the forecast horizon has been updated.
         """
         self.current_iteration_per_step += 1
