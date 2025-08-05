@@ -47,20 +47,16 @@ wandb online; python otter/experiment/train.py --config_name base --debug
 
 To perform rollout fine-tuning in time, from the repo root, run:
 ```bash
-# This will train a model with logging to wandb. It will also check your local branch
-# is clean, i.e. that it has no changes relative to the remote branch.
-wandb online; python otter/experiment/train.py --config_name base
-
-# You can disable this check by adding the flag --debug at the end of the command, as in
-wandb online; python otter/experiment/train.py --config_name base --debug
+wandb online; python otter/experiment/rollout_ft.py --config_name rollout_ft constants.load_weights_from_experiment=<path_to_the_model_weights_to_fine_tune> constants.training.grad_ckpt_start_timestep=0
+# Gradient checkpointing is performed from the first time step; consider increase if training on a large GPU.
 ```
 
 After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
 ```bash
-wandb online; python otter/experiment/rollout_ft.py --config_name rollout_ft constants.load_weights_from_experiment=<path_to_the_model_weights_to_fine_tune> constants.training.grad_ckpt_start_timestep=0
-# Gradient checkpointing is performed from the first time step; consider increase if training on a large GPU.
+python otter/experiment/save_samples.py <experiment_name>
 ```
 The experiment name is the same as in wandb or in the _results directory.
+
 
 For model evaluation (to save evaluation metrics), run:
 ```bash
