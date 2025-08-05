@@ -68,8 +68,6 @@ class ForecastHorizonScheduler:
             min_frame_forecast_horizon: minimum forecast horizon in frames
             temporal_resolution_hours: temporal resolution in hours
         """
-        super().__init__()
-
         assert max_frame_forecast_horizon >= min_frame_forecast_horizon, (
             f"Max forecast horizon {max_frame_forecast_horizon} "
             f"must be greater than or equal to min forecast horizon "
