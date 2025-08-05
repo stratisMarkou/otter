@@ -113,16 +113,12 @@ class ForecastHorizonScheduler:
         """
         self.current_iteration_per_step += 1
 
-        if self.current_iteration_per_step > self.num_steps[self.current_step]:
+        if (
+            self.current_iteration_per_step
+            >= self.num_steps[self.current_step]
+        ):
             self.current_frame_forecast_horizon += 1
 
-            assert (
-                self.current_frame_forecast_horizon
-                <= self.max_frame_forecast_horizon
-            ), (
-                f"Current forecast horizon {self.current_frame_forecast_horizon} "
-                f"exceeds maximum forecast horizon {self.max_frame_forecast_horizon}"
-            )
             self.current_step += 1
             self.current_iteration_per_step = 0
 
