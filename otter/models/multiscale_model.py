@@ -32,6 +32,7 @@ from otter.models.distributions import (
     Distribution,
     product_distribution,
 )
+import torch.utils.checkpoint as checkpoint
 
 
 def get_trg_vars_and_levels(
@@ -203,7 +204,10 @@ class MultiscaleModel(torch.nn.Module):
         self.downsampling_noise_std = downsampling_noise_std
 
     def forward(
-        self, batch: MultiscaleInput, scales: torch.Tensor
+        self,
+        batch: MultiscaleInput,
+        scales: torch.Tensor,
+        grad_ckpt_start_timestep: int,
     ) -> tuple[Distribution, List[LoadBalancingLosses]]:
         ctx = batch.ctx
         zero_time = batch.zero_time
@@ -239,6 +243,7 @@ class MultiscaleModel(torch.nn.Module):
             downsampled_trg=downsampled_trg,
             scales=scales,
             trg_timedelta_hours=trg_timedelta_hours,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )  # (batch, lat, lon, trg_time_idx, scale, trg_var_and_level)
 
         prd_dist = prd_dist * self.trg_std
@@ -327,9 +332,16 @@ class MultiscaleModel(torch.nn.Module):
         downsampled_trg: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
         scales: torch.Tensor,
+        cpu_rng_state: Optional[torch.Tensor] = None,
+        cuda_rng_state: Optional[torch.Tensor] = None,
     ) -> tuple[Distribution, Distribution, list[LoadBalancingLosses]]:
         prd_dists = []
         all_load_balancing_losses = []
+
+        if cpu_rng_state is not None:
+            torch.set_rng_state(cpu_rng_state)
+        if cuda_rng_state is not None:
+            torch.cuda.set_rng_state(cuda_rng_state)
 
         # Add noise to the downsampled target if specified.
         downsampled_trg = self._add_downsampling_noise(downsampled_trg)
@@ -381,6 +393,7 @@ class MultiscaleModel(torch.nn.Module):
         downsampled_trg: torch.Tensor,
         scales: torch.Tensor,
         trg_timedelta_hours: npt.NDArray[np.int32],
+        grad_ckpt_start_timestep: int,
     ) -> tuple[Distribution, list[LoadBalancingLosses]]:
         """
         Rolls out the model over time, predicting the target variables at
@@ -408,16 +421,37 @@ class MultiscaleModel(torch.nn.Module):
         for i in range(num_rollout_steps):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
-            (
-                prd_dist,
-                last_prd_dist,
-                load_balancing_losses,
-            ) = self.multiscale_forward(
-                ctx,
-                downsampled_trg=downsampled_slice,
-                zero_time=zero_time + i * self.temporal_resolution_timedelta,
-                scales=scales,
-            )  # (batch, lat, lon, scale, trg_var_and_level)
+            if i < grad_ckpt_start_timestep:
+                (
+                    prd_dist,
+                    last_prd_dist,
+                    load_balancing_losses,
+                ) = self.multiscale_forward(
+                    ctx=ctx,
+                    downsampled_trg=downsampled_slice,
+                    zero_time=zero_time
+                    + np.timedelta64(i * self.temporal_resolution_hours, "h"),
+                    scales=scales,
+                )  # (batch, lat, lon, scale, trg_var_and_level)
+            else:
+                cpu_rng_state = torch.get_rng_state()
+                cuda_rng_state = torch.cuda.get_rng_state()
+
+                (prd_dist, last_prd_dist, load_balancing_losses) = (
+                    checkpoint.checkpoint(
+                        self.multiscale_forward,
+                        ctx=ctx,
+                        downsampled_trg=downsampled_slice,
+                        zero_time=zero_time
+                        + np.timedelta64(
+                            i * self.temporal_resolution_hours, "h"
+                        ),
+                        scales=scales,
+                        cpu_rng_state=cpu_rng_state,
+                        cuda_rng_state=cuda_rng_state,
+                        use_reentrant=False,
+                    )
+                )
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prd_dist)

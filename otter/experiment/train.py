@@ -5,6 +5,7 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Optional,
     Tuple,
 )
 
@@ -28,7 +29,10 @@ from otter.experiment.run_state import (
     save_run_state,
 )
 from otter.experiment.utils import initialize_experiment, initialize_wandb
-from otter.models.architectures.schedulers import ScaleScheduler
+from otter.models.architectures.schedulers import (
+    ScaleScheduler,
+    ForecastHorizonScheduler,
+)
 from otter.models.losses.loss_fn import (
     LossInfo,
     LossInfoArray,
@@ -49,6 +53,23 @@ def assert_single_device() -> None:
         )
 
 
+def update_batch_with_forecast_horizon(
+    batch: ForecastingSample,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
+) -> ForecastingSample:
+    """Shrink the batch target to the forecast horizon."""
+
+    num_forecasting_steps = (
+        forecast_horizon_scheduler.get_frame_forecast_horizon()
+    )
+    target_timedelta_hours = (
+        forecast_horizon_scheduler.get_temporal_forecast_horizon_hours()
+    )
+    batch.trg = batch.trg[..., :num_forecasting_steps, :]
+    batch.trg_timedelta_hours = target_timedelta_hours
+    return batch
+
+
 def train_step(
     model: torch.nn.Module,
     loss_fn: LossFunction,
@@ -61,10 +82,22 @@ def train_step(
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
     device: str = "cuda",
+    forecast_horizon_scheduler: Optional[ForecastHorizonScheduler] = None,
+    grad_ckpt_start_timestep: Optional[int] = None,
 ) -> None:
     w = wandb_logger
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
+
+    if forecast_horizon_scheduler:
+        # Update the batch with the forecast horizon.
+        # This is used only for rollout finetuning.
+        batch = w.timed(
+            "update_batch_with_forecast_horizon",
+            update_batch_with_forecast_horizon,
+            batch=batch,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
+        )
 
     data_scale = scale_scheduler.sample_data_scale()
     processed_batch = w.timed(
@@ -76,6 +109,15 @@ def train_step(
     processed_batch = processed_batch.to(device)
 
     rollout_scales = scale_scheduler.get_rollout_scales()
+
+    if grad_ckpt_start_timestep is None:
+        # If None, do not use gradient checkpointing.
+        grad_ckpt_start_timestep = np.max(
+            (
+                processed_batch.trg_timedelta_hours
+                // model.temporal_resolution_hours
+            )
+        )
 
     # Do forward pass with AMP autocasting. Only forward pass needs to be
     # autocasted, as the backward is computed with matching dtypes to the
@@ -89,6 +131,7 @@ def train_step(
             model.forward,
             processed_batch,
             scales=rollout_scales,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )
 
         loss, loss_info = w.timed(
@@ -229,8 +272,17 @@ def run_validation_epoch(
             preprocessed_batch = preprocess_batch(batch, data_scale)
             preprocessed_batch = preprocessed_batch.to(device)
 
+            grad_ckpt_start_timestep = np.max(
+                (
+                    preprocessed_batch.trg_timedelta_hours
+                    // model.temporal_resolution_hours
+                )
+            )
+
             prd_dist, load_balancing_losses = model(
-                preprocessed_batch, scales=rollout_scales
+                preprocessed_batch,
+                scales=rollout_scales,
+                grad_ckpt_start_timestep=grad_ckpt_start_timestep,
             )
 
             # Compute the loss for each loss function and store results.
