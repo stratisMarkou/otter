@@ -340,13 +340,13 @@ if __name__ == "__main__":
         "--results_path",
         type=str,
         default="./_results",
-        help="Path from where to get the results for experiment (default: ./_results).",
+        help="Path from where to get the results for experiment (default: %(default)).",
     )
     parser.add_argument(
         "--base_results_path",
         type=str,
         default="./_baselines",
-        help="Path from where to get the results for base experiment (default: ./_results).",
+        help="Path from where to get the results for base experiment (default: %(default)).",
     )
     args = parser.parse_args()
     main(
