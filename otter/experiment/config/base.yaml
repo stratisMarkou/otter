@@ -56,6 +56,7 @@ feedforward_network:
   _partial_: true
   hidden_features: 4096
   num_hidden_layers: 2
+  dropout_rate: ${constants.training.dropout_rate}
 
 model:
   _target_: otter.models.multiscale_model.make_multiscale_model
@@ -76,12 +77,16 @@ model:
     height: 128
     width: 256
     patch_size: 2
-    token_dimensions: [1024, 1024, 1024, 1024]
+    patchify_kernel_size: [3, 2] # [height, width] kernel size for (un)patchification.
+    token_dimensions: [1024, 1024, 1024]
     output_dimension: ${constants.data.num_output_channels}
-    window_size: 4
+    window_size: 15
     num_heads: 8
-    num_blocks_per_stage: [4, 4, 4]
+    num_blocks_per_stage: [1, 6]
+    num_bottom_blocks: 6
+    dropout_rate: ${constants.training.dropout_rate}
     feedforward_network: ${feedforward_network}
+    use_simple_skip: false
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
       num_scales: 128
@@ -122,12 +127,10 @@ optimizer:
     weight_decay: ${constants.training.weight_decay}
 
 lr_scheduler:
-  _target_: otter.experiment.utils.get_cosine_lr_scheduler
+  _target_: otter.experiment.utils.get_linear_lr_scheduler
   _partial_: true
-  lr_scheduler_kwargs:
-    T_max: ${constants.training.num_training_steps} # Only for `get_cosine_lr_scheduler`.
-    eta_min: 1e-6 # Only for `get_cosine_lr_scheduler`.
-
+  num_steps: ${constants.training.num_lr_decay_steps}
+  end_factor: 0.02
 constants:
   num_stats: 1
   data:
@@ -159,10 +162,11 @@ constants:
     initial_learning_rate: 1e-4
     betas: [0.9, 0.999] # AdamW default values.
     weight_decay: 0.1
-    epochs: 40
-    num_training_steps:
+    dropout_rate: 0.1
+    epochs: 60
+    num_lr_decay_steps:
       _target_: otter.experiment.utils.get_num_training_steps
-      num_epochs: ${constants.training.epochs}
+      num_epochs: 45
       dataloader: ${train_dataloader}
     validate_every: 5000
     log_gradients_every: 500
@@ -171,7 +175,7 @@ constants:
   load_weights_from_experiment: null
   save_best_checkpoint: true
   save_checkpoint_every: 1_000
-  save_persistent_checkpoint_every: 100_000
+  save_persistent_checkpoint_every: 200_000
   log_code: True
 
 info:
