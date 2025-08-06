@@ -49,12 +49,14 @@ def plot_power_spectrum_heatmaps_per_var(
         if relative_rmse:
             # If relative RMSE, we don't take the log of 1 + MSE.
             metric = psd_mse_per_var.T.flatten()
+            metric_name = "Relative RMSE"
         else:
             metric = np.log1p(psd_mse_per_var).T.flatten()
+            metric_name = "Log(1 + PSD MSE)"
 
         df = pd.DataFrame(
             {
-                "Log(1 + PSD MSE)": metric.astype("float32"),
+                metric_name: metric.astype("float32"),
                 "Wavenumber": wavenumbers.astype("int32"),
                 "Lead Time (h)": lead_times.astype("int32"),
             }
@@ -63,7 +65,7 @@ def plot_power_spectrum_heatmaps_per_var(
         pivot_table = df.pivot(
             index="Wavenumber",
             columns="Lead Time (h)",
-            values="Log(1 + PSD MSE)",
+            values=metric_name,
         )
 
         ax = axs[i // cols][i % cols]
@@ -84,13 +86,11 @@ def plot_power_spectrum_heatmaps_per_var(
     for idx in range(num_vars, rows * cols):
         fig.delaxes(axs[idx // cols][idx % cols])
 
-    # fig.supylabel("Wavenumber", x=-0.001)
-    # fig.suptitle(
-    #     "RRMSE vs. Wavenumber and Lead Time (All Variables)"
-    #     if relative_rmse
-    #     else "Log(1 + PSD MSE) vs. Wavenumber and Lead Time (All Variables)",
-    #     y=1.001,
-    # )
+    fig.supylabel("Wavenumber", x=-0.001)
+    fig.suptitle(
+        f"{metric_name} vs. Wavenumber and Lead Time (All Variables)",
+        y=1.001,
+    )
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", dpi=300)

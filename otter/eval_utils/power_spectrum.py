@@ -34,11 +34,13 @@ def _power_spectrum_density_mse(
     y = torch.arange(H, device=device).reshape(-1, 1)
     x = torch.arange(W, device=device).reshape(1, -1)
     cy, cx = H // 2, W // 2
-    # TODO: Adjust this tomorrow
+
     r = torch.sqrt((x - cx) ** 2 + (y - cy) ** 2)
     r = r.round().long()
     r_max = int(r.max().item())
 
+    # Nyquist frequency indicates the maximum radius
+    # where frequences are defined
     r_nyquist_freq = int(min(H, W) / 2)
 
     # Flatten the radius map

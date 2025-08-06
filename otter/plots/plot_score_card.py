@@ -192,7 +192,7 @@ def plot_score_card(
         # Plot heatmap.
         sns.heatmap(
             pivot_table,
-            cmap="bwr",
+            cmap="RdBu_r",
             center=0,
             ax=ax,
         )
