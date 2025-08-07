@@ -256,17 +256,27 @@ def run_validation_epoch(
                 loss_infos[loss_name].append(loss_info)
 
             if compute_power_spectrum_mse:
-                psd_mean_mse_per_batch = power_spectrum_density_mse(
-                    trg=batch.trg,
-                    prd_dist=prd_dist,
-                ).cpu()
+                psd_mean_mse_per_batch, psd_trg_per_batch = (
+                    power_spectrum_density_mse(
+                        trg=batch.trg,
+                        prd_dist=prd_dist,
+                    )
+                )
 
                 psd_mean_mse_per_batch_per_var = gather_array_losses(
-                    array_losses=psd_mean_mse_per_batch,
+                    array_losses=psd_mean_mse_per_batch.cpu(),
                     trg_variables_and_levels=model.trg_variables_and_levels,
                 )
                 metrics_array["power_spectrum_mse"].append(
                     psd_mean_mse_per_batch_per_var
+                )
+
+                psd_trg_per_batch_per_var = gather_array_losses(
+                    array_losses=psd_trg_per_batch.cpu(),
+                    trg_variables_and_levels=model.trg_variables_and_levels,
+                )
+                metrics_array["power_spectrum_target"].append(
+                    psd_trg_per_batch_per_var
                 )
 
     # Ensure model is back in training mode after validation.

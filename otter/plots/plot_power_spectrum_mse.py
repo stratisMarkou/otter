@@ -14,6 +14,7 @@ def plot_power_spectrum_heatmaps_per_var(
     psd_mse_all_vars: Dict[str, npt.NDArray[np.float32]],
     time_resolution: int,
     save_path: str,
+    relative_rmse: bool = False,
 ) -> None:
     """
     Plot all variables' PSD MSE heatmaps in a single figure.
@@ -35,21 +36,27 @@ def plot_power_spectrum_heatmaps_per_var(
     cols = 8
     rows = (num_vars + cols - 1) // cols
 
-    base_cell_width = 0.5  # width per lead time step (tune this)
-    cell_height = 2.5  # fixed height per row
+    base_cell_width = 0.3  # width per lead time step (tune this)
+    cell_height = 4.0  # fixed height per row
 
-    fig_width = cols * max(2.2, (base_cell_width * T))
+    fig_width = cols * max(2.0, (base_cell_width * T))
     fig_height = rows * cell_height
     fig, axs = plt.subplots(
         rows, cols, figsize=(fig_width, fig_height), squeeze=False
     )
 
     for i, (var, psd_mse_per_var) in enumerate(psd_mse_all_vars.items()):
-        log_mse = np.log1p(psd_mse_per_var).T.flatten()
+        if relative_rmse:
+            # If relative RMSE, we don't take the log of 1 + MSE.
+            metric = psd_mse_per_var.T.flatten()
+            metric_name = "Relative RMSE"
+        else:
+            metric = np.log1p(psd_mse_per_var).T.flatten()
+            metric_name = "Log(1 + PSD MSE)"
 
         df = pd.DataFrame(
             {
-                "Log(1 + PSD MSE)": log_mse.astype("float32"),
+                metric_name: metric.astype("float32"),
                 "Wavenumber": wavenumbers.astype("int32"),
                 "Lead Time (h)": lead_times.astype("int32"),
             }
@@ -58,7 +65,7 @@ def plot_power_spectrum_heatmaps_per_var(
         pivot_table = df.pivot(
             index="Wavenumber",
             columns="Lead Time (h)",
-            values="Log(1 + PSD MSE)",
+            values=metric_name,
         )
 
         ax = axs[i // cols][i % cols]
@@ -73,17 +80,11 @@ def plot_power_spectrum_heatmaps_per_var(
         ax.set_title(var, fontsize=7)
 
         ax.set_xlabel("Lead Time (h)", fontsize=7)
-        ax.set_ylabel("")
+        ax.set_ylabel("Wavenumber", fontsize=7)
 
     # Remove extra subplots
     for idx in range(num_vars, rows * cols):
         fig.delaxes(axs[idx // cols][idx % cols])
-
-    fig.supylabel("Wavenumber", x=-0.001)
-    fig.suptitle(
-        "Log(1 + PSD MSE) vs. Wavenumber and Lead Time (All Variables)",
-        y=1.001,
-    )
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
@@ -91,6 +92,7 @@ def plot_power_spectrum_heatmaps_per_var(
 
 def filter_validation_metrics(
     validation_metrics: Dict[str, npt.NDArray[np.float32]],
+    relative_rmse: bool = False,
 ) -> Dict[str, npt.NDArray[np.float32]]:
     """
     Filter validation metrics to get only the PSD MSE.
@@ -103,7 +105,9 @@ def filter_validation_metrics(
     """
     psd_mse_dict = {}
     for key, value in validation_metrics.items():
-        if "val/power_spectrum_mse" in key:
+        if not relative_rmse and "val/power_spectrum_mse" in key:
+            psd_mse_dict[key] = value
+        elif relative_rmse and "val/psd_relative_rmse" in key:
             psd_mse_dict[key] = value
     return psd_mse_dict
 
@@ -127,27 +131,46 @@ def main(
 
     # Create path for saving PSD MSE.
     psd_mse_dir = os.path.join(
-        results_path, experiment_name, "power_spectrum_mse"
+        results_path, experiment_name, "power_spectrum_metrics"
     )
 
     os.makedirs(psd_mse_dir, exist_ok=True)
+
+    # Load metrics
+    validation_metrics = load_metrics(experiment_metrics_path)
+
+    time_resolution = int(validation_metrics["val/temporal_resolution"].item())
 
     save_path = os.path.join(
         psd_mse_dir,
         f"psd_mse_{checkpoint_name}_rollout_{rollout_steps}.png",
     )
 
-    # Load metrics
-    validation_metrics = load_metrics(experiment_metrics_path)
+    psd_mse_dict = filter_validation_metrics(
+        validation_metrics, relative_rmse=False
+    )
 
-    time_resolution = int(validation_metrics["val/temporal_resolution"].item())
-    psd_mse_dict = filter_validation_metrics(validation_metrics)
-
-    # Save score card.
     plot_power_spectrum_heatmaps_per_var(
         psd_mse_all_vars=psd_mse_dict,
         save_path=save_path,
         time_resolution=time_resolution,
+        relative_rmse=False,
+    )
+
+    save_path = os.path.join(
+        psd_mse_dir,
+        f"psd_relative_rmse_{checkpoint_name}_rollout_{rollout_steps}.png",
+    )
+
+    psd_rrmse_dict = filter_validation_metrics(
+        validation_metrics, relative_rmse=True
+    )
+
+    plot_power_spectrum_heatmaps_per_var(
+        psd_mse_all_vars=psd_rrmse_dict,
+        save_path=save_path,
+        time_resolution=time_resolution,
+        relative_rmse=True,
     )
 
 

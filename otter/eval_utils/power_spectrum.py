@@ -2,16 +2,14 @@ import torch
 
 from otter.models.distributions import Delta, Gaussian
 
-from typing import (
-    Union,
-)
+from typing import Union, Tuple
 
 DistributionWithMean = Union[Delta, Gaussian]
 
 
 def _power_spectrum_density_mse(
     pred: torch.Tensor, trg: torch.Tensor
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Compute 1D PSD for a batch of 2D tensors.
     """
@@ -36,15 +34,23 @@ def _power_spectrum_density_mse(
     y = torch.arange(H, device=device).reshape(-1, 1)
     x = torch.arange(W, device=device).reshape(1, -1)
     cy, cx = H // 2, W // 2
+
     r = torch.sqrt((x - cx) ** 2 + (y - cy) ** 2)
     r = r.round().long()
     r_max = int(r.max().item())
 
+    # Nyquist frequency indicates the maximum radius
+    # where frequences are defined
+    r_nyquist_freq = int(min(H, W) / 2)
+
     # Flatten the radius map
     r_flat = r.flatten().unsqueeze(0).repeat(B, 1)
     psd_mse_flat = psd_mse.reshape(B, -1)
+    psd_trg_flat = psd_trg.reshape(B, -1)
 
     psd_1d = torch.zeros(B, r_max + 1, dtype=torch.float32, device=device)
+    psd_trg_1d = torch.zeros(B, r_max + 1, dtype=torch.float32, device=device)
+
     counts = torch.zeros(B, r_max + 1, dtype=torch.float32, device=device)
 
     counts.scatter_add_(
@@ -58,7 +64,14 @@ def _power_spectrum_density_mse(
 
     psd_1d /= counts
 
-    return psd_1d
+    psd_trg_1d.scatter_add_(
+        dim=1,
+        index=r_flat,
+        src=psd_trg_flat,
+    )
+    psd_trg_1d /= counts
+
+    return psd_1d[:, : r_nyquist_freq + 1], psd_trg_1d[:, : r_nyquist_freq + 1]
 
 
 def _batch_tensor(input: torch.Tensor) -> torch.Tensor:
@@ -82,7 +95,7 @@ def _batch_tensor(input: torch.Tensor) -> torch.Tensor:
 def power_spectrum_density_mse(
     trg: torch.Tensor,  # (batch, lat, lon, time_idx, var_and_level)
     prd_dist: DistributionWithMean,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # Only compute the PSD for the latest scale
     pred = prd_dist.mean[
         ..., -1, :
@@ -93,10 +106,9 @@ def power_spectrum_density_mse(
     pred_batched = _batch_tensor(pred)  # (batch * time * var, lat, lon)
     trg_batched = _batch_tensor(trg)  # (batch * time * var, lat, lon)
 
-    psd_mse = (
-        _power_spectrum_density_mse(pred_batched, trg_batched)
-        .reshape(B, T, V, -1)
-        .mean(dim=0)
-    )  # (time_idx, var_and_level, r_max)
+    psd_mse, psd_trg = _power_spectrum_density_mse(pred_batched, trg_batched)
 
-    return psd_mse
+    psd_mse = psd_mse.reshape(B, T, V, -1).mean(dim=0)
+    psd_trg = psd_trg.reshape(B, T, V, -1).mean(dim=0)
+
+    return psd_mse, psd_trg

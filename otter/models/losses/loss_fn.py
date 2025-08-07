@@ -168,7 +168,7 @@ def gather_array_losses(
 
     assert array_losses.ndim == 3, (
         "array_losses should be a 3D tensor of shape "
-        "(time, scale, var_and_level), but got shape "
+        "(time, var_and_level, loss_dim), but got shape "
         f"{array_losses.shape}"
     )
 
