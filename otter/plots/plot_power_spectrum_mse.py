@@ -36,10 +36,10 @@ def plot_power_spectrum_heatmaps_per_var(
     cols = 8
     rows = (num_vars + cols - 1) // cols
 
-    base_cell_width = 0.5  # width per lead time step (tune this)
+    base_cell_width = 0.3  # width per lead time step (tune this)
     cell_height = 4.0  # fixed height per row
 
-    fig_width = cols * max(2.2, (base_cell_width * T))
+    fig_width = cols * max(2.0, (base_cell_width * T))
     fig_height = rows * cell_height
     fig, axs = plt.subplots(
         rows, cols, figsize=(fig_width, fig_height), squeeze=False
@@ -80,17 +80,11 @@ def plot_power_spectrum_heatmaps_per_var(
         ax.set_title(var, fontsize=7)
 
         ax.set_xlabel("Lead Time (h)", fontsize=7)
-        ax.set_ylabel("")
+        ax.set_ylabel("Wavenumber", fontsize=7)
 
     # Remove extra subplots
     for idx in range(num_vars, rows * cols):
         fig.delaxes(axs[idx // cols][idx % cols])
-
-    fig.supylabel("Wavenumber", x=-0.001)
-    fig.suptitle(
-        f"{metric_name} vs. Wavenumber and Lead Time (All Variables)",
-        y=1.001,
-    )
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
