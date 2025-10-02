@@ -116,7 +116,9 @@ def train_step(
 
     scaler.unscale_(optimizer)
 
-    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        model.parameters(), clip_grad_norm
+    )
 
     w.timed("scaler.step", scaler.step, optimizer)
     w.timed("scaler.update", scaler.update)
@@ -128,6 +130,7 @@ def train_step(
     current_lr = lr_scheduler.get_last_lr()[0]
     w.log({"misc/learning_rate": current_lr})
     w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
+    w.log({"misc/grad_norm": grad_norm})
 
 
 def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
@@ -263,7 +266,7 @@ def run_validation_epoch(
 
                 psd_mean_mse_per_batch_per_var = gather_array_losses(
                     array_losses=psd_mean_mse_per_batch,
-                    trg_variables_and_levels=model.trg_variables_and_levels,
+                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
                 )
                 metrics_array["power_spectrum_mse"].append(
                     psd_mean_mse_per_batch_per_var

@@ -6,6 +6,7 @@ from typing import (
 )
 
 import torch
+from natten import NeighborhoodAttention2D  # type: ignore
 from torch import nn
 
 from otter.models.architectures.attention import EfficientMultiHeadAttention
@@ -320,6 +321,61 @@ class SwinTransformerBlock(torch.nn.Module):
         return x, load_balancing_losses_list
 
 
+class NattenTransformerBlock(torch.nn.Module):
+    def __init__(
+        self,
+        token_dim: int,
+        feedforward_network: Callable[[int, int], nn.Module],
+        num_heads: int,
+        window_size: int,
+        dropout_rate: float,
+        stride: int = 1,
+    ):
+        super().__init__()
+        # Window size for extracting subimages.
+        self.window_size = window_size
+
+        self.natten = NeighborhoodAttention2D(
+            embed_dim=token_dim,
+            num_heads=num_heads,
+            kernel_size=window_size,
+            stride=stride,
+            proj_drop=dropout_rate,
+            qkv_bias=False,
+        )
+        self.natten2 = NeighborhoodAttention2D(
+            embed_dim=token_dim,
+            num_heads=num_heads,
+            kernel_size=window_size,
+            stride=stride,
+            proj_drop=dropout_rate,
+            qkv_bias=False,
+        )
+
+        self.ffn = feedforward_network(token_dim, token_dim)
+        self.ffn2 = feedforward_network(token_dim, token_dim)
+        self.ln = nn.LayerNorm(token_dim)
+
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, List[LoadBalancingLosses]]:
+        lbls = []
+
+        x = x + self.natten(self.ln(x))
+        x_ffn, load_balancing_losses = self.ffn(self.ln(x))
+        x = x + x_ffn
+        if load_balancing_losses is not None:
+            lbls.append(load_balancing_losses)
+
+        x = x + self.natten2(self.ln(x))
+        x_ffn, load_balancing_losses = self.ffn2(self.ln(x))
+        x = x + x_ffn
+        if load_balancing_losses is not None:
+            lbls.append(load_balancing_losses)
+
+        return x, lbls
+
+
 def make_swin_stage(
     token_dim: int,
     feedforward_network: Callable[[int, int], nn.Module],
@@ -327,6 +383,7 @@ def make_swin_stage(
     num_swin_blocks: int,
     window_size: int,
     dropout_rate: float,
+    use_natten: bool = False,
     use_efficient_attention: bool = True,
 ) -> torch.nn.ModuleList:
     return torch.nn.ModuleList(
@@ -337,6 +394,14 @@ def make_swin_stage(
                 num_heads=num_heads,
                 window_size=window_size,
                 use_efficient_attention=use_efficient_attention,
+                dropout_rate=dropout_rate,
+            )
+            if not use_natten
+            else NattenTransformerBlock(
+                token_dim=token_dim,
+                feedforward_network=feedforward_network,
+                num_heads=num_heads,
+                window_size=window_size,
                 dropout_rate=dropout_rate,
             )
             for _ in range(num_swin_blocks)

@@ -40,6 +40,7 @@ class SwinTransformer(nn.Module):
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_efficient_attention: bool = True,
         use_simple_skip: bool = False,
+        use_natten: bool = False,
     ):
         super().__init__()
 
@@ -77,6 +78,7 @@ class SwinTransformer(nn.Module):
                     window_size=window_size,
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
+                    use_natten=use_natten,
                 )
             )
             patch_downsampling_layers.append(
@@ -96,6 +98,7 @@ class SwinTransformer(nn.Module):
             window_size=window_size,
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
+            use_natten=use_natten,
         )
 
         for num_blocks, (t2, t1) in zip(
@@ -129,6 +132,7 @@ class SwinTransformer(nn.Module):
                     window_size=window_size,
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
+                    use_natten=use_natten,
                 )
             )
 
