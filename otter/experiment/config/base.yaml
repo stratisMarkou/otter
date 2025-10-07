@@ -86,6 +86,7 @@ model:
     num_bottom_blocks: 6
     dropout_rate: ${constants.training.dropout_rate}
     feedforward_network: ${feedforward_network}
+    use_rope: true
     use_simple_skip: false
     pos_embedding:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
@@ -130,7 +131,7 @@ lr_scheduler:
   _target_: otter.experiment.utils.get_linear_lr_scheduler
   _partial_: true
   num_steps: ${constants.training.num_lr_decay_steps}
-  end_factor: 0.02
+  end_factor: 0.01
 constants:
   num_stats: 1
   data:
