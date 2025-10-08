@@ -66,6 +66,7 @@ def test_swin_transformer(
         use_efficient_attention=False,
         feedforward_network=feedforward_network,
         dropout_rate=0.1,
+        drop_path_rate=0.1,
         # Can't do this in test env.
         use_rope=False,
     )
