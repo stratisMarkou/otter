@@ -64,11 +64,12 @@ class SwiGLUMLP(torch.nn.Module):
         self,
         in_features: int,
         output_features: int,
-        hidden_features: int,
+        hidden_ratio: int,
         dropout_rate: float = 0.0,
     ):
         super().__init__()
 
+        hidden_features = in_features * hidden_ratio
         self.w1_w2_proj = torch.nn.Linear(in_features, hidden_features * 2)
         self.w3_proj = torch.nn.Linear(hidden_features, output_features)
         self.dropout = (

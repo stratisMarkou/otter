@@ -54,7 +54,7 @@ inference_scale_scheduler: ${train_scale_scheduler}
 feedforward_network:
   _target_: otter.models.architectures.mlp.SwiGLUMLP
   _partial_: true
-  hidden_features: 4096
+  hidden_ratio: 4
   dropout_rate: ${constants.training.dropout_rate}
 
 model:
