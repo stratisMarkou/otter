@@ -9,6 +9,7 @@ train_dataloader:
   num_workers: ${constants.data.num_workers}
   collate_fn: ${constants.data.collate_fn}
   pin_memory: true
+  persistent_workers: true
   prefetch_factor: ${constants.data.prefetch_factor}
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
@@ -28,6 +29,7 @@ valid_dataloader:
   num_workers: ${constants.data.num_workers}
   collate_fn: ${constants.data.collate_fn}
   pin_memory: true
+  persistent_workers: true
   prefetch_factor: ${constants.data.prefetch_factor}
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
