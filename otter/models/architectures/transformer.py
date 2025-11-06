@@ -38,6 +38,7 @@ class SwinTransformer(nn.Module):
         num_bottom_blocks: int,
         dropout_rate: float,
         drop_path_rate: float,
+        batch_size: int,
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_rope: bool,
@@ -94,6 +95,7 @@ class SwinTransformer(nn.Module):
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
                     drop_path_rate=drop_path_rate,
+                    batch_size=batch_size,
                 )
             )
             patch_downsampling_layers.append(
@@ -114,6 +116,7 @@ class SwinTransformer(nn.Module):
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
             drop_path_rate=drop_path_rate,
+            batch_size=batch_size,
         )
 
         for num_blocks, (t2, t1) in zip(
@@ -148,6 +151,7 @@ class SwinTransformer(nn.Module):
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
                     drop_path_rate=drop_path_rate,
+                    batch_size=batch_size,
                 )
             )
 

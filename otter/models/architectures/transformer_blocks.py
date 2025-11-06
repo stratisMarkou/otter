@@ -186,6 +186,7 @@ class TransformerBlock(nn.Module):
         num_heads: int,
         dropout_rate: float,
         drop_path_rate: float,
+        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -213,7 +214,7 @@ class TransformerBlock(nn.Module):
             )
             self.mhsa = lambda x, _: (self.mha_layer(x, x, x)[0])
 
-        self.drop_path = DropPath(drop_path_rate)
+        self.drop_path = DropPath(drop_path_rate, batch_size=batch_size)
 
         self.ffn = feedforward_network(token_dim, token_dim)
 
@@ -234,8 +235,9 @@ class TransformerBlock(nn.Module):
             output tensor of shape (B, N, D)
         """
         x = x + self.drop_path(self.mhsa(self.ln1(x), freq_cis))
+
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
-        x = x + x_ffn
+        x = x + self.drop_path(x_ffn)
 
         return x, load_balancing_losses
 
@@ -249,6 +251,7 @@ class SwinTransformerBlock(torch.nn.Module):
         window_size: int,
         dropout_rate: float,
         drop_path_rate: float,
+        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -261,6 +264,7 @@ class SwinTransformerBlock(torch.nn.Module):
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
             drop_path_rate=drop_path_rate,
+            batch_size=batch_size,
         )
 
         # Transformer block applied after the shift operation.
@@ -271,6 +275,7 @@ class SwinTransformerBlock(torch.nn.Module):
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
             drop_path_rate=drop_path_rate,
+            batch_size=batch_size,
         )
 
         # Window size for extracting subimages.
@@ -340,6 +345,7 @@ def make_swin_stage(
     window_size: int,
     dropout_rate: float,
     drop_path_rate: float,
+    batch_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.ModuleList:
     return torch.nn.ModuleList(
@@ -352,6 +358,7 @@ def make_swin_stage(
                 use_efficient_attention=use_efficient_attention,
                 dropout_rate=dropout_rate,
                 drop_path_rate=drop_path_rate,
+                batch_size=batch_size,
             )
             for _ in range(num_swin_blocks)
         ]
