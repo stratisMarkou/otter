@@ -7,4 +7,4 @@ constants:
 
 data_source:
   _target_: otter.data.utils.open_memmap_as_labelled_array
-  path: /scratches/richardson_2/otter_data/era5_240x121_single_array_float32
+  path: /scratch/otter_data/era5_240x121_single_array_float32
