@@ -368,6 +368,10 @@ def train_loop(
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     clip_grad_norm = experiment.constants.training.clip_grad_norm
 
+    experiment.model.backbone_network = torch.compile(
+        experiment.model.backbone_network
+    )
+
     log_num_params(experiment.model)
 
     for epoch in range(start_epoch, experiment.constants.training.epochs):
