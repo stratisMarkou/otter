@@ -9,7 +9,6 @@ import torch
 from torch import nn
 
 from otter.models.architectures.attention import EfficientMultiHeadAttention
-from otter.models.architectures.drop_path import DropPath
 from otter.models.architectures.moe import LoadBalancingLosses
 
 
@@ -214,8 +213,7 @@ class TransformerBlock(nn.Module):
             )
             self.mhsa = lambda x, _: (self.mha_layer(x, x, x)[0])
 
-        self.drop_path = DropPath(drop_path_rate, batch_size=batch_size)
-
+        self.drop_path_rate = drop_path_rate
         self.ffn = feedforward_network(token_dim, token_dim)
 
         self.ln1 = nn.LayerNorm(token_dim)
@@ -234,10 +232,14 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
-        x = x + self.drop_path(self.mhsa(self.ln1(x), freq_cis))
+        # Do drop-path at the block level to skip computation during training.
+        if not self.training and torch.rand(1).item() < self.drop_path_rate:
+            return x, None
+
+        x = x + self.mhsa(self.ln1(x), freq_cis)
 
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
-        x = x + self.drop_path(x_ffn)
+        x = x + x_ffn
 
         return x, load_balancing_losses
 
