@@ -81,7 +81,7 @@ model:
     output_dimension: ${constants.data.num_output_channels}
     window_size: 15
     num_heads: 16
-    num_blocks_per_stage: [1, 5]
+    num_blocks_per_stage: [1, 3]
     num_bottom_blocks: 1
     dropout_rate: ${constants.training.dropout_rate}
     drop_path_rate: ${constants.training.drop_path_rate}
