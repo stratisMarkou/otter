@@ -244,6 +244,7 @@ class TransformerBlock(nn.Module):
         return x, load_balancing_losses
 
 
+@torch.compile()
 class SwinTransformerBlock(torch.nn.Module):
     def __init__(
         self,
