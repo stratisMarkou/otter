@@ -11,7 +11,7 @@ bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
 ```
 Then clone the repo, go to its root and create a conda environment.
 ```bash
-git clone git@github.com:stratisMarkou/otter.git
+git clone git@github.com:jonas-scholz123/otter.git
 cd otter
 conda env create -n otter -f env.yaml
 ```

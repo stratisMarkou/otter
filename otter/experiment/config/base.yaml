@@ -21,6 +21,7 @@ train_dataloader:
     ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
     trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
 
+# Keep this subsampling factor fixed for backward compatibility.
 valid_dataloader:
   _target_: torch.utils.data.DataLoader
   batch_size: ${constants.data.batch_size}
@@ -40,6 +41,30 @@ valid_dataloader:
     ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
     trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
     task_sub_sampling_factor: ${constants.data.val_task_subsampling_factor}
+
+test_dataloader:
+  _target_: torch.utils.data.DataLoader
+  batch_size: ${constants.data.batch_size}
+  shuffle: false
+  num_workers: ${constants.data.num_workers}
+  collate_fn: ${constants.data.collate_fn}
+  pin_memory: true
+  prefetch_factor: ${constants.data.prefetch_factor}
+  dataset:
+    _target_: otter.data.datasets.make_gridded_weather_task
+    data_source: ${data_source}
+    # We want to test on all 00:00 and 12:00 UTC times in 2020.
+    # Since we have 4 context frames, we need to start at 06:00 UTC on Jan 1, 2020.
+    # Then, the first zero time will be Jan 2, 00:00 UTC, with context at
+    # Jan 1, 06:00, 12:00, 18:00, and Jan 2, 00:00 UTC.
+    start_date: "2020-01-01 06:00:00"
+    task_sub_sampling_factor: 2
+    end_date: ${constants.data.valid_end_date}
+    num_context_frames: ${constants.data.num_context_frames}
+    num_target_frames: ${constants.data.valid_num_target_frames}
+    temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
+    ctx_variables_to_exclude: ${constants.data.ctx_variables_to_remove}
+    trg_variables_to_exclude: ${constants.data.trg_variables_to_remove}
 
 train_scale_scheduler:
   _target_: otter.models.architectures.schedulers.ScaleScheduler

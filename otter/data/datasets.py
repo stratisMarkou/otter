@@ -209,6 +209,14 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
             trg=trg_tensor,
         )
 
+    def get_zero_times(self) -> List[np.datetime64]:
+        zero_times = []
+        for idx in range(len(self)):
+            idx = idx * self.task_sub_sampling_factor
+            zero_time = self.first_zero_time + idx * BASE_TEMPORAL_RESOLUTION
+            zero_times.append(zero_time)
+        return zero_times
+
 
 def collate_fn(batch: List[ForecastingSample]) -> ForecastingSample:
     zero_time = np.array([example.zero_time for example in batch])
