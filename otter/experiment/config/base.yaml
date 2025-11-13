@@ -9,6 +9,7 @@ train_dataloader:
   num_workers: ${constants.data.num_workers}
   collate_fn: ${constants.data.collate_fn}
   pin_memory: true
+  persistent_workers: true
   prefetch_factor: ${constants.data.prefetch_factor}
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
@@ -28,6 +29,7 @@ valid_dataloader:
   num_workers: ${constants.data.num_workers}
   collate_fn: ${constants.data.collate_fn}
   pin_memory: true
+  persistent_workers: true
   prefetch_factor: ${constants.data.prefetch_factor}
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
@@ -54,7 +56,9 @@ inference_scale_scheduler: ${train_scale_scheduler}
 feedforward_network:
   _target_: otter.models.architectures.mlp.SwiGLUMLP
   _partial_: true
-  hidden_ratio: 4
+  # 8/3, accounting for the increased number of parameters in SwiGLU compared to
+  # a standard MLP.
+  hidden_ratio: 2.66666667
   dropout_rate: ${constants.training.dropout_rate}
 
 model:
@@ -77,13 +81,15 @@ model:
     width: 256
     patch_size: 2
     patchify_kernel_size: [3, 2] # [height, width] kernel size for (un)patchification.
-    token_dimensions: [2048, 2048]
+    token_dimensions: [2048, 2048, 2048]
     output_dimension: ${constants.data.num_output_channels}
     window_size: 15
-    num_heads: 32
-    num_blocks_per_stage: [1]
-    num_bottom_blocks: 6
+    num_heads: 16
+    num_blocks_per_stage: [1, 4]
+    num_bottom_blocks: 1
     dropout_rate: ${constants.training.dropout_rate}
+    drop_path_rate: ${constants.training.drop_path_rate}
+    batch_size: ${constants.data.batch_size}
     feedforward_network: ${feedforward_network}
     use_rope: true
     use_simple_skip: false
@@ -163,7 +169,8 @@ constants:
     betas: [0.9, 0.95] # AdamW default values.
     weight_decay: 0.1
     dropout_rate: 0.1
-    epochs: 40
+    drop_path_rate: 0.1
+    epochs: 35
     num_lr_decay_steps:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: 35
@@ -174,7 +181,7 @@ constants:
     clip_grad_norm: 10.0
   load_weights_from_experiment: null
   save_best_checkpoint: true
-  save_checkpoint_every: 1_000
+  save_checkpoint_every: 5_000
   save_persistent_checkpoint_every: 200_000
   log_code: True
 
