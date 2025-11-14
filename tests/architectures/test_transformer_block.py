@@ -49,6 +49,7 @@ def test_extract_and_combine_windows(
         (64, 128, 4, 16, 128, 256),
     ],
 )
+@torch.compiler.disable()  # type: ignore
 def test_transformer_block(
     token_dim: int,
     mlp_num_hidden: int,
@@ -72,6 +73,8 @@ def test_transformer_block(
         # runnable in the test environment when we don't have a GPU.
         use_efficient_attention=False,
         dropout_rate=0.1,
+        drop_path_rate=0.1,
+        batch_size=batch_dim,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y, _ = transformer_block(x)

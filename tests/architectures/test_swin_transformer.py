@@ -15,41 +15,32 @@ from otter.models.architectures.transformer import SwinTransformer
 # Tests that the forward pass of the transformer block runs without error for
 # different token dims, input / output dims and number of blocks per stage.
 @pytest.mark.parametrize(
-    "grid_width, grid_height, grid_channel_dim, token_dim, patch_size, "
-    "window_size, num_blocks_per_stage, num_bottom_blocks, pos_embedding",
+    "grid_channel_dim, token_dim, window_size, num_blocks_per_stage, num_bottom_blocks, pos_embedding",
     [
-        (64, 32, 7, 12, 2, 2, [1, 1], 4, PositionEmbedding(12, 16, 32)),
-        (64, 32, 7, 12, 2, 4, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
-        (64, 32, 9, 16, 4, 2, [1, 1], 4, PositionEmbedding(16, 8, 16)),
-        (
-            128,
-            64,
-            9,
-            16,
-            4,
-            4,
-            [2, 2],
-            8,
-            SpatialEmbedding(64, 0.1, 720, 16),
-        ),
-        (64, 32, 7, 12, 2, 2, [1, 1], 4, PositionEmbedding(12, 16, 32)),
+        (7, 12, 3, [1, 1], 4, PositionEmbedding(12, 60, 120)),
+        (7, 12, 3, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
+        (9, 16, 5, [1, 1], 4, PositionEmbedding(16, 60, 120)),
+        (9, 16, 5, [2, 2], 8, SpatialEmbedding(64, 0.1, 720, 16)),
+        (7, 12, 15, [1, 1], 4, PositionEmbedding(12, 60, 120)),
     ],
 )
+@torch.compiler.disable()  # type: ignore
 def test_swin_transformer(
-    grid_width: int,
-    grid_height: int,
     grid_channel_dim: int,
     token_dim: int,
-    patch_size: int,
     window_size: int,
     num_blocks_per_stage: List[int],
     num_bottom_blocks: int,
     pos_embedding: PositionEmbedding | SpatialEmbedding,
 ) -> None:
+    grid_width = 240
+    grid_height = 121
     batch_dim = 2
     mlp_num_hidden = 32
     num_mlp_layers = 2
     num_heads = 4
+    patch_size = 2
+    patchify_kernel_size = (3, 2)
 
     feedforward_network = partial(
         MLP,
@@ -62,6 +53,7 @@ def test_swin_transformer(
         height=grid_height,
         width=grid_width,
         patch_size=patch_size,
+        patchify_kernel_size=patchify_kernel_size,
         token_dimensions=token_dim,
         output_dimension=grid_channel_dim,
         window_size=window_size,
@@ -75,6 +67,10 @@ def test_swin_transformer(
         use_efficient_attention=False,
         feedforward_network=feedforward_network,
         dropout_rate=0.1,
+        drop_path_rate=0.1,
+        # Can't do this in test env.
+        use_rope=False,
+        batch_size=batch_dim,
     )
 
     # Create a random input tensor

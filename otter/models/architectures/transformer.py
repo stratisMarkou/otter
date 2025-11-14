@@ -13,12 +13,12 @@ from otter.models.architectures.embeddings import (
     SpatialEmbedding,
 )
 from otter.models.architectures.moe import LoadBalancingLosses
+from otter.models.architectures.rope import precompute_freqs_cis_2d
 from otter.models.architectures.tokeniser import ImageTokeniser
 from otter.models.architectures.transformer_blocks import make_swin_stage
 from otter.models.architectures.utils import (
     aggregate_load_balancing_losses,
     conv_channel_last,
-    pad_bottom_right,
 )
 
 
@@ -33,11 +33,15 @@ class SwinTransformer(nn.Module):
         height: int,
         width: int,
         patch_size: int,
+        patchify_kernel_size: tuple[int, int],
         num_blocks_per_stage: Sequence[int],
         num_bottom_blocks: int,
         dropout_rate: float,
+        drop_path_rate: float,
+        batch_size: int,
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
+        use_rope: bool,
         use_efficient_attention: bool = True,
         use_simple_skip: bool = False,
     ):
@@ -53,6 +57,19 @@ class SwinTransformer(nn.Module):
         if isinstance(token_dimensions, int):
             num_stages = len(num_blocks_per_stage)
             token_dimensions = [token_dimensions] * (num_stages + 1)
+
+        head_dim = first_token_dim // num_heads
+
+        if use_rope:
+            freq_cis = precompute_freqs_cis_2d(head_dim, window_size)
+            # Windows are flattened to 1D, so we need to reshape the frequency
+            # tensor to match the flattened window shape.
+            # head_dim // 2 is used because these are complex numbers.
+            freq_cis = freq_cis.reshape(window_size**2, head_dim // 2)
+
+            self.register_buffer("freq_cis", freq_cis)
+        else:
+            self.freq_cis = None
 
         token_in_out_dims = list(
             zip(token_dimensions[:-1], token_dimensions[1:])
@@ -77,6 +94,8 @@ class SwinTransformer(nn.Module):
                     window_size=window_size,
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
+                    drop_path_rate=drop_path_rate,
+                    batch_size=batch_size,
                 )
             )
             patch_downsampling_layers.append(
@@ -96,6 +115,8 @@ class SwinTransformer(nn.Module):
             window_size=window_size,
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
+            drop_path_rate=drop_path_rate,
+            batch_size=batch_size,
         )
 
         for num_blocks, (t2, t1) in zip(
@@ -129,6 +150,8 @@ class SwinTransformer(nn.Module):
                     window_size=window_size,
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
+                    drop_path_rate=drop_path_rate,
+                    batch_size=batch_size,
                 )
             )
 
@@ -148,6 +171,7 @@ class SwinTransformer(nn.Module):
             in_channels=in_channels,
             token_dimension=first_token_dim,
             patch_size=patch_size,
+            kernel_size=patchify_kernel_size,
         )
 
         self.embedding = pos_embedding
@@ -156,7 +180,7 @@ class SwinTransformer(nn.Module):
             in_channels=first_token_dim,
             out_channels=output_dimension,
             stride=(patch_size, patch_size),
-            kernel_size=(patch_size, patch_size),
+            kernel_size=patchify_kernel_size,
         )
 
         self.width = width
@@ -174,13 +198,6 @@ class SwinTransformer(nn.Module):
         Returns:
             output logits tensor of shape (B, H, W, C)
         """
-        _, original_height, original_width, _ = x.shape
-
-        # Pad input to target dimensions
-        x = pad_bottom_right(
-            x, target_height=self.height, target_width=self.width
-        )
-
         x = self.tokeniser(x)
         x = self.embedding(x)
 
@@ -192,13 +209,17 @@ class SwinTransformer(nn.Module):
             self.down_swin_stages,
         ):
             for swin_transformer_block in down_swin_stage:
-                x, load_balancing_losses_per_block = swin_transformer_block(x)
+                x, load_balancing_losses_per_block = swin_transformer_block(
+                    x, freq_cis=self.freq_cis
+                )
                 load_balancing_losses_list += load_balancing_losses_per_block
             skips.append(x)
             x = downsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
 
         for swin_transformer_block in self.bottom_swin_stage:
-            x, load_balancing_losses_per_block = swin_transformer_block(x)
+            x, load_balancing_losses_per_block = swin_transformer_block(
+                x, freq_cis=self.freq_cis
+            )
             load_balancing_losses_list += load_balancing_losses_per_block
 
         if self.use_simple_skip:
@@ -212,7 +233,7 @@ class SwinTransformer(nn.Module):
 
                 for swin_transformer_block in up_swin_stage:
                     x, load_balancing_losses_per_block = (
-                        swin_transformer_block(x)
+                        swin_transformer_block(x, freq_cis=self.freq_cis)
                     )
                     load_balancing_losses_list += (
                         load_balancing_losses_per_block
@@ -231,15 +252,12 @@ class SwinTransformer(nn.Module):
 
                 for swin_transformer_block in up_swin_stage:
                     x, load_balancing_losses_per_block = (
-                        swin_transformer_block(x)
+                        swin_transformer_block(x, freq_cis=self.freq_cis)
                     )
                     load_balancing_losses_list += (
                         load_balancing_losses_per_block
                     )
 
         x = conv_channel_last(self.final_conv, x)
-
-        # Crop the padding to restore original dimensions
-        x = x[:, :original_height, :original_width, :]
 
         return x, aggregate_load_balancing_losses(load_balancing_losses_list)

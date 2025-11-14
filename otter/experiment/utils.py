@@ -26,9 +26,8 @@ from omegaconf import (
     OmegaConf,
 )
 
-from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
-
 import wandb
+from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 Experiment = DictConfig
 

@@ -11,6 +11,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.utils.checkpoint as checkpoint
 import xarray as xr
 
 from otter.data.datasets import (  # type: ignore
@@ -32,7 +33,6 @@ from otter.models.distributions import (
     Distribution,
     product_distribution,
 )
-import torch.utils.checkpoint as checkpoint
 
 
 def get_trg_vars_and_levels(
@@ -155,6 +155,9 @@ class MultiscaleModel(torch.nn.Module):
         self.backbone_network = backbone_network
         self.time_embedding = time_embedding
         self.temporal_resolution_hours = temporal_resolution_hours
+        self.temporal_resolution_timedelta = np.timedelta64(
+            temporal_resolution_hours, "h"
+        )
 
         self.ctx_variables_and_levels = ctx_variables_and_levels
         self.trg_variables_and_levels = trg_variables_and_levels
@@ -432,7 +435,7 @@ class MultiscaleModel(torch.nn.Module):
         for i in range(num_rollout_steps):
             # Choose the downsampled target slice for the current time step.
             downsampled_slice = downsampled_trg[..., i : i + 1, :]
-
+            new_zero_time = zero_time + i * self.temporal_resolution_timedelta
             if i < grad_ckpt_start_timestep:
                 (
                     prd_dist,
@@ -441,8 +444,7 @@ class MultiscaleModel(torch.nn.Module):
                 ) = self.multiscale_forward(
                     ctx=ctx,
                     downsampled_trg=downsampled_slice,
-                    zero_time=zero_time
-                    + np.timedelta64(i * self.temporal_resolution_hours, "h"),
+                    zero_time=new_zero_time,
                     scales=scales,
                 )  # (batch, lat, lon, scale, trg_var_and_level)
             else:
@@ -456,10 +458,7 @@ class MultiscaleModel(torch.nn.Module):
                         self.multiscale_forward,
                         ctx,
                         downsampled_slice,
-                        zero_time
-                        + np.timedelta64(
-                            i * self.temporal_resolution_hours, "h"
-                        ),
+                        new_zero_time,
                         scales,
                         cpu_rng_state=cpu_rng_state,
                         cuda_rng_state=cuda_rng_state,

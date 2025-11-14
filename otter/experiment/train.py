@@ -33,8 +33,8 @@ from otter.experiment.utils import (
     load_model_weights_from_experiment,
 )
 from otter.models.architectures.schedulers import (
-    ScaleScheduler,
     ForecastHorizonScheduler,
+    ScaleScheduler,
 )
 from otter.models.losses.loss_fn import (
     LossInfo,
@@ -271,7 +271,7 @@ def run_validation_epoch(
             num_rollout_steps = np.max(
                 (
                     preprocessed_batch.trg_timedelta_hours
-                    // model.temporal_resolution_hours
+                    // model.temporal_resolution_hours  # type: ignore
                 )
             )
             prd_dist, load_balancing_losses = model(
@@ -312,7 +312,7 @@ def run_validation_epoch(
 
                 psd_mean_mse_per_batch_per_var = gather_array_losses(
                     array_losses=psd_mean_mse_per_batch.cpu(),
-                    trg_variables_and_levels=model.trg_variables_and_levels,
+                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
                 )
                 metrics_array["power_spectrum_mse"].append(
                     psd_mean_mse_per_batch_per_var
@@ -320,7 +320,7 @@ def run_validation_epoch(
 
                 psd_trg_per_batch_per_var = gather_array_losses(
                     array_losses=psd_trg_per_batch.cpu(),
-                    trg_variables_and_levels=model.trg_variables_and_levels,
+                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
                 )
                 metrics_array["power_spectrum_target"].append(
                     psd_trg_per_batch_per_var
