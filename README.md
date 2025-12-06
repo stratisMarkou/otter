@@ -1,21 +1,19 @@
 # Otter
 
 ## Getting started
-The project uses conda to manage dependencies.
-If you haven't installed conda you can do so by
+The project uses uv to manage dependencies.
+If you haven't installed uv you can do so by
 ```bash
-mkdir -p ~/miniconda3
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
-    -O ~/miniconda3/miniconda.sh
-bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-Then clone the repo, go to its root and create a conda environment.
+Then clone the repo, go to its root, create a virtual environment and sync dependencies.
 ```bash
 git clone git@github.com:stratisMarkou/otter.git
 cd otter
-conda env create -n otter -f env.yaml
+uv venv
+source .venv/bin/activate
+uv sync
 ```
-The environment is built each time from scratch to run tests, so the environment yaml is always up to date.
 Last, if you want to commit code you probably want to install pre-commit hooks, to run pre-commit checks before each commit.
 ```bash
 pre-commit install
@@ -83,9 +81,8 @@ To compare to Arches Weather M model, use `_baselines/arches_weather/validation/
 
 To launch a training run on HPC, from the repo root, run:
 ```bash
-# ENV_PATH indicates the path to otter venv, default is set to otter.
 # submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
-ENV_PATH="otter" sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
+sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
 ```
 
 
