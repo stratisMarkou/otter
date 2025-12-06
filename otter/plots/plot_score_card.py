@@ -1,5 +1,6 @@
 import argparse
 import os
+import pickle
 from typing import (
     Any,
     Dict,
@@ -8,10 +9,9 @@ from typing import (
 )
 
 import matplotlib.pyplot as plt
-import pandas as pd
-import pickle
-import seaborn as sns  # type: ignore
 import numpy as np
+import pandas as pd
+import seaborn as sns  # type: ignore
 
 # Map between variables names and their abbreviation.
 VAR_MAP = {
@@ -109,7 +109,7 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
 
     df = df[df["Scale"] == min_scale]
     df = df.drop(columns=["Scale"])
-    return df
+    return df  # type: ignore
 
 
 def dataframe_intersection_and_rmse(

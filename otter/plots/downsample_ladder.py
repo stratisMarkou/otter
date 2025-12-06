@@ -11,8 +11,8 @@ from otter.experiment.downsample import downsample
 
 def make_downsample_ladder_plot() -> plt.Figure:  # type: ignore
     url = "https://picsum.photos/256"  # Random image
-    image = Image.open(requests.get(url, stream=True).raw)
-    image2 = Image.open(requests.get(url, stream=True).raw)
+    image = Image.open(requests.get(url, stream=True).raw)  # type: ignore
+    image2 = Image.open(requests.get(url, stream=True).raw)  # type: ignore
 
     # Join 2 images together side-by-side, to get the lat > lon situation.
     joined_image = Image.new("RGB", (image.width * 2, image.height))
