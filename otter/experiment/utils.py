@@ -460,7 +460,7 @@ class CombinedOptimizer(torch.optim.Optimizer):
             pg for opt in optimizers for pg in opt.param_groups
         ]
 
-    def step(self, closure: None = None) -> None:  # type: ignore
+    def step(self) -> None:  # type: ignore
         for opt in self.optimizers:
             opt.step()
 
@@ -507,7 +507,10 @@ def get_muon_optimizer(
     num_muon_params = sum(p.numel() for p in muon_params)
     num_adamw_params = sum(p.numel() for p in adamw_params)
     logging.info(
-        f"Using Muon optimizer for {num_muon_params / 1e6:.1f}M parameters and AdamW for {num_adamw_params / 1e6:.1f}M parameters."
+        f"Using Muon optimizer for {num_muon_params / 1e6:.1f}M parameters"
+    )
+    logging.info(
+        f"Using AdamW optimizer for {num_adamw_params / 1e6:.1f}M parameters"
     )
 
     opt_muon = torch.optim.Muon(
