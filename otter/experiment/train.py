@@ -166,7 +166,6 @@ def validation_epoch(
     wandb_logger: WandbLogger,
     mixed_precision_dtype: torch.dtype,
 ) -> float:
-    return 0.0
     # Run the validation epoch
     losses, losses_info, _ = run_validation_epoch(
         model=model,
