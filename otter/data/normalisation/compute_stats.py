@@ -100,7 +100,7 @@ class Min(NormalisationStatistic):
         self.sufficient_statistics["min"] = min(
             self.sufficient_statistics["min"],
             x.min(dim=["latitude", "longitude"]),
-        )  # type: ignore
+        )
         return self
 
     def get_stat(self) -> xr.Dataset:
@@ -117,7 +117,7 @@ class Max(NormalisationStatistic):
         self.sufficient_statistics["max"] = max(
             self.sufficient_statistics["max"],
             x.max(dim=["latitude", "longitude"]),
-        )  # type: ignore
+        )
         return self
 
     def get_stat(self) -> xr.Dataset:

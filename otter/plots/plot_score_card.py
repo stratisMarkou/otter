@@ -1,5 +1,6 @@
 import argparse
 import os
+import pickle
 from typing import (
     Any,
     Dict,
@@ -8,10 +9,9 @@ from typing import (
 )
 
 import matplotlib.pyplot as plt
-import pandas as pd
-import pickle
-import seaborn as sns  # type: ignore
 import numpy as np
+import pandas as pd
+import seaborn as sns  # type: ignore
 
 # Map between variables names and their abbreviation.
 VAR_MAP = {
@@ -109,7 +109,7 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
 
     df = df[df["Scale"] == min_scale]
     df = df.drop(columns=["Scale"])
-    return df
+    return df  # type: ignore
 
 
 def dataframe_intersection_and_rmse(
@@ -310,6 +310,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--base_experiment_name",
         type=str,
+        default="arches_weather_M",
         help="Name of the base experiment to evaluate against.",
     )
     parser.add_argument(
@@ -320,6 +321,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--base_rollout_steps",
         type=int,
+        default=40,
         help="Number of rollout steps.",
     )
     parser.add_argument(
@@ -331,20 +333,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--base_checkpoint_name",
         type=str,
-        default=None,
+        default="latest",
         help="Name of the checkpoint for the base experiment.",
     )
     parser.add_argument(
         "--results_path",
         type=str,
         default="./_results",
-        help="Path from where to get the results for experiment (default: ./_results).",
+        help="Path from where to get the results for experiment (default: %(default)).",
     )
     parser.add_argument(
         "--base_results_path",
         type=str,
-        default="./_results",
-        help="Path from where to get the results for base experiment (default: ./_results).",
+        default="./_baselines",
+        help="Path from where to get the results for base experiment (default: %(default)).",
     )
     args = parser.parse_args()
     main(

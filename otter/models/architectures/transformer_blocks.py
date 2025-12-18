@@ -174,7 +174,7 @@ def shift_horizontally_and_vertically(
     """
     if len(x.shape) != 4:
         raise ValueError("Input tensor must have shape (B, H, W, D)")
-    return torch.roll(torch.roll(x, shift, dims=1), shift, dims=2)
+    return torch.roll(x, (shift, shift), dims=(1, 2))
 
 
 class TransformerBlock(nn.Module):
@@ -184,11 +184,15 @@ class TransformerBlock(nn.Module):
         feedforward_network: Callable[[int, int], nn.Module],
         num_heads: int,
         dropout_rate: float,
+        drop_path_rate: float,
+        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
 
-        self.mhsa: Callable[[torch.Tensor], torch.Tensor]
+        self.mhsa: Callable[
+            [torch.Tensor, Optional[torch.Tensor]], torch.Tensor
+        ]
 
         if use_efficient_attention:
             self.efficient_mha_layer = EfficientMultiHeadAttention(
@@ -197,7 +201,9 @@ class TransformerBlock(nn.Module):
                 attn_drop=dropout_rate,
                 proj_drop=dropout_rate,
             )
-            self.mhsa = lambda x: (self.efficient_mha_layer(x, x, x))
+            self.mhsa = lambda x, freq_cis: (
+                self.efficient_mha_layer(x, x, x, freq_cis=freq_cis)
+            )
 
         else:
             self.mha_layer = nn.MultiheadAttention(
@@ -205,8 +211,9 @@ class TransformerBlock(nn.Module):
                 num_heads=num_heads,
                 dropout=dropout_rate,
             )
-            self.mhsa = lambda x: (self.mha_layer(x, x, x)[0])
+            self.mhsa = lambda x, _: (self.mha_layer(x, x, x)[0])
 
+        self.drop_path_rate = drop_path_rate
         self.ffn = feedforward_network(token_dim, token_dim)
 
         self.ln1 = nn.LayerNorm(token_dim)
@@ -215,6 +222,7 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freq_cis: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, Optional[LoadBalancingLosses]]:
         """Apply the transformer block to input tokens `x`.
 
@@ -224,14 +232,19 @@ class TransformerBlock(nn.Module):
         Returns:
             output tensor of shape (B, N, D)
         """
+        # Do drop-path at the block level to skip computation during training.
+        if self.training and torch.rand(1) < self.drop_path_rate:
+            return x, None
 
-        x = x + self.mhsa(self.ln1(x))
+        x = x + self.mhsa(self.ln1(x), freq_cis)
+
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
         x = x + x_ffn
 
         return x, load_balancing_losses
 
 
+@torch.compile()
 class SwinTransformerBlock(torch.nn.Module):
     def __init__(
         self,
@@ -240,6 +253,8 @@ class SwinTransformerBlock(torch.nn.Module):
         num_heads: int,
         window_size: int,
         dropout_rate: float,
+        drop_path_rate: float,
+        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -251,6 +266,8 @@ class SwinTransformerBlock(torch.nn.Module):
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
+            drop_path_rate=drop_path_rate,
+            batch_size=batch_size,
         )
 
         # Transformer block applied after the shift operation.
@@ -260,6 +277,8 @@ class SwinTransformerBlock(torch.nn.Module):
             num_heads=num_heads,
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
+            drop_path_rate=drop_path_rate,
+            batch_size=batch_size,
         )
 
         # Window size for extracting subimages.
@@ -268,6 +287,7 @@ class SwinTransformerBlock(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freq_cis: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, List[LoadBalancingLosses]]:
         """Apply the Swin Transformer block to input tokens `x`.
 
@@ -288,7 +308,7 @@ class SwinTransformerBlock(torch.nn.Module):
             x, S
         )  # (B*H//S*W//S, S**2, D)
         x, load_balancing_losses = self.first_block(
-            x
+            x, freq_cis=freq_cis
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
@@ -306,7 +326,7 @@ class SwinTransformerBlock(torch.nn.Module):
         )  # (B*H//S*W//S, S**2, D)
 
         x, load_balancing_losses = self.second_block(
-            x
+            x, freq_cis=freq_cis
         )  # (B*H//S*W//S, S**2, D)
 
         if load_balancing_losses is not None:
@@ -327,6 +347,8 @@ def make_swin_stage(
     num_swin_blocks: int,
     window_size: int,
     dropout_rate: float,
+    drop_path_rate: float,
+    batch_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.ModuleList:
     return torch.nn.ModuleList(
@@ -338,6 +360,8 @@ def make_swin_stage(
                 window_size=window_size,
                 use_efficient_attention=use_efficient_attention,
                 dropout_rate=dropout_rate,
+                drop_path_rate=drop_path_rate,
+                batch_size=batch_size,
             )
             for _ in range(num_swin_blocks)
         ]

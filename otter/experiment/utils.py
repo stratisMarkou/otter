@@ -6,13 +6,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Iterator,
-    Optional,
-    Sequence,
-)
+from typing import Any, Dict, Iterator, Optional, Sequence
 
 import git
 import hydra
@@ -21,7 +15,6 @@ import xarray as xr
 import yaml
 from hydra import compose
 from hydra.utils import instantiate
-from muon import SingleDeviceMuonWithAuxAdam  # type: ignore
 from omegaconf import (
     DictConfig,
     OmegaConf,
@@ -458,51 +451,82 @@ def get_adamw_optimizer(
     return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
 
 
+class CombinedOptimizer(torch.optim.Optimizer):
+    """A simple wrapper to combine multiple optimizers into one."""
+
+    def __init__(self, optimizers: list[torch.optim.Optimizer]) -> None:
+        self.optimizers = optimizers
+        self.param_groups = [
+            pg for opt in optimizers for pg in opt.param_groups
+        ]
+
+    def step(self, closure: None = None) -> None:  # type: ignore
+        for opt in self.optimizers:
+            opt.step()
+
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        """Resets the gradients of all optimized :class:`torch.Tensor` s."""
+        for opt in self.optimizers:
+            opt.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self) -> Dict[str, Any]:
+        """Returns the state of the optimizer as a :class:`dict`."""
+        return {"optimizers": [opt.state_dict() for opt in self.optimizers]}
+
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        """Loads the optimizer state."""
+        optimizer_states = state_dict["optimizers"]
+        if len(optimizer_states) != len(self.optimizers):
+            raise ValueError(
+                "Loaded state dict contains a different number of optimizers."
+            )
+
+        for opt, sd in zip(self.optimizers, optimizer_states):
+            opt.load_state_dict(sd)
+
+
 def get_muon_optimizer(
     model: torch.nn.Module,
-    muon_lr: float,
-    muon_weight_decay: float,
+    muon_momentum: float,
     adamw_lr: float,
     adamw_betas: tuple[float, float],
     adamw_weight_decay: float,
-) -> torch.optim.Optimizer:
+) -> CombinedOptimizer:
     """Get a Muon optimizer for the given module."""
-    # Get parameter sets to exclude
-    excluded_params = set(
-        p for p in model.backbone_network.tokeniser.parameters()
-    )
-    excluded_params.update(
-        p for p in model.backbone_network.final_conv.parameters()
-    )
-    hidden_weights = [
-        p
-        for p in model.backbone_network.parameters()
-        if p.ndim >= 2 and p not in excluded_params
-    ]
-    hidden_gains_biases = [
-        p
-        for p in model.backbone_network.parameters()
-        if p.ndim < 2 and p not in excluded_params
-    ]
+    muon_params = []
+    adamw_params = []
 
-    nonhidden_params = list(excluded_params)
-    param_groups = [
-        dict(
-            params=hidden_weights,
-            use_muon=True,
-            lr=muon_lr,
-            weight_decay=muon_weight_decay,
-        ),
-        dict(
-            params=hidden_gains_biases + nonhidden_params,
-            use_muon=False,
-            lr=adamw_lr,
-            betas=adamw_betas,
-            weight_decay=adamw_weight_decay,
-        ),
-    ]
+    for p in model.parameters():
+        if not p.requires_grad:
+            continue
+        if p.ndim == 2:
+            muon_params.append(p)
+        else:
+            adamw_params.append(p)
 
-    return SingleDeviceMuonWithAuxAdam(param_groups)  # type: ignore
+    num_muon_params = sum(p.numel() for p in muon_params)
+    num_adamw_params = sum(p.numel() for p in adamw_params)
+    logging.info(
+        f"Using Muon optimizer for {num_muon_params / 1e6:.1f}M parameters and AdamW for {num_adamw_params / 1e6:.1f}M parameters."
+    )
+
+    opt_muon = torch.optim.Muon(
+        muon_params,
+        lr=adamw_lr,
+        momentum=muon_momentum,
+        weight_decay=adamw_weight_decay,
+        # Should allow us to use AdamW LR and weight decay.
+        adjust_lr_fn="match_rms_adamw",
+    )
+
+    opt_adamw = torch.optim.AdamW(
+        adamw_params,
+        lr=adamw_lr,
+        betas=adamw_betas,
+        weight_decay=adamw_weight_decay,
+    )
+
+    return CombinedOptimizer([opt_muon, opt_adamw])
 
 
 def get_cosine_lr_scheduler(
