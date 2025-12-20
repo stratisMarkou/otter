@@ -72,14 +72,14 @@ class Gaussian(Distribution):
             unconstrained_stddev
         )  # torch.ones_like(softplus(unconstrained_stddev) + eps)
         self.stddev = torch.clamp_min(self.stddev, min_std)
-        self.dist = dist.Normal(self.mean, self.stddev)
+        self.dist = dist.Normal(self.mean, self.stddev)  # type: ignore[no-untyped-call]
         self.min_std = min_std
 
     def sample(self) -> torch.Tensor:
         return self.dist.rsample()
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        log_prob: torch.Tensor = self.dist.log_prob(x)  # type: ignore
+        log_prob: torch.Tensor = self.dist.log_prob(x)  # type: ignore[no-untyped-call]
         return log_prob
 
     @classmethod

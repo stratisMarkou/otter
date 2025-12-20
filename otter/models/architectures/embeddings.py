@@ -1,10 +1,12 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import einops
 import numpy as np
 import numpy.typing as npt
 import torch
 from torch import nn
+
+import otter.models.architectures.spherical_harmonics.spherical_harmonics_ylm as sh_gen
 
 TEMPORAL_EMBEDDING_DEFAULT_MIN_HOUR_SCALE = 3.0
 TEMPORAL_EMBEDDING_DEFAULT_MAX_HOUR_SCALE = 8760.0
@@ -160,4 +162,133 @@ class SpatialEmbedding(FourierExpansionEmbedding):
         )
 
         spatial_embedding = self.linear(spatial_embedding)
-        return x + spatial_embedding  # type: ignore
+        return x + spatial_embedding
+
+
+class SphericalHarmonicsEmbedding(nn.Module):
+    """
+    Spatial embedding using pre-generated analytical Spherical Harmonics.
+
+    Adapts geographic coordinates (Lat/Lon) to the physics convention (Theta/Phi)
+    expected by the SymPy-generated formulas.
+    """
+
+    def __init__(
+        self,
+        token_dimension: int,
+        max_degree: int = 20,  # L_max. Total features = (L+1)^2
+    ) -> None:
+        super().__init__()
+
+        self.max_degree = max_degree
+        self.num_features = (max_degree + 1) ** 2
+
+        # Linear projection from SH basis to transformer token dimension
+        self.linear = nn.Linear(self.num_features, token_dimension)
+
+        # Cache buffer to store the computed map (computed once per resolution)
+        self.register_buffer("cached_embedding", None, persistent=False)
+        self.cached_embedding: Optional[torch.Tensor] = None
+        self.cached_shape: Optional[Tuple[int, int]] = None
+
+    def _get_physics_grid(
+        self, H: int, W: int, device: torch.device
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Generates the grid in Physics coordinates (Colatitude, Longitude).
+        """
+        # 1. LATITUDE -> COLATITUDE (Theta)
+        # Geography: -90 (South) to +90 (North)
+        # Physics:    pi (South) to  0 (North)
+        # Transformation: Colat = 90 - Lat
+
+        lat_deg = torch.linspace(-90, 90, H, device=device)
+        colat_deg = 90.0 - lat_deg  # Now 180 (South) to 0 (North)
+
+        # 2. LONGITUDE -> AZIMUTH (Phi)
+        # Geography: -180 to 180
+        # Physics:    Accepts 0-2pi or -pi to pi.
+        # We assume standard W covers the full globe.
+        lon_deg = torch.linspace(0, 360, W + 1, device=device)[:-1]
+
+        # Meshgrid
+        colat_grid, lon_grid = torch.meshgrid(
+            colat_deg, lon_deg, indexing="ij"
+        )
+
+        # Convert to Radians for the SH functions
+        theta = torch.deg2rad(colat_grid)  # Colatitude
+        phi = torch.deg2rad(lon_grid)  # Longitude
+
+        return theta, phi
+
+    def _compute_basis_from_generated_file(
+        self, theta: torch.Tensor, phi: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Iterates through the generated functions to build the basis tensor.
+        This is slow in Python loop, but only runs ONCE when grid size changes.
+        """
+        features_list = []
+
+        # The generated script usually provides a helper SH(m, l, phi, theta)
+        # OR we can iterate the naming convention Yl{l}_m{m}
+
+        for degree in range(self.max_degree + 1):
+            for order in range(-degree, degree + 1):
+                # We call the specific JIT-compiled function from the module
+                # Note: The generated script defined SH(m, l, phi, theta)
+                # We use that dispatcher if available, otherwise we construct the name.
+                try:
+                    # Try using the dispatcher defined in the generated file footer
+                    y_lm = sh_gen.SH(order, degree, phi, theta)  # type: ignore[no-untyped-call]
+                    if isinstance(y_lm, (float, int)):
+                        # Create a tensor of shape (H, W) filled with this constant
+                        # Uses theta's device and dtype automatically
+                        y_lm = torch.full_like(theta, float(y_lm))
+                    elif isinstance(y_lm, torch.Tensor) and y_lm.ndim == 0:
+                        # Expand scalar tensor to (H, W)
+                        y_lm = y_lm.expand_as(theta)
+                except AttributeError:
+                    # Fallback: construct function name if SH() helper isn't exported
+                    # Name format from script: f"Yl{l}_m{m}".replace("-", "_minus_")
+                    order_str = str(order).replace("-", "_minus_")
+                    fname = f"Yl{degree}_m{order_str}"
+                    func = getattr(sh_gen, fname)
+                    y_lm = func(theta, phi)
+
+                features_list.append(y_lm)
+
+        # Stack along the last dimension
+        # Shape: (H, W, (L+1)^2)
+        return torch.stack(features_list, dim=-1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (B, H, W, D)
+        """
+        B, H, W, D = x.shape
+
+        # 1. Check Cache
+        if self.cached_embedding is None or self.cached_shape != (H, W):
+            # Compute Grid in PHYSICS coordinates
+            theta, phi = self._get_physics_grid(H, W, x.device)
+
+            # Compute Basis (Slow loop, runs once)
+            sh_features = self._compute_basis_from_generated_file(theta, phi)
+
+            # Update Cache
+            self.cached_embedding = sh_features
+            self.cached_shape = (H, W)
+
+        # 2. Projection
+        emb = self.cached_embedding  # (H, W, num_features)
+        assert emb is not None, "Embedding cache failed to initialize"
+
+        emb = emb.unsqueeze(0)  # (1, H, W, num_features)
+
+        # Linear projection to token dimension
+        emb = self.linear(emb)  # (1, H, W, token_dim)
+
+        return x + emb

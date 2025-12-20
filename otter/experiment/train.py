@@ -263,7 +263,7 @@ def run_validation_epoch(
 
                 psd_mean_mse_per_batch_per_var = gather_array_losses(
                     array_losses=psd_mean_mse_per_batch,
-                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
+                    trg_variables_and_levels=model.trg_variables_and_levels,
                 )
                 metrics_array["power_spectrum_mse"].append(
                     psd_mean_mse_per_batch_per_var

@@ -97,7 +97,7 @@ class Min(NormalisationStatistic):
         )
 
     def update(self, x: xr.Dataset) -> Min:
-        self.sufficient_statistics["min"] = min(
+        self.sufficient_statistics["min"] = min(  # type: ignore[call-overload]
             self.sufficient_statistics["min"],
             x.min(dim=["latitude", "longitude"]),
         )
@@ -114,7 +114,7 @@ class Max(NormalisationStatistic):
         )
 
     def update(self, x: xr.Dataset) -> Max:
-        self.sufficient_statistics["max"] = max(
+        self.sufficient_statistics["max"] = max(  # type: ignore[call-overload]
             self.sufficient_statistics["max"],
             x.max(dim=["latitude", "longitude"]),
         )

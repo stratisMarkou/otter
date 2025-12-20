@@ -41,7 +41,7 @@ class RunState:
         return RunState(
             model_state=model.state_dict(),
             optimizer_state=optimizer.state_dict(),
-            scheduler_state=lr_scheduler.state_dict(),
+            scheduler_state=lr_scheduler.state_dict(),  # type: ignore[no-untyped-call]
             scaler_state=scaler.state_dict(),
             epoch=epoch,
             step=step,

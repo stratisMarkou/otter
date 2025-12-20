@@ -109,7 +109,7 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
 
     df = df[df["Scale"] == min_scale]
     df = df.drop(columns=["Scale"])
-    return df  # type: ignore
+    return df
 
 
 def dataframe_intersection_and_rmse(

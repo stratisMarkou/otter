@@ -7,6 +7,7 @@ import torch
 from otter.models.architectures.embeddings import (
     PositionEmbedding,
     SpatialEmbedding,
+    SphericalHarmonicsEmbedding,
 )
 from otter.models.architectures.mlp import MLP
 from otter.models.architectures.transformer import SwinTransformer
@@ -22,6 +23,7 @@ from otter.models.architectures.transformer import SwinTransformer
         (9, 16, 5, [1, 1], 4, PositionEmbedding(16, 60, 120)),
         (9, 16, 5, [2, 2], 8, SpatialEmbedding(64, 0.1, 720, 16)),
         (7, 12, 15, [1, 1], 4, PositionEmbedding(12, 60, 120)),
+        (7, 12, 15, [2, 2], 4, SphericalHarmonicsEmbedding(12, 5)),
     ],
 )
 @torch.compiler.disable()  # type: ignore

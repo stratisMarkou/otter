@@ -56,7 +56,7 @@ def run_state(
     return RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore[no-untyped-call]
         scaler_state=scaler.state_dict(),
         epoch=5,
         step=100,
@@ -143,7 +143,7 @@ def test_restore(
     current_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore[no-untyped-call]
         scaler_state=scaler.state_dict(),
         epoch=run_state.epoch,
         step=run_state.step,
@@ -159,7 +159,7 @@ def test_runstate_with_training(
     initial_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore[no-untyped-call]
         scaler_state=scaler.state_dict(),
         epoch=0,
         step=0,
@@ -183,7 +183,7 @@ def test_runstate_with_training(
     trained_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore[no-untyped-call]
         scaler_state=scaler.state_dict(),
         epoch=1,
         step=1,
