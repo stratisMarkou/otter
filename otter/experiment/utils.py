@@ -484,6 +484,12 @@ class CombinedOptimizer(torch.optim.Optimizer):
         for opt, sd in zip(self.optimizers, optimizer_states):
             opt.load_state_dict(sd)
 
+        # The child optimizers have replaced their param_groups objects
+        # during load_state_dict, so we must update our references.
+        self.param_groups = [
+            pg for opt in self.optimizers for pg in opt.param_groups
+        ]
+
 
 def get_muon_optimizer(
     model: torch.nn.Module,
