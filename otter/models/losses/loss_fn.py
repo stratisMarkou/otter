@@ -51,9 +51,7 @@ def _apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
 
     # We use the cosine of the latitude as the weight.
     lat_weight = torch.tensor(np.cos(lat_rad)).float().to(tensor.device)
-    lat_weight = lat_weight[None, :, None, None, None, None] / torch.mean(
-        lat_weight
-    )
+    lat_weight = lat_weight[None, :, None, None, None] / torch.mean(lat_weight)
 
     return tensor * lat_weight
 

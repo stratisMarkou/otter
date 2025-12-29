@@ -143,7 +143,7 @@ constants:
     num_trg_variables: 82
     # TODO(jonas, stratis): refactor these calculations in a python helper.
     num_ctx_channels: ${eval:'${constants.data.num_context_frames} * ${constants.data.num_ctx_variables}'}
-    num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${model.time_embedding.num_scales} + ${constants.data.num_trg_variables}'}
+    num_input_channels: ${eval:'${constants.data.num_ctx_channels} + 2 * ${model.time_embedding.num_scales}'}
     num_output_channels: ${eval:'${constants.data.num_trg_variables} * ${constants.num_stats}'}
     # Until we refactor the calculations in a python helper, we need to
     # manually set the number of sufficient statistics for the output.

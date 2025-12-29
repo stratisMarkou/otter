@@ -352,7 +352,6 @@ def train_loop(
                     lr_scheduler=lr_scheduler,
                     device=device,
                     scaler=scaler,
-                    scale_scheduler=experiment.train_scale_scheduler,
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
