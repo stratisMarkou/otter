@@ -1,10 +1,10 @@
-import torch
-
-from otter.models.distributions import Delta, Gaussian
-
 from typing import (
     Union,
 )
+
+import torch
+
+from otter.models.distributions import Delta, Gaussian
 
 DistributionWithMean = Union[Delta, Gaussian]
 
@@ -83,10 +83,7 @@ def power_spectrum_density_mse(
     trg: torch.Tensor,  # (batch, lat, lon, time_idx, var_and_level)
     prd_dist: DistributionWithMean,
 ) -> torch.Tensor:
-    # Only compute the PSD for the latest scale
-    pred = prd_dist.mean[
-        ..., -1, :
-    ]  # (batch, lat, lon, time_idx, var_and_level)
+    pred = prd_dist.mean  # (batch, lat, lon, time_idx, var_and_level)
 
     B, T, V = pred.shape[0], pred.shape[3], pred.shape[4]
 

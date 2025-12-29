@@ -13,10 +13,8 @@ from tqdm import tqdm
 from otter.data.datasets import ForecastingSample, GriddedWeatherTask
 from otter.data.utils import LabelledArray, new_memmap_labelled_array
 from otter.experiment.run_state import RunState
-from otter.experiment.train import preprocess_batch
 from otter.experiment.utils import load_experiment_config
-from otter.models.architectures.schedulers import ScaleScheduler
-from otter.models.multiscale_model import MultiscaleModel
+from otter.models.forecasting_model import ForecastingModel
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,13 +40,6 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=59,
         help="Factor for subsampling validation data (default: 59).",
-    )
-    parser.add_argument(
-        "--rollout-scales",
-        type=int,
-        nargs="+",
-        default=[8, 4, 2],
-        help="List of integer rollout scales (space-separated, default: 8 4 2).",
     )
 
     args = parser.parse_args()
@@ -128,26 +119,19 @@ def initialise_memmap(
 
 def save_forecasts(
     la: LabelledArray,
-    model: MultiscaleModel,
+    model: ForecastingModel,
     dataloader: torch.utils.data.DataLoader[ForecastingSample],
-    data_scale: int,
-    rollout_scales: torch.Tensor,
     num_trajectories: int,
 ) -> None:
     for batch_idx, batch in enumerate(dataloader):
         logging.info(f"Batch {batch_idx + 1}/{len(dataloader)}")
         zero_times = batch.zero_time
         batch = batch.to("cuda")
-        model_input = preprocess_batch(batch, data_scale)
         with torch.no_grad():
             for traj_idx in tqdm(range(num_trajectories)):
-                prd_dist, _ = model(batch=model_input, scales=rollout_scales)
+                prd_dist, _ = model(batch=batch)
                 mean_np: npt.NDArray[Any] = prd_dist.mean.cpu().numpy()
                 std_np = prd_dist.stddev.cpu().numpy()
-
-                # Select the latest scale only
-                mean_np = mean_np.take(indices=-1, axis=-2)
-                std_np = std_np.take(indices=-1, axis=-2)
 
                 # Iterate across the batch dimension and save the data one-by-one.
                 for i, zero_time in enumerate(zero_times):
@@ -173,7 +157,6 @@ if __name__ == "__main__":
         args.experiment_name,
         override_args=[
             f"constants.data.val_task_subsampling_factor={args.val_subsampling_factor}",
-            f"inference_scale_scheduler.rollout_scales={args.rollout_scales}",
         ],
     )
     config.model.device = "cuda"
@@ -181,18 +164,10 @@ if __name__ == "__main__":
     experiment = instantiate(config)
     experiment_path = Path(experiment.info.experiment_path)
 
-    scale_scheduler: ScaleScheduler = experiment.inference_scale_scheduler
-    data_scale = scale_scheduler.sample_data_scale()
-    rollout_scales = scale_scheduler.get_rollout_scales()
-
-    all_scales = [data_scale] + list(rollout_scales)
-    all_scales = [int(scale) for scale in all_scales]
-    logging.info(f"All scales: {all_scales}")
-
     dataloader = experiment.valid_dataloader
     ds: GriddedWeatherTask = dataloader.dataset
 
-    model: MultiscaleModel = experiment.model.to("cuda")
+    model: ForecastingModel = experiment.model.to("cuda")
 
     checkpoint_path = experiment_path / "checkpoints" / "latest.pt"
     run_state = RunState.load(checkpoint_path)
@@ -216,7 +191,5 @@ if __name__ == "__main__":
         la,
         model,
         dataloader,
-        data_scale,
-        rollout_scales,
         args.num_trajectories,
     )

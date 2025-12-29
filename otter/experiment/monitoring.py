@@ -4,7 +4,6 @@ from typing import Any, Callable, Dict, Literal, Tuple
 import torch
 
 import wandb
-from otter.models.distributions import Gaussian
 
 
 class WandbLogger:
@@ -77,16 +76,3 @@ def get_norm_and_abs_max(
         abs_param_quantity = quantity.abs().max().item()
         max_quantity = max(max_quantity, abs_param_quantity)
     return norm**0.5, max_quantity
-
-
-def get_min_stds_by_var(
-    dist: Gaussian, trg_variables_and_levels: list[str]
-) -> dict[str, float]:
-    result = {}
-
-    stds = dist.stddev
-    for i, var in enumerate(trg_variables_and_levels):
-        var_stds = stds[..., i]
-        result[f"lowest_pred_stddev/{var}"] = var_stds.min().item()
-    result["lowest_pred_stddev"] = stds.min().item()
-    return result

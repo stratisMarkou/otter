@@ -1,4 +1,0 @@
-defaults:
-  - multiscale  # Extend the multiscale.yaml config
-  - probabilistic # Extend the probabilistic.yaml config
-  - _self_

@@ -1,27 +1,27 @@
 import argparse
-from collections import defaultdict
 import os
+import pickle
+from collections import defaultdict
 from pathlib import Path
-import numpy as np
 from typing import (
     Dict,
     List,
     Optional,
     Tuple,
 )
-import numpy.typing as npt
 
-import pickle
+import numpy as np
+import numpy.typing as npt
 import torch
 
+from otter.experiment.run_state import (
+    get_latest_checkpoint,
+)
 from otter.experiment.train import (
     assert_single_device,
     run_validation_epoch,
 )
 from otter.experiment.utils import initialize_experiment
-from otter.experiment.run_state import (
-    get_latest_checkpoint,
-)
 from otter.models.losses.loss_fn import LossInfo, LossInfoArray
 
 
@@ -146,7 +146,6 @@ def get_validation_metrics(
             device=device,
             dataloader=experiment.valid_dataloader,
             loss_fns=experiment.val_loss_fns,
-            scale_scheduler=experiment.inference_scale_scheduler,
             mixed_precision_dtype=mixed_precision_dtype,
             compute_power_spectrum_mse=True,
         )
