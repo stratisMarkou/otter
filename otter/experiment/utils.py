@@ -314,8 +314,6 @@ def _get_config(
 
     logging.info("Config:\n" + OmegaConf.to_yaml(config))
 
-    assert type(config) is DictConfig  # Check this to silence mypy.
-
     OmegaConf.set_struct(config, False)
 
     return config

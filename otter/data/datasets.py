@@ -167,7 +167,6 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
 
         # Number of datapoints within this time interval given the
         # resolution of the data.
-        # NOTE: we cast to int as mypy infers np.int64
         num_datapoints = int(total_time_interval // BASE_TEMPORAL_RESOLUTION)
 
         # Number of subsampled tasks according to task_sub_sampling_factor.
@@ -178,9 +177,9 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
 
         return length
 
-    def __getitem__(self, idx: int) -> ForecastingSample:
-        idx = idx * self.task_sub_sampling_factor
-        zero_time = self.first_zero_time + idx * BASE_TEMPORAL_RESOLUTION
+    def __getitem__(self, index: int) -> ForecastingSample:
+        index = index * self.task_sub_sampling_factor
+        zero_time = self.first_zero_time + index * BASE_TEMPORAL_RESOLUTION
         context_times = zero_time + self.context_timedeltas
         target_times = zero_time + self.target_timedeltas
 

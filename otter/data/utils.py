@@ -427,7 +427,7 @@ class LabelledArray(GriddedWeatherSource):
         self.data[simple_indices] = value
 
         if isinstance(self.data, np.memmap):
-            self.data.flush()
+            self.data.flush()  # type: ignore
 
     def _simplify_indices(
         self, indices: Sequence[List[int] | None]
@@ -610,7 +610,7 @@ class ZarrDatasource(GriddedWeatherSource):
             del index_coords["variable_and_level"]
 
         ds = ds.sel(**index_coords)
-        return ZarrDatasource(ds)
+        return ZarrDatasource(ds)  # type: ignore
 
     def to_numpy(self) -> npt.NDArray[Any]:
         scaled_ds = self.ds.copy()  # Create a temporary copy of the dataset
