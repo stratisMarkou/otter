@@ -33,7 +33,7 @@ python otter/data/source/convert_saved_zarr_to_memmap.py
 # python otter/data/normalisation/compute_stats.py
 ```
 
-To train a (deterministic) single-scale model, from the repo root, run:
+To train a deterministic model, from the repo root, run:
 ```bash
 # This will train a model with logging to wandb. It will also check your local branch
 # is clean, i.e. that it has no changes relative to the remote branch.
@@ -84,18 +84,3 @@ To launch a training run on HPC, from the repo root, run:
 # submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
 sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
 ```
-
-
-
-__Priorities:__
-- [ ] Add spatial Fourier embeddings to model.
-- [ ] Train a larger model to estimate performance gains from increased size.
-- [ ] Add mixture of experts functionality to the model.
-
-__Sub goals:__
-- [ ] Train an MSE model to match Stormer / ArchesWeather.
-- [ ] Train a multi-scale model to match the probabilistic ArchesWeather model performance.
-
-__Tests to implement:__
-- [ ] Test for gridded weather data task.
-    - [ ] Decide if we need to profile this within tests (i.e. test within CI that loading is not too slow).
