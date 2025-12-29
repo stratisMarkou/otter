@@ -56,17 +56,7 @@ module load cuda/12.1 cudnn/8.9_cuda-12.1
 
 source ~/.bashrc
 
-# Here is a single variable controlling the environment location.
-# If not set, default to "otter" (i.e., an environment named 'otter').
-# You can override this by running, for example:
-#    ENV_PATH=otter/.venv sbatch myscript.sh
-ENV_PATH="${ENV_PATH:-otter}"
-
-echo "Activating environment: $ENV_PATH"
-conda activate "$ENV_PATH" || {
-    echo "Could not activate conda env '$ENV_PATH'. Check that it exists."
-    exit 1
-}
+source .venv/bin/activate
 
 export WANDB_MODE=online
 

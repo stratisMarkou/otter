@@ -74,7 +74,7 @@ def run_state(
     return RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),  # type: ignore
+        scheduler_state=scheduler.state_dict(),
         scaler_state=scaler.state_dict(),
         forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=5,
@@ -166,7 +166,7 @@ def test_restore(
     current_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),  # type: ignore
+        scheduler_state=scheduler.state_dict(),
         scaler_state=scaler.state_dict(),
         forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=run_state.epoch,
@@ -187,7 +187,7 @@ def test_runstate_with_training(
     initial_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),  # type: ignore
+        scheduler_state=scheduler.state_dict(),
         scaler_state=scaler.state_dict(),
         forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=0,
@@ -213,7 +213,7 @@ def test_runstate_with_training(
     trained_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),  # type: ignore
+        scheduler_state=scheduler.state_dict(),
         scaler_state=scaler.state_dict(),
         forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
         epoch=1,

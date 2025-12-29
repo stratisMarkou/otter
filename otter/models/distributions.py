@@ -72,7 +72,7 @@ class Gaussian(Distribution):
             unconstrained_stddev
         )  # torch.ones_like(softplus(unconstrained_stddev) + eps)
         self.stddev = torch.clamp_min(self.stddev, min_std)
-        self.dist = dist.Normal(self.mean, self.stddev)  # type: ignore
+        self.dist = dist.Normal(self.mean, self.stddev)
         self.min_std = min_std
 
     def sample(self) -> torch.Tensor:

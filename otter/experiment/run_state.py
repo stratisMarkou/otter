@@ -46,7 +46,7 @@ class RunState:
         return RunState(
             model_state=model.state_dict(),
             optimizer_state=optimizer.state_dict(),
-            scheduler_state=lr_scheduler.state_dict(),  # type: ignore
+            scheduler_state=lr_scheduler.state_dict(),
             scaler_state=scaler.state_dict(),
             forecast_horizon_scheduler_state=forecast_horizon_scheduler.state_dict(),
             epoch=epoch,
