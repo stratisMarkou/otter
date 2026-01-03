@@ -2,16 +2,16 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import torch
+import zarr
 from hydra.utils import instantiate
 from tqdm import tqdm
 
 from otter.data.datasets import ForecastingSample, GriddedWeatherTask
-from otter.data.utils import LabelledArray, new_memmap_labelled_array
 from otter.experiment.run_state import RunState
 from otter.experiment.train import preprocess_batch
 from otter.experiment.utils import load_experiment_config
@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "experiment_name",
+        "--experiment-name",
         type=str,
         help="The experiment name from which to load the trained model.",
     )
@@ -43,19 +43,12 @@ def parse_args() -> argparse.Namespace:
         default=59,
         help="Factor for subsampling validation data (default: 59).",
     )
-    parser.add_argument(
-        "--rollout-scales",
-        type=int,
-        nargs="+",
-        default=[8, 4, 2],
-        help="List of integer rollout scales (space-separated, default: 8 4 2).",
-    )
 
     args = parser.parse_args()
     return args
 
 
-def initialise_memmap(
+def initialise_zarr(
     ds: GriddedWeatherTask,
     num_lats: int,
     num_lons: int,
@@ -63,7 +56,7 @@ def initialise_memmap(
     num_trajectories: int,
     vars_and_levels: int,
     experiment_path: Path,
-) -> LabelledArray:
+) -> zarr.Group:
     out_shape = (
         len(ds),  # Number of zero times
         num_lats,
@@ -82,12 +75,12 @@ def initialise_memmap(
         "statistic",
         "variable_and_level",
     ]
-    logging.info(f"Memmap output shape: {out_shape}")
-    logging.info(f"Memmap coord names: {coord_names}")
+    logging.info(f"Zarr output shape: {out_shape}")
+    logging.info(f"Zarr coord names: {coord_names}")
 
     file_size = np.prod(out_shape) * np.dtype(np.float32).itemsize
     file_size_gb = file_size / (1024**3)
-    logging.info(f"File size: {file_size_gb:.2f} GB")
+    logging.info(f"Estimated uncompressed file size: {file_size_gb:.2f} GB")
 
     if file_size_gb > 100:
         raise ValueError("File size is larger than 100 GB.")
@@ -103,37 +96,62 @@ def initialise_memmap(
     trajectory_indices = np.arange(num_trajectories, dtype=np.int32)
     statistics = ["mean", "std"]
 
-    coord_values: list[Sequence[Any] | npt.NDArray[Any]] = [
-        zero_times,
-        lats,
-        lons,
-        forecast_time_indices,
-        trajectory_indices,
-        statistics,
-        ds.trg_variables_and_levels,
-    ]
+    forecasts_path = experiment_path / "forecasts.zarr"
+    logging.info(f"Allocating zarr at {forecasts_path}")
 
-    forecasts_path = experiment_path / "forecasts"
-    forecasts_path.mkdir(parents=True, exist_ok=True)
+    root = zarr.open_group(str(forecasts_path), mode="w")
 
-    logging.info(f"Allocating memmap file at {forecasts_path}")
-    return new_memmap_labelled_array(
-        forecasts_path,
-        out_shape,
-        coord_names=coord_names,
-        coord_values=coord_values,
+    # Create the main data array
+    # We use chunks to allow for efficient writing and reading.
+    # Chunking by zero_time (1) and trajectory (1) seems reasonable for the current save loop.
+    root.create_array(
+        "forecasts",
+        shape=out_shape,
+        chunks=(
+            1,
+            num_lats,
+            num_lons,
+            num_forecast_times,
+            1,
+            2,
+            vars_and_levels,
+        ),
         dtype=np.float32,
     )
 
+    # Save coordinates as separate datasets or attributes
+    root.create_array("zero_time", data=np.array(zero_times).astype(str))
+    root.create_array("lat", data=lats)
+    root.create_array("lon", data=lons)
+    root.create_array("forecast_time_idx", data=forecast_time_indices)
+    root.create_array("trajectory_idx", data=trajectory_indices)
+    root.create_array("statistic", data=np.array(statistics).astype(str))
+    root.create_array(
+        "variable_and_level",
+        data=np.array(ds.trg_variables_and_levels).astype(str),
+    )
+
+    # Add metadata about dimensions
+    root["forecasts"].attrs["_ARRAY_DIMENSIONS"] = coord_names
+
+    return root
+
 
 def save_forecasts(
-    la: LabelledArray,
+    zarr_root: zarr.Group,
     model: MultiscaleModel,
     dataloader: torch.utils.data.DataLoader[ForecastingSample],
     data_scale: int,
     rollout_scales: torch.Tensor,
     num_trajectories: int,
 ) -> None:
+    forecasts_dataset: zarr.Array = zarr_root["forecasts"]  # type: ignore
+    zero_times_coord: zarr.Array = zarr_root["zero_time"]  # type: ignore
+    zero_times_list = zero_times_coord[:]
+
+    # Create a mapping from zero_time string to index
+    zero_time_to_idx = {str(zt): i for i, zt in enumerate(zero_times_list)}  # type: ignore
+
     for batch_idx, batch in enumerate(dataloader):
         logging.info(f"Batch {batch_idx + 1}/{len(dataloader)}")
         zero_times = batch.zero_time
@@ -145,23 +163,18 @@ def save_forecasts(
                 mean_np: npt.NDArray[Any] = prd_dist.mean.cpu().numpy()
                 std_np = prd_dist.stddev.cpu().numpy()
 
-                # Select the latest scale only
-                mean_np = mean_np.take(indices=-1, axis=-2)
-                std_np = std_np.take(indices=-1, axis=-2)
-
                 # Iterate across the batch dimension and save the data one-by-one.
                 for i, zero_time in enumerate(zero_times):
-                    la.set_at(
-                        mean_np[i, ...],
-                        zero_time=zero_time,
-                        statistic="mean",
-                        trajectory_idx=traj_idx,
+                    zt_idx = zero_time_to_idx[str(zero_time)]
+
+                    # forecasts shape: (zero_time, lat, lon, forecast_time, trajectory, statistic, var)
+                    # mean_np shape: (batch, lat, lon, forecast_time, var)
+                    # We need to insert into (zt_idx, :, :, :, traj_idx, 0, :)
+                    forecasts_dataset[zt_idx, :, :, :, traj_idx, 0, :] = (
+                        mean_np[i, ...]
                     )
-                    la.set_at(
-                        std_np[i, ...],
-                        zero_time=zero_time,
-                        statistic="std",
-                        trajectory_idx=traj_idx,
+                    forecasts_dataset[zt_idx, :, :, :, traj_idx, 1, :] = (
+                        std_np[i, ...]
                     )
 
 
@@ -173,7 +186,7 @@ if __name__ == "__main__":
         args.experiment_name,
         override_args=[
             f"constants.data.val_task_subsampling_factor={args.val_subsampling_factor}",
-            f"inference_scale_scheduler.rollout_scales={args.rollout_scales}",
+            "data_source.path=_data/era5_240x121_single_array_float32",
         ],
     )
     config.model.device = "cuda"
@@ -202,7 +215,7 @@ if __name__ == "__main__":
 
     num_lats, num_lons, num_forecast_times, vars_and_levels = ds[0].trg.shape
 
-    la = initialise_memmap(
+    zarr_root = initialise_zarr(
         ds,
         num_lats,
         num_lons,
@@ -213,7 +226,7 @@ if __name__ == "__main__":
     )
 
     save_forecasts(
-        la,
+        zarr_root,
         model,
         dataloader,
         data_scale,

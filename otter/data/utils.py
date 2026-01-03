@@ -451,6 +451,12 @@ class LabelledArray(GriddedWeatherSource):
                 raise ValueError(f"Unexpected index type: {type(idx)}")
 
         return tuple(simplified_indices)
+    
+    def get_coord_by_name(self, name: str) -> Coordinate:
+        for coord in self.coords:
+            if coord.name == name:
+                return coord
+        raise ValueError(f"Coordinate {name} not found in LabelledArray")
 
 
 def _is_list_like(value: Any) -> bool:

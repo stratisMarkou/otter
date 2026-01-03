@@ -187,4 +187,5 @@ constants:
 
 info:
   root_results: _results
+  root_forecasts: _forecasts
   wandb_project: otter-base
