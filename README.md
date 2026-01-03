@@ -8,7 +8,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 Then clone the repo, go to its root, create a virtual environment and sync dependencies.
 ```bash
-git clone git@github.com:stratisMarkou/otter.git
+git clone git@github.com:jonas-scholz123/otter.git
 cd otter
 uv venv
 source .venv/bin/activate
