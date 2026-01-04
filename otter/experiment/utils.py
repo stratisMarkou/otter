@@ -36,7 +36,7 @@ def load_experiment_config(
     override_args: list[str],
     results_dir: Path | str = "_results",
 ) -> DictConfig:
-    cfg_dir = Path(results_dir) / experiment_name / "config.yml"
+    cfg_dir = Path(results_dir) / experiment_name / "config.yaml"
 
     _register_resolvers()
     with open(cfg_dir, "r") as f:

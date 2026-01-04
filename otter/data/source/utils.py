@@ -1,7 +1,6 @@
 import logging
 import os
 import shutil
-
 from typing import Optional
 
 import numpy as np
@@ -116,4 +115,4 @@ def download_zarr_and_store(
     if test:
         zarr = zarr.isel(time=slice(0, NUM_TIMES_TEST, 1))
 
-    zarr.to_zarr(f"{output_dir}/{dataset}.zarr", mode="w")
+    zarr.to_zarr(f"{output_dir}/{dataset}.zarr", mode="w", zarr_version=2)

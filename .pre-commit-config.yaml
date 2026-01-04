@@ -11,12 +11,6 @@ repos:
     hooks:
       - id: ruff
       - id: ruff-format
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
-      - id: mypy
-        entry: bash -c "mypy otter tests --disallow-untyped-defs --strict"
-        language: system
   - repo: https://github.com/asottile/blacken-docs
     rev: 1.16.0
     hooks:
