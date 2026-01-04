@@ -91,7 +91,13 @@ def forecast_to_xarray(
                     ]
 
             ds_dict[var] = (
-                ("batch", "lat", "lon", "lead_time", "level"),
+                (
+                    "time",
+                    "latitude",
+                    "longitude",
+                    "prediction_timedelta",
+                    "level",
+                ),
                 ml_data,
             )
 
@@ -99,7 +105,7 @@ def forecast_to_xarray(
     for var in surface_vars:
         if var in var_level_to_idx:
             ds_dict[var] = (
-                ("batch", "lat", "lon", "lead_time"),
+                ("time", "latitude", "longitude", "prediction_timedelta"),
                 forecast[:, :, :, :, var_level_to_idx[var]],
             )
 
@@ -121,7 +127,7 @@ def forecast_to_xarray(
         ds_dict,
         coords={
             "time": zero_times,
-            "lead_time": lead_times,
+            "prediction_timedelta": lead_times,
             "latitude": lats,
             "longitude": lons,
             "level": unique_levels,
