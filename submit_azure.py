@@ -60,10 +60,8 @@ job = command(
         "WANDB_API_KEY": wandb_api_key,
         "WANDB_MODE": "online",
     },
-)
-
-job.set_resources(
-    shm_size="16g"  # Increase shared memory size for torch dataloaders
+    # Increase shared memory size for torch dataloaders
+    shm_size="16g",
 )
 
 # 4. Submit
