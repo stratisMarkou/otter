@@ -4,6 +4,8 @@ import sys
 from azure.ai.ml import Input, MLClient, Output, command
 from azure.identity import DefaultAzureCredential
 
+from otter.experiment.utils import _generate_experiment_name
+
 wandb_api_key = os.environ.get("WANDB_API_KEY")
 if wandb_api_key is None:
     raise ValueError("WANDB_API_KEY environment variable not set.")
@@ -21,9 +23,11 @@ era5_data = ml_client.data.get("era5-1959-2023-6h-240x121", version="1")
 run_args = " ".join(sys.argv[1:])
 
 env = "azureml:otter-env:3"
+run_name = _generate_experiment_name()
 
 job = command(
-    display_name=f"otter-{run_args[:20]}" if run_args else "otter-default",
+    name=run_name,
+    display_name=run_name,
     # Point directly to the otter directory for the code snapshot
     code=".",
     command=(
@@ -34,7 +38,7 @@ job = command(
         ". .venv/bin/activate && "
         "uv sync && "
         "uv pip install -e . && "
-        f"python {run_args} data_source.path=${{inputs.era5_data}} info.root_results=${{outputs.checkpoint_folder}}"
+        f"python {run_args} data_source.path=${{inputs.era5_data}} info.root_results=${{outputs.checkpoint_folder}} --resume_experiment {run_name}"
     ),
     inputs={
         "era5_data": Input(
