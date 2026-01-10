@@ -1,7 +1,7 @@
 import os
 import sys
 
-from azure.ai.ml import Input, MLClient, command
+from azure.ai.ml import Input, MLClient, Output, command
 from azure.identity import DefaultAzureCredential
 
 wandb_api_key = os.environ.get("WANDB_API_KEY")
@@ -34,13 +34,20 @@ job = command(
         ". .venv/bin/activate && "
         "uv sync && "
         "uv pip install -e . && "
-        f"python {run_args} data_source.path=${{inputs.era5_data}}"
+        f"python {run_args} data_source.path=${{inputs.era5_data}} info.root_results=${{outputs.checkpoint_folder}}"
     ),
     inputs={
         "era5_data": Input(
             type="uri_folder",
             path=era5_data.id,
             mode="ro_mount",
+        )
+    },
+    outputs={
+        "checkpoint_folder": Output(
+            type="uri_folder",
+            path="azureml://datastores/otter_blob/paths/otter_checkpoints",
+            mode="rw_mount",
         )
     },
     environment=env,
