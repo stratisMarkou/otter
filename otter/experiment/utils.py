@@ -111,10 +111,14 @@ def initialize_experiment(
     # Set the start_from_checkpoint flag if we are resuming.
     config.info.start_from_checkpoint = bool(args.resume_experiment)
 
-    repo = git.Repo(search_parent_directories=True)
+    try:
+        repo = git.Repo(search_parent_directories=True)
+    except git.exc.InvalidGitRepositoryError:
+        repo = None
+        logging.warning("No git repository found, skipping repo checks.")
     # Check that the repo is clean, and up to date with remote branch,
     # if not in debug mode.
-    if not args.debug:
+    if not args.debug and repo is not None:
         _assert_repo_is_clean(repo)
         # If config contains commit hash, assert that it matches the current commit hash.
         if "commit" in config:
@@ -368,12 +372,16 @@ def _create_experiment_path(config: DictConfig, experiment_name: str) -> str:
     return path
 
 
-def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
+def _write_config(
+    config: DictConfig, path: str, repo: git.Repo | None
+) -> None:
     # Write config to file together with commit hash
     path = f"{path}/config.yaml"
     logging.info(f"Writing reified config to {path}.")
     with open(path, "w") as file:
-        hash = _get_current_commit_hash(repo)
+        hash = (
+            _get_current_commit_hash(repo) if repo is not None else "unknown"
+        )
         config_to_save: DictConfig = OmegaConf.to_container(config)  # type: ignore
         config_to_save.update({"commit": hash})
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)

@@ -43,6 +43,22 @@ wandb online; python otter/experiment/train.py --config_name base
 wandb online; python otter/experiment/train.py --config_name base --debug
 ```
 
+To train a model on Azure, make sure that you first set the `WANDB_API_KEY` environment variable. This will be transmitted to the Azure VM.
+You will also need to install the azure CLI:
+```bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+and authenticate:
+```bash
+az login
+```
+
+Then, run (including your overrides):
+```bash
+python ./submit_azure.py otter/experiment/train.py --config_name base host=azure
+```
+This will launch a run using the code as-is on your local machine (same git branch etc).
+
 After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
 ```bash
 python otter/evaluate/save_forecasts.py <experiment_name>
