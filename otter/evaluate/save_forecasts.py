@@ -118,6 +118,7 @@ def generate_forecasts(
 
 # %%
 if __name__ == "__main__":
+    torch.set_float32_matmul_precision("high")
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment_name", type=str)
     parser.add_argument(
