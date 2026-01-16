@@ -70,7 +70,6 @@ def test_swin_transformer(
         drop_path_rate=0.1,
         # Can't do this in test env.
         use_rope=False,
-        batch_size=batch_dim,
     )
 
     # Create a random input tensor

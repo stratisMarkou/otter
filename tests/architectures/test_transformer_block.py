@@ -74,7 +74,6 @@ def test_transformer_block(
         use_efficient_attention=False,
         dropout_rate=0.1,
         drop_path_rate=0.1,
-        batch_size=batch_dim,
     )
     x = torch.rand((batch_dim, sequence_length, token_dim))
     y, _ = transformer_block(x)
