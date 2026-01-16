@@ -220,12 +220,11 @@ def apply_loss(
     aggregated_loss = loss_per_var.sum()
 
     # If we have multiple times also log different times.
-    if loss_per_time_var.shape[0] > 1:
-        loss_per_time = torch.sum(loss_per_time_var, dim=-1)  # (time)
-        for t in range(loss_per_time.shape[0]):
-            loss_val = loss_per_time[t].item()
-            loss_key = f"time_{t:02d}"
-            loss_info[loss_key] = float(loss_val)
+    loss_per_time = torch.sum(loss_per_time_var, dim=-1)  # (time)
+    for t in range(loss_per_time.shape[0]):
+        loss_val = loss_per_time[t].item()
+        loss_key = f"time_{t:02d}"
+        loss_info[loss_key] = float(loss_val)
 
     return aggregated_loss, loss_info
 
