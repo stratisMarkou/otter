@@ -5,6 +5,7 @@ description = "An efficient weather forecasting architecture."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cartopy>=0.25.0",
     "azure-ai-ml>=1.31.0",
     "azure-identity>=1.25.1",
     "einops>=0.8.1",
@@ -16,9 +17,11 @@ dependencies = [
     "pandas-stubs>=2.3.3.251201",
     "pre-commit>=4.5.0",
     "pytest>=9.0.1",
+    "ruff>=0.14.10",
     "torch>=2.9.1",
     "torchvision>=0.24.1",
     "tqdm>=4.67.1",
+    "ty>=0.0.8",
     "types-pyyaml>=6.0.12.20250915",
     "types-tqdm>=4.67.0.20250809",
     "wandb>=0.23.1",
@@ -43,3 +46,6 @@ lint.extend-select = ["RUF012", "RUF100", "RUF200"]
 [build-system]
 requires = ["setuptools>=42"]
 build-backend = "setuptools.build_meta"
+
+[tool.ty.rules]
+unresolved-attribute = "ignore"

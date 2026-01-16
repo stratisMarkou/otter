@@ -33,7 +33,7 @@ python otter/data/source/convert_saved_zarr_to_memmap.py
 # python otter/data/normalisation/compute_stats.py
 ```
 
-To train a (deterministic) single-scale model, from the repo root, run:
+To train a deterministic model, from the repo root, run:
 ```bash
 # This will train a model with logging to wandb. It will also check your local branch
 # is clean, i.e. that it has no changes relative to the remote branch.

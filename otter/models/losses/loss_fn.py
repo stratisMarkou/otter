@@ -15,7 +15,7 @@ import torch
 from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.architectures.utils import aggregate_load_balancing_losses
 from otter.models.distributions import Delta, Distribution, Gaussian
-from otter.models.multiscale_model import get_trg_vars_and_levels
+from otter.models.forecasting_model import get_trg_vars_and_levels
 
 DistributionWithMean = Union[Delta, Gaussian]
 PredictionStatistics = Dict[str, torch.Tensor]
@@ -51,9 +51,7 @@ def _apply_latitude_weighting(tensor: torch.Tensor) -> torch.Tensor:
 
     # We use the cosine of the latitude as the weight.
     lat_weight = torch.tensor(np.cos(lat_rad)).float().to(tensor.device)
-    lat_weight = lat_weight[None, :, None, None, None, None] / torch.mean(
-        lat_weight
-    )
+    lat_weight = lat_weight[None, :, None, None, None] / torch.mean(lat_weight)
 
     return tensor * lat_weight
 
@@ -63,12 +61,9 @@ def _rmse(
     prd_dist: DistributionWithMean,
     apply_latitude_weighting: bool,
 ) -> torch.Tensor:
-    # Expand along the scale dimension to match the target tensor.
-    trg = trg.unsqueeze(-2)  # (batch, lat, lon, time_idx, 1, var_and_level)
-
     error = torch.square(
         prd_dist.mean - trg
-    )  # (batch, lat, lon, time_idx, scale, var_and_level)
+    )  # (batch, lat, lon, time_idx, var_and_level)
 
     if apply_latitude_weighting:
         error = _apply_latitude_weighting(error)
@@ -76,7 +71,7 @@ def _rmse(
     # Compute the root mean squared error.
     error = torch.sqrt(
         torch.mean(error, dim=[1, 2])
-    )  # (batch, time_idx, scale, var_and_level)
+    )  # (batch, time_idx, var_and_level)
     assert isinstance(error, torch.Tensor)
 
     return error
@@ -87,9 +82,6 @@ def _mean_neg_log_prob(
     prd_dist: Gaussian,
     apply_latitude_weighting: bool,
 ) -> torch.Tensor:
-    # Expand along the scale dimension to match the target tensor.
-    trg = trg.unsqueeze(-2)  # (batch, lat, lon, time_idx, 1, var_and_level)
-
     neg_log_prob = -prd_dist.log_prob(trg)
 
     if apply_latitude_weighting:
@@ -166,9 +158,9 @@ def gather_array_losses(
             indexed by variable.
     """
 
-    assert array_losses.ndim == 3, (
-        "array_losses should be a 3D tensor of shape "
-        "(time, scale, var_and_level), but got shape "
+    assert array_losses.ndim == 2, (
+        "array_losses should be a 2D tensor of shape "
+        "(time, var_and_level), but got shape "
         f"{array_losses.shape}"
     )
 
@@ -186,7 +178,6 @@ def apply_loss(
     weighting_coefficients_power: float,
     weighting_fns: Optional[Sequence[LossWeightingFunction]],
     trg_variables_and_levels: Sequence[str],
-    scales: Sequence[int],
 ) -> Tuple[torch.Tensor, LossInfo]:
     """Apply a loss function to target tensor using prediction statistics.
 
@@ -197,18 +188,16 @@ def apply_loss(
     Args:
         trg: target tensor of shape (batch, lat, lon, time_idx, var_and_level)
         prd_dist: distribution of shape
-            (batch, lat, lon, time_idx, scale, var_and_level)
+            (batch, lat, lon, time_idx, var_and_level)
         loss_fn: loss function to apply
         weighting_coefficients_power: all weighting coefficients in the
             weighting funcitons are raised to this power.
         weighting_fns: list of weighting functions to apply to the loss tensor
         trg_variables_and_levels: list of target variables and levels
-        scales: list of scales corresponding to the scale dimension of the
-            prediction statistics tensor(s)
     """
 
     # Calculate the squared error. We apply specified weightings to it below.
-    loss = loss_fn(trg, prd_dist)  # (batch, time, scale, var_and_level)
+    loss = loss_fn(trg, prd_dist)  # (batch, time, var_and_level)
 
     # Apply the specified weightings to the loss tensor.
     if weighting_fns is not None:
@@ -217,43 +206,25 @@ def apply_loss(
                 loss,
                 trg_variables_and_levels,
                 weighting_coefficients_power,
-            )  # (batch, time, scale, var_and_level)
-
-    loss_per_time_var_scale = torch.mean(
-        loss, dim=0
-    )  # (time, scale, var_and_level)
+            )  # (batch, time, var_and_level)
+    loss_per_time_var = torch.mean(loss, dim=0)  # (time, var_and_level)
 
     loss_info = {}
     for i_var, var in enumerate(trg_variables_and_levels):
-        for t in range(loss_per_time_var_scale.shape[0]):
-            for i_scale, scale in enumerate(scales):
-                loss_val = loss_per_time_var_scale[t, i_scale, i_var].item()
-                loss_key = f"{var}/time_{t:02d}/scale_{scale}"
-                loss_info[loss_key] = float(loss_val)
+        for t in range(loss_per_time_var.shape[0]):
+            loss_val = loss_per_time_var[t, i_var].item()
+            loss_key = f"{var}/time_{t:02d}"
+            loss_info[loss_key] = float(loss_val)
 
-    loss_per_var_scale = torch.mean(
-        loss_per_time_var_scale, dim=0
-    )  # (scale, var_and_level)
+    loss_per_var = torch.mean(loss_per_time_var, dim=0)  # (var_and_level)
+    aggregated_loss = loss_per_var.sum()
 
-    loss_per_scale = torch.sum(loss_per_var_scale, dim=-1)  # (scale,)
-
-    # Final loss is the loss associated with the latest scale.
-    aggregated_loss = loss_per_scale[-1]
-
-    # Also log aggregate losses along scales.
-    for i_scale, scale in enumerate(scales):
-        loss_val = loss_per_scale[i_scale].item()
-        loss_key = f"scale_{scale}"
-        loss_info[loss_key] = float(loss_val)
-
-    # If we have multiple times also log different times for the last scale.
-    if loss_per_time_var_scale.shape[0] > 1:
-        loss_per_time = torch.mean(
-            loss_per_time_var_scale[:, -1, :], dim=-1
-        )  # (time)
+    # If we have multiple times also log different times.
+    if loss_per_time_var.shape[0] > 1:
+        loss_per_time = torch.sum(loss_per_time_var, dim=-1)  # (time)
         for t in range(loss_per_time.shape[0]):
             loss_val = loss_per_time[t].item()
-            loss_key = f"time_{t:02d}/scale_{scales[-1]}"
+            loss_key = f"time_{t:02d}"
             loss_info[loss_key] = float(loss_val)
 
     return aggregated_loss, loss_info

@@ -146,7 +146,6 @@ def get_validation_metrics(
             device=device,
             dataloader=experiment.test_dataloader,
             loss_fns=experiment.val_loss_fns,
-            scale_scheduler=experiment.inference_scale_scheduler,
             mixed_precision_dtype=mixed_precision_dtype,
             compute_power_spectrum_mse=True,
         )

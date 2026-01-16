@@ -32,4 +32,5 @@ jobs:
           conda list
       - run: ruff format --check otter tests setup.py
       - run: ruff check otter tests setup.py
+      - run: ty check otter tests setup.py
       - run: OTTER_RUN_ALL_TESTS=true pytest tests

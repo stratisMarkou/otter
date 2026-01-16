@@ -14,10 +14,8 @@ from otter.data.datasets import GriddedWeatherTask
 from otter.data.labelled_array import forecast_to_xarray
 from otter.data.source.utils import VARIABLES_WITH_SCALING_FACTORS
 from otter.experiment.run_state import RunState
-from otter.experiment.train import preprocess_batch
 from otter.experiment.utils import load_experiment_config
-from otter.models.architectures.schedulers import ScaleScheduler
-from otter.models.multiscale_model import MultiscaleModel
+from otter.models.forecasting_model import ForecastingModel
 
 # %%
 logging.basicConfig(level=logging.INFO)
@@ -42,14 +40,10 @@ def load_dependencies(
     experiment = instantiate(config)
     experiment_path = Path(experiment.info.experiment_path)
 
-    scale_scheduler: ScaleScheduler = experiment.inference_scale_scheduler
-    data_scale = scale_scheduler.sample_data_scale()
-    rollout_scales = scale_scheduler.get_rollout_scales()
-
     dataloader = experiment.test_dataloader
     ds: GriddedWeatherTask = dataloader.dataset
 
-    model: MultiscaleModel = experiment.model.to("cuda")
+    model: ForecastingModel = experiment.model.to("cuda")
 
     checkpoint_path = experiment_path / "checkpoints" / "latest.pt"
     run_state = RunState.load(checkpoint_path)
@@ -63,19 +57,15 @@ def load_dependencies(
         model,
         dataloader,
         ds,
-        data_scale,
-        rollout_scales,
         zarr_path,
     )
 
 
 def generate_forecasts(
     experiment_name: str,
-    model: MultiscaleModel,
+    model: ForecastingModel,
     dataloader: torch.utils.data.DataLoader,
     ds: GriddedWeatherTask,
-    data_scale: int,
-    rollout_scales: list[int],
     zarr_path: Path,
 ):
     lats = ds.dataset.get_coord_by_name("latitude").values
@@ -90,12 +80,10 @@ def generate_forecasts(
     for batch_idx, batch in tqdm(enumerate(dataloader)):
         zero_times = batch.zero_time
         batch = batch.to("cuda")
-        model_input = preprocess_batch(batch, data_scale)
         with torch.no_grad():
-            prd_dist, _ = model(batch=model_input, scales=rollout_scales)
-            mean_np: npt.NDArray[Any] = prd_dist.mean.cpu().numpy()
+            prd_dist, _ = model(batch=batch)
+            forecast: npt.NDArray[Any] = prd_dist.mean.cpu().numpy()
 
-        forecast = mean_np[..., 0, :]
         ds_batch = forecast_to_xarray(
             forecast=forecast,
             zero_times=zero_times,
@@ -130,6 +118,7 @@ def generate_forecasts(
 
 # %%
 if __name__ == "__main__":
+    torch.set_float32_matmul_precision("high")
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment_name", type=str)
     parser.add_argument(
@@ -147,13 +136,8 @@ if __name__ == "__main__":
         model,
         dataloader,
         ds,
-        data_scale,
-        rollout_scales,
         zarr_path,
     ) = load_dependencies(experiment_name, overrides=args.overrides)
-
-    data_scale = int(data_scale)
-    rollout_scales = [int(scale) for scale in rollout_scales]
 
     if not zarr_path.exists():
         logging.info(f"Generating forecasts for {experiment_name}...")
@@ -162,8 +146,6 @@ if __name__ == "__main__":
             model=model,
             dataloader=dataloader,
             ds=ds,
-            data_scale=data_scale,
-            rollout_scales=rollout_scales,
             zarr_path=zarr_path,
         )
     else:
