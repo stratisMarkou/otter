@@ -176,7 +176,7 @@ constants:
     # Actual batch size for training.
     batch_size: 4
     # Max batch size that fits into memory. Should divide the actual batch size evenly.
-    memory_max_batch_size: 1
+    memory_max_batch_size: 4
     accumulate_batches: ${eval:'${constants.data.batch_size} // ${constants.data.memory_max_batch_size}'}
     collate_fn:
       _target_: otter.data.datasets.get_collate_fn
