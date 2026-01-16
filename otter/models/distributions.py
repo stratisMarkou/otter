@@ -79,7 +79,7 @@ class Gaussian(Distribution):
         return self.dist.rsample()
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        log_prob: torch.Tensor = self.dist.log_prob(x)  # type: ignore
+        log_prob: torch.Tensor = self.dist.log_prob(x)
         return log_prob
 
     @classmethod

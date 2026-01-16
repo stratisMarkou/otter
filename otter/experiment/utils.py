@@ -36,7 +36,7 @@ def load_experiment_config(
     override_args: list[str],
     results_dir: Path | str = "_results",
 ) -> DictConfig:
-    cfg_dir = Path(results_dir) / experiment_name / "config.yml"
+    cfg_dir = Path(results_dir) / experiment_name / "config.yaml"
 
     _register_resolvers()
     with open(cfg_dir, "r") as f:
@@ -101,20 +101,33 @@ def initialize_experiment(
         config_dir = os.path.join(
             os.path.abspath(args.root_results), args.resume_experiment
         )
-        args.config_name = "config"
+        if os.path.exists(config_dir):
+            # The config name is just the "config.yaml" file in that directory.
+            args.config_name = "config"
+        else:
+            # In Azure, this is expected: we want one command that starts or resumes an experiment.
+            logging.warning(
+                f"Experiment path {config_dir} does not exist, starting new experiment."
+            )
+            config_dir = None
     else:
         config_dir = None
 
     config = _get_config(
         args.config_module, args.config_name, extra_args, config_dir=config_dir
     )
-    # Set the start_from_checkpoint flag if we are resuming.
-    config.info.start_from_checkpoint = bool(args.resume_experiment)
+    # Set the start_from_checkpoint flag if we found a config when resuming.
+    config.info.start_from_checkpoint = config_dir is not None
 
-    repo = git.Repo(search_parent_directories=True)
+    try:
+        repo = git.Repo(search_parent_directories=True)
+    except git.exc.InvalidGitRepositoryError:
+        repo = None
+        # This happens for Azure runs, where the code (but not the github repo) is copied.
+        logging.warning("No git repository found, skipping repo checks.")
     # Check that the repo is clean, and up to date with remote branch,
     # if not in debug mode.
-    if not args.debug:
+    if not args.debug and repo is not None:
         _assert_repo_is_clean(repo)
         # If config contains commit hash, assert that it matches the current commit hash.
         if "commit" in config:
@@ -366,12 +379,16 @@ def _create_experiment_path(config: DictConfig, experiment_name: str) -> str:
     return path
 
 
-def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
+def _write_config(
+    config: DictConfig, path: str, repo: git.Repo | None
+) -> None:
     # Write config to file together with commit hash
     path = f"{path}/config.yaml"
     logging.info(f"Writing reified config to {path}.")
     with open(path, "w") as file:
-        hash = _get_current_commit_hash(repo)
+        hash = (
+            _get_current_commit_hash(repo) if repo is not None else "unknown"
+        )
         config_to_save: DictConfig = OmegaConf.to_container(config)  # type: ignore
         config_to_save.update({"commit": hash})
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)

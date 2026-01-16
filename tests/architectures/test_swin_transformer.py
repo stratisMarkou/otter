@@ -24,7 +24,7 @@ from otter.models.architectures.transformer import SwinTransformer
         (7, 12, 15, [1, 1], 4, PositionEmbedding(12, 60, 120)),
     ],
 )
-@torch.compiler.disable()  # type: ignore
+@torch.compiler.disable()
 def test_swin_transformer(
     grid_channel_dim: int,
     token_dim: int,

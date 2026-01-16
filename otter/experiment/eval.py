@@ -134,7 +134,7 @@ def get_validation_metrics(
 
     # Load the model weights from latest checkpoint
     experiment.model.load_state_dict(
-        torch.load(checkpoint_path)["model_state"]
+        torch.load(checkpoint_path, weights_only=False)["model_state"]
     )
 
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
@@ -144,7 +144,7 @@ def get_validation_metrics(
         run_validation_epoch(
             model=experiment.model,
             device=device,
-            dataloader=experiment.valid_dataloader,
+            dataloader=experiment.test_dataloader,
             loss_fns=experiment.val_loss_fns,
             mixed_precision_dtype=mixed_precision_dtype,
             compute_power_spectrum_mse=True,

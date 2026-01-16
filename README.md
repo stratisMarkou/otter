@@ -8,7 +8,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 Then clone the repo, go to its root, create a virtual environment and sync dependencies.
 ```bash
-git clone git@github.com:stratisMarkou/otter.git
+git clone git@github.com:jonas-scholz123/otter.git
 cd otter
 uv venv
 source .venv/bin/activate
@@ -43,41 +43,38 @@ wandb online; python otter/experiment/train.py --config_name base
 wandb online; python otter/experiment/train.py --config_name base --debug
 ```
 
+To train a model on Azure, make sure that you first set the `WANDB_API_KEY` environment variable. This will be transmitted to the Azure VM.
+You will also need to install the azure CLI:
+```bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+and authenticate:
+```bash
+az login
+```
+
+Then, run (including your overrides):
+```bash
+python ./submit_azure.py otter/experiment/train.py --config_name base host=azure
+```
+This will launch a run using the code as-is on your local machine (same git branch etc).
+
 After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
 ```bash
-python otter/experiment/save_samples.py <experiment_name>
+python otter/evaluate/save_forecasts.py <experiment_name>
 ```
-The experiment name is the same as in wandb or in the _results directory.
+The experiment name is the same as in wandb or in the _results directory, e.g. `2025-11-06_19-08-bold-wolf`.
 
-For model evaluation (to save evaluation metrics), run:
+For weatherbench model evaluation (to save evaluation metrics), run:
 ```bash
-python otter/experiment/eval.py --experiment_name <experiment_name> \
---results_path <results_path> --checkpoint_name <checkpoint_name> \
-constants.data.valid_num_target_frames=<num_target_frames>
+python otter/evaluate/weatherbench.py \
+--experiment_name=<experiment_name> \
+--runner=DirectRunner
 ```
-The experiment name is the same as in wandb or in the <results_path> directory.
-
-Number of target frames determines the forecasting horizon.
-
-Checkpoint name (e.g. latest, best) determines which model weights to load.
-
-When evaluation is done, to create a plot for power spectrum density MSE per variable, run:
-```bash
-python otter/plots/plot_power_spectrum_mse.py --experiment_name <experiment_name> \
---rollout_steps <num_target_frames> --checkpoint_name <checkpoint_name>
+Finally, these results can be plotted and saved to the _plots folder using
 ```
-
-It will create a PNG image in the `experiment_name/power_spectrum_mse` folder.
-
-To create a score card to compare two models, run:
-```bash
-python otter/plots/plot_score_card.py --experiment_name <experiment_name> \
---base_experiment_name <base_experiment_name> --rollout_steps <num_target_frames> \
---base_rollout_steps <base_num_target_frames> --checkpoint_name <checkpoint_name> \
---base_checkpoint_name <base_checkpoint_name>
+python otter/evaluate/plot_weatherbench_output.py <experiment_name>
 ```
-
-To compare to Arches Weather M model, use `_baselines/arches_weather/validation/metrics_latest_rollout_40.pkl`.
 
 To launch a training run on HPC, from the repo root, run:
 ```bash

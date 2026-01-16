@@ -72,6 +72,8 @@ def _combine_variables_and_levels(
 
 
 class GriddedWeatherTask(Dataset[ForecastingSample]):
+    dataset: GriddedWeatherSource
+
     def __init__(
         self,
         data_source: GriddedWeatherSource,
@@ -207,6 +209,14 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
             trg_timedelta_hours=self.target_timedeltas.astype(np.int32),
             trg=trg_tensor,
         )
+
+    def get_zero_times(self) -> List[np.datetime64]:
+        zero_times = []
+        for idx in range(len(self)):
+            idx = idx * self.task_sub_sampling_factor
+            zero_time = self.first_zero_time + idx * BASE_TEMPORAL_RESOLUTION
+            zero_times.append(zero_time)
+        return zero_times
 
 
 def collate_fn(batch: List[ForecastingSample]) -> ForecastingSample:

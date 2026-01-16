@@ -160,4 +160,4 @@ class SpatialEmbedding(FourierExpansionEmbedding):
         )
 
         spatial_embedding = self.linear(spatial_embedding)
-        return x + spatial_embedding  # type: ignore
+        return x + spatial_embedding

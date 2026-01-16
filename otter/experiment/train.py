@@ -11,7 +11,7 @@ from typing import (
 import numpy as np
 import torch
 from omegaconf import DictConfig
-from torch.amp import GradScaler  # type: ignore
+from torch.amp import GradScaler
 from tqdm import tqdm
 
 import wandb
@@ -66,7 +66,7 @@ def train_step(
     # Do forward pass with AMP autocasting. Only forward pass needs to be
     # autocasted, as the backward is computed with matching dtypes to the
     # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
-    with torch.amp.autocast(  # type: ignore
+    with torch.amp.autocast(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):
@@ -160,7 +160,7 @@ def run_validation_epoch(
     # Ensure model is in evaluation mode.
     model = model.eval()
 
-    with torch.amp.autocast(  # type: ignore
+    with torch.amp.autocast(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):

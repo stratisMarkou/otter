@@ -12,7 +12,7 @@ import numpy.typing as npt
 import torch
 import xarray as xr
 
-from otter.data.datasets import (  # type: ignore
+from otter.data.datasets import (
     ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
