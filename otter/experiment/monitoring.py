@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Literal, Tuple
 import torch
 
 import wandb
+from otter.models.losses.loss_fn import LossInfo
 
 
 class WandbLogger:
@@ -56,7 +57,7 @@ def run_and_log_time_to_wandb(
 
 
 def log_loss_info_to_wandb(
-    loss_info: Dict[str, torch.Tensor],
+    loss_info: LossInfo,
     prefix: str,
 ) -> None:
     for k, v in loss_info.items():

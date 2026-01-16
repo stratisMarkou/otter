@@ -57,8 +57,59 @@ def train_step(
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
+    accumulate_batches: int,
     device: str = "cuda",
 ) -> None:
+    w = wandb_logger
+
+    loss_info = {}
+
+    for _ in range(accumulate_batches):
+        loss_info_iter = compute_gradients_single_batch(
+            model=model,
+            loss_fn=loss_fn,
+            train_loader=train_loader,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            scaler=scaler,
+            wandb_logger=w,
+            mixed_precision_dtype=mixed_precision_dtype,
+            accumulate_batches=accumulate_batches,
+            device=device,
+        )
+        for k, v in loss_info_iter.items():
+            if k not in loss_info:
+                loss_info[k] = 0.0
+            loss_info[k] += v / accumulate_batches
+
+    scaler.unscale_(optimizer)
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
+
+    w.timed("scaler.step", scaler.step, optimizer)
+    w.timed("scaler.update", scaler.update)
+    w.timed("optimizer.zero_grad", optimizer.zero_grad)
+    w.timed("scheduler.step", lr_scheduler.step)
+
+    log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
+
+    current_lr = lr_scheduler.get_last_lr()[0]
+    w.log({"misc/learning_rate": current_lr})
+    w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
+
+
+def compute_gradients_single_batch(
+    model: torch.nn.Module,
+    loss_fn: LossFunction,
+    train_loader: Iterable[ForecastingSample],
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    scaler: GradScaler,
+    wandb_logger: WandbLogger,
+    mixed_precision_dtype: torch.dtype,
+    accumulate_batches: int,
+    device: str = "cuda",
+) -> LossInfo:
     w = wandb_logger
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
@@ -92,26 +143,14 @@ def train_step(
         if load_balancing_loss is not None:
             loss += load_balancing_loss
 
+    loss = loss / accumulate_batches
     if load_balancing_loss_info is not None:
         loss_info.update(load_balancing_loss_info)
 
     scaled_loss = w.timed("scaler.scale", scaler.scale, loss)
     w.timed("scaled_loss.backward", scaled_loss.backward)
 
-    scaler.unscale_(optimizer)
-
-    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
-
-    w.timed("scaler.step", scaler.step, optimizer)
-    w.timed("scaler.update", scaler.update)
-    w.timed("optimizer.zero_grad", optimizer.zero_grad)
-    w.timed("scheduler.step", lr_scheduler.step)
-
-    log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
-
-    current_lr = lr_scheduler.get_last_lr()[0]
-    w.log({"misc/learning_rate": current_lr})
-    w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
+    return loss_info
 
 
 @torch.no_grad()
@@ -306,6 +345,7 @@ def train_loop(
     """
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     clip_grad_norm = experiment.constants.training.clip_grad_norm
+    accumulate_batches = experiment.constants.data.accumulate_batches
 
     log_num_params(experiment.model)
 
@@ -355,6 +395,7 @@ def train_loop(
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
+                    accumulate_batches=accumulate_batches,
                 )
                 step += 1
             except StopIteration:
