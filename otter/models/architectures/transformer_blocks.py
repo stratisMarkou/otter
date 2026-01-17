@@ -185,7 +185,6 @@ class TransformerBlock(nn.Module):
         num_heads: int,
         dropout_rate: float,
         drop_path_rate: float,
-        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -254,7 +253,6 @@ class SwinTransformerBlock(torch.nn.Module):
         window_size: int,
         dropout_rate: float,
         drop_path_rate: float,
-        batch_size: int,
         use_efficient_attention: bool = True,
     ):
         super().__init__()
@@ -267,7 +265,6 @@ class SwinTransformerBlock(torch.nn.Module):
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
             drop_path_rate=drop_path_rate,
-            batch_size=batch_size,
         )
 
         # Transformer block applied after the shift operation.
@@ -278,7 +275,6 @@ class SwinTransformerBlock(torch.nn.Module):
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
             drop_path_rate=drop_path_rate,
-            batch_size=batch_size,
         )
 
         # Window size for extracting subimages.
@@ -348,7 +344,6 @@ def make_swin_stage(
     window_size: int,
     dropout_rate: float,
     drop_path_rate: float,
-    batch_size: int,
     use_efficient_attention: bool = True,
 ) -> torch.nn.ModuleList:
     return torch.nn.ModuleList(
@@ -361,7 +356,6 @@ def make_swin_stage(
                 use_efficient_attention=use_efficient_attention,
                 dropout_rate=dropout_rate,
                 drop_path_rate=drop_path_rate,
-                batch_size=batch_size,
             )
             for _ in range(num_swin_blocks)
         ]

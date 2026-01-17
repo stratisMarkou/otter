@@ -6,21 +6,20 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.7
+  - repo: local
     hooks:
       - id: ruff
-      - id: ruff-format
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
-      - id: mypy
-        entry: bash -c "mypy otter tests --disallow-untyped-defs --strict"
+        name: ruff
+        entry: ruff check otter tests --fix
         language: system
-  - repo: https://github.com/asottile/blacken-docs
-    rev: 1.16.0
+        pass_filenames: false
+  - repo: local
     hooks:
-      - id: blacken-docs
+      - id: ty
+        name: ty
+        entry: ty check otter tests
+        language: system
+        pass_filenames: false
   - repo: local
     hooks:
       - id: pytest

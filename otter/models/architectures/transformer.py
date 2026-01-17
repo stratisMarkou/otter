@@ -38,7 +38,6 @@ class SwinTransformer(nn.Module):
         num_bottom_blocks: int,
         dropout_rate: float,
         drop_path_rate: float,
-        batch_size: int,
         feedforward_network: Callable[[int, int], nn.Module],
         pos_embedding: PositionEmbedding | SpatialEmbedding,
         use_rope: bool,
@@ -95,7 +94,6 @@ class SwinTransformer(nn.Module):
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
                     drop_path_rate=drop_path_rate,
-                    batch_size=batch_size,
                 )
             )
             patch_downsampling_layers.append(
@@ -116,7 +114,6 @@ class SwinTransformer(nn.Module):
             use_efficient_attention=use_efficient_attention,
             dropout_rate=dropout_rate,
             drop_path_rate=drop_path_rate,
-            batch_size=batch_size,
         )
 
         for num_blocks, (t2, t1) in zip(
@@ -151,7 +148,6 @@ class SwinTransformer(nn.Module):
                     use_efficient_attention=use_efficient_attention,
                     dropout_rate=dropout_rate,
                     drop_path_rate=drop_path_rate,
-                    batch_size=batch_size,
                 )
             )
 
@@ -208,7 +204,7 @@ class SwinTransformer(nn.Module):
             self.patch_downsampling_layers,
             self.down_swin_stages,
         ):
-            for swin_transformer_block in down_swin_stage:  # type: ignore
+            for swin_transformer_block in down_swin_stage:
                 x, load_balancing_losses_per_block = swin_transformer_block(
                     x, freq_cis=self.freq_cis
                 )
@@ -231,7 +227,7 @@ class SwinTransformer(nn.Module):
                 x = upsampling_conv(x.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
                 x = x + skip
 
-                for swin_transformer_block in up_swin_stage:  # type: ignore
+                for swin_transformer_block in up_swin_stage:
                     x, load_balancing_losses_per_block = (
                         swin_transformer_block(x, freq_cis=self.freq_cis)
                     )
@@ -250,7 +246,7 @@ class SwinTransformer(nn.Module):
                 x = fusion_conv(x)
                 x = x.permute(0, 2, 3, 1)
 
-                for swin_transformer_block in up_swin_stage:  # type: ignore
+                for swin_transformer_block in up_swin_stage:
                     x, load_balancing_losses_per_block = (
                         swin_transformer_block(x, freq_cis=self.freq_cis)
                     )

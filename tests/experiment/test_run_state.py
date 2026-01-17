@@ -204,7 +204,7 @@ def test_runstate_with_training(
         output: torch.Tensor = model(x)
         loss: torch.Tensor = criterion(output, y)
 
-    scaler.scale(loss).backward()  # type: ignore
+    scaler.scale(loss).backward()
     scaler.step(optimizer)
     scaler.update()
     scheduler.step()

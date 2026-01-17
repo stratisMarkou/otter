@@ -5,8 +5,7 @@ from hydra import compose
 from matplotlib.figure import Figure
 
 from otter.data.datasets import ForecastingSample
-from otter.experiment.downsample import downsample
-from otter.models.multiscale_model import (
+from otter.models.forecasting_model import (
     get_ctx_vars_and_levels,
     get_trg_vars_and_levels,
 )
@@ -22,9 +21,6 @@ PLOT_VARS_AND_LEVELS = [
     "2m_temperature",
     "specific_humidity/level_500",
 ]
-
-# The scale used for downsampling in one of the plots.
-DOWNSAMPLE_SCALE = 8
 
 # The batch index used for plotting a specific sample in a batch of data.
 BATCH_IDX = 2
@@ -59,24 +55,6 @@ plotter = GeoVariablePlotter.default(ctx_var_to_idx, trg_var_to_idx)
 
 # A complex custom plot
 gb = plotter.new_grid_builder(PLOT_VARS_AND_LEVELS)
-gb.add_column(sample.ctx[:, :, 0, :], is_trg_like=False, title="Context[0]")
-gb.add_column(sample.trg[:, :, 0, :], is_trg_like=True, title="Target[0]")
-
-trg_downsampled = downsample(
-    sample.trg.unsqueeze(0), DOWNSAMPLE_SCALE
-).squeeze(0)
-gb.add_column(
-    trg_downsampled[:, :, 0, :],
-    is_trg_like=True,
-    title=f"Target[0] (scale={DOWNSAMPLE_SCALE})",
-)
-
-residual = sample.trg[:, :, 0, :] - trg_downsampled[:, :, 0, :]
-gb.add_column(
-    residual,
-    is_trg_like=True,
-    title=f"Residual[0] (scale={DOWNSAMPLE_SCALE})",
-)
 
 # Some simpler plots
 

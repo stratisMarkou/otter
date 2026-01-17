@@ -11,13 +11,12 @@ from typing import (
 import numpy as np
 import torch
 from omegaconf import DictConfig
-from torch.amp import GradScaler  # type: ignore
+from torch.amp import GradScaler
 from tqdm import tqdm
 
 import wandb
 from otter.data.datasets import ForecastingSample
 from otter.eval_utils.power_spectrum import power_spectrum_density_mse
-from otter.experiment.downsample import downsample
 from otter.experiment.monitoring import (
     WandbLogger,
     log_loss_info_to_wandb,
@@ -34,15 +33,14 @@ from otter.experiment.utils import (
 )
 from otter.models.architectures.schedulers import (
     ForecastHorizonScheduler,
-    ScaleScheduler,
 )
+from otter.models.forecasting_model import ForecastingModel
 from otter.models.losses.loss_fn import (
     LossInfo,
     LossInfoArray,
     gather_array_losses,
     gather_load_balancing_losses,
 )
-from otter.models.multiscale_model import MultiscaleInput, MultiscaleModel
 
 LossFunction = Callable[..., Tuple[torch.Tensor, LossInfo]]
 
@@ -80,71 +78,35 @@ def train_step(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
-    scale_scheduler: ScaleScheduler,
     forecast_horizon_scheduler: ForecastHorizonScheduler,
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
     grad_ckpt_start_timestep: int,
+    accumulate_batches: int,
     device: str = "cuda",
 ) -> None:
     w = wandb_logger
-    batch = w.timed("make_next_batch", next, train_loader)
-    batch = w.timed("batch.to", batch.to, device, non_blocking=True)
+    loss_info = {}
 
-    batch = w.timed(
-        "update_batch_with_forecast_horizon",
-        update_batch_with_forecast_horizon,
-        batch=batch,
-        forecast_horizon_scheduler=forecast_horizon_scheduler,
-    )
-
-    data_scale = scale_scheduler.sample_data_scale()
-
-    processed_batch = w.timed(
-        "preprocess_batch", preprocess_batch, batch=batch, scale=data_scale
-    )
-    processed_batch = processed_batch.to(device)
-
-    rollout_scales = scale_scheduler.get_rollout_scales()
-
-    # Do forward pass with AMP autocasting. Only forward pass needs to be
-    # autocasted, as the backward is computed with matching dtypes to the
-    # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
-    with torch.amp.autocast(  # type: ignore
-        device_type=device,
-        dtype=mixed_precision_dtype,
-    ):
-        prd_dist, load_balancing_losses = w.timed(
-            "model.forward",
-            model.forward,
-            processed_batch,
-            scales=rollout_scales,
-            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
+    for _ in range(accumulate_batches):
+        loss_info_iter = compute_gradients_single_batch(
+            model=model,
+            loss_fn=loss_fn,
+            train_loader=train_loader,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            forecast_horizon_scheduler=forecast_horizon_scheduler,
+            scaler=scaler,
+            wandb_logger=w,
+            mixed_precision_dtype=mixed_precision_dtype,
+            accumulate_batches=accumulate_batches,
+            device=device,
         )
-
-        loss, loss_info = w.timed(
-            "loss_fn",
-            loss_fn,
-            prd_dist=prd_dist,
-            trg=batch.trg,
-            scales=_combine_scales(data_scale, rollout_scales),
-        )
-
-        load_balancing_loss, load_balancing_loss_info = w.timed(
-            "gather_load_balancing_losses",
-            gather_load_balancing_losses,
-            load_balancing_losses=load_balancing_losses,
-        )
-
-        if load_balancing_loss is not None:
-            loss += load_balancing_loss
-
-    if load_balancing_loss_info is not None:
-        loss_info.update(load_balancing_loss_info)
-
-    scaled_loss = w.timed("scaler.scale", scaler.scale, loss)
-    w.timed("scaled_loss.backward", scaled_loss.backward)
+        for k, v in loss_info_iter.items():
+            if k not in loss_info:
+                loss_info[k] = 0.0
+            loss_info[k] += v / accumulate_batches
 
     scaler.unscale_(optimizer)
 
@@ -168,39 +130,74 @@ def train_step(
     )
 
 
-def preprocess_batch(batch: ForecastingSample, scale: int) -> MultiscaleInput:
-    """
-    Preprocess a batch of forecasting samples for input to the multiscale
-    model.
-    """
-    downsampled_trg = downsample(batch.trg, scale)
-
-    return MultiscaleInput(
-        ctx=batch.ctx,
-        zero_time=batch.zero_time,
-        downsampled_trg=downsampled_trg,
-        scale=scale,
-        trg_timedelta_hours=batch.trg_timedelta_hours,
+def compute_gradients_single_batch(
+    model: torch.nn.Module,
+    loss_fn: LossFunction,
+    train_loader: Iterable[ForecastingSample],
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    forecast_horizon_scheduler: ForecastHorizonScheduler,
+    scaler: GradScaler,
+    wandb_logger: WandbLogger,
+    mixed_precision_dtype: torch.dtype,
+    accumulate_batches: int,
+    device: str = "cuda",
+) -> LossInfo:
+    w = wandb_logger
+    batch = w.timed("make_next_batch", next, train_loader)
+    batch = w.timed("batch.to", batch.to, device, non_blocking=True)
+    batch = w.timed(
+        "update_batch_with_forecast_horizon",
+        update_batch_with_forecast_horizon,
+        batch=batch,
+        forecast_horizon_scheduler=forecast_horizon_scheduler,
     )
 
+    # Do forward pass with AMP autocasting. Only forward pass needs to be
+    # autocasted, as the backward is computed with matching dtypes to the
+    # forward pass: https://pytorch.org/docs/stable/amp.html#torch.autocast
+    with torch.amp.autocast(
+        device_type=device,
+        dtype=mixed_precision_dtype,
+    ):
+        prd_dist, load_balancing_losses = w.timed(
+            "model.forward",
+            model.forward,
+            batch,
+        )
 
-def _combine_scales(
-    data_scale: int, rollout_scales: torch.Tensor
-) -> torch.Tensor:
-    """
-    Combine the data scale and rollout scales into a single tensor.
-    """
-    data_scale_tensor = torch.tensor([data_scale], dtype=torch.int32)
-    return torch.cat([data_scale_tensor, rollout_scales])
+        loss, loss_info = w.timed(
+            "loss_fn",
+            loss_fn,
+            prd_dist=prd_dist,
+            trg=batch.trg,
+        )
+
+        load_balancing_loss, load_balancing_loss_info = w.timed(
+            "gather_load_balancing_losses",
+            gather_load_balancing_losses,
+            load_balancing_losses=load_balancing_losses,
+        )
+
+        if load_balancing_loss is not None:
+            loss += load_balancing_loss
+
+    loss = loss / accumulate_batches
+    if load_balancing_loss_info is not None:
+        loss_info.update(load_balancing_loss_info)
+
+    scaled_loss = w.timed("scaler.scale", scaler.scale, loss)
+    w.timed("scaled_loss.backward", scaled_loss.backward)
+
+    return loss_info
 
 
 @torch.no_grad()
 def validation_epoch(
-    model: MultiscaleModel,
+    model: ForecastingModel,
     device: str,
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
-    scale_scheduler: ScaleScheduler,
     wandb_logger: WandbLogger,
     mixed_precision_dtype: torch.dtype,
 ) -> float:
@@ -210,7 +207,6 @@ def validation_epoch(
         device=device,
         dataloader=dataloader,
         loss_fns=loss_fns,
-        scale_scheduler=scale_scheduler,
         mixed_precision_dtype=mixed_precision_dtype,
     )
 
@@ -232,7 +228,6 @@ def run_validation_epoch(
     device: str,
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
-    scale_scheduler: ScaleScheduler,
     mixed_precision_dtype: torch.dtype,
     compute_power_spectrum_mse: bool = False,
 ) -> Tuple[
@@ -243,7 +238,7 @@ def run_validation_epoch(
     # Ensure model is in evaluation mode.
     model = model.eval()
 
-    with torch.amp.autocast(  # type: ignore
+    with torch.amp.autocast(
         device_type=device,
         dtype=mixed_precision_dtype,
     ):
@@ -255,30 +250,15 @@ def run_validation_epoch(
 
         for batch in tqdm(dataloader):
             batch = batch.to(device)
-            data_scale = scale_scheduler.sample_data_scale()
-            rollout_scales = scale_scheduler.get_rollout_scales()
-            all_scales = _combine_scales(data_scale, rollout_scales)
-            # Test that the largest scale is greater than the number of lats,
-            # ensuring the total erasure case is covered.
-            assert torch.max(all_scales) > batch.trg.shape[1], (
-                f"Maximum scale {torch.max(all_scales)} must be greater than "
-                f"the number of lats {batch.trg.shape[1]}"
-            )
-            preprocessed_batch = preprocess_batch(batch, data_scale)
-            preprocessed_batch = preprocessed_batch.to(device)
-
             # Compute the number of rollout steps not to use any gradient checkpointing
             num_rollout_steps = np.max(
-                (
-                    preprocessed_batch.trg_timedelta_hours
-                    // model.temporal_resolution_hours  # type: ignore
-                )
+                batch.trg_timedelta_hours // model.temporal_resolution_hours  # type: ignore
             )
             prd_dist, load_balancing_losses = model(
-                preprocessed_batch,
-                scales=rollout_scales,
+                batch,
                 grad_ckpt_start_timestep=num_rollout_steps,
             )
+            prd_dist, load_balancing_losses = model(batch)
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
@@ -286,9 +266,7 @@ def run_validation_epoch(
                     losses[loss_name] = []
                     loss_infos[loss_name] = []
 
-                loss, loss_info = loss_fn(
-                    trg=batch.trg, prd_dist=prd_dist, scales=all_scales
-                )
+                loss, loss_info = loss_fn(trg=batch.trg, prd_dist=prd_dist)
 
                 if loss_name == "train_loss":
                     load_loss, load_loss_info = gather_load_balancing_losses(
@@ -439,6 +417,7 @@ def train_loop(
     grad_ckpt_start_timestep = (
         experiment.constants.training.grad_ckpt_start_timestep
     )
+    accumulate_batches = experiment.constants.data.accumulate_batches
 
     log_num_params(experiment.model)
 
@@ -447,13 +426,15 @@ def train_loop(
 
         while True:
             wandb_logger = WandbLogger(step)
-            if step % experiment.constants.training.validate_every == 0:
+            if (
+                step % experiment.constants.training.validate_every == 0
+                and step > 0
+            ):
                 current_val_loss = validation_epoch(
                     model=experiment.model,
                     device=device,
                     dataloader=experiment.valid_dataloader,
                     loss_fns=experiment.val_loss_fns,
-                    scale_scheduler=experiment.inference_scale_scheduler,
                     wandb_logger=wandb_logger,
                     mixed_precision_dtype=mixed_precision_dtype,
                 )
@@ -487,18 +468,21 @@ def train_loop(
                     lr_scheduler=lr_scheduler,
                     device=device,
                     scaler=scaler,
-                    scale_scheduler=experiment.train_scale_scheduler,
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
                     forecast_horizon_scheduler=forecast_horizon_scheduler,
                     grad_ckpt_start_timestep=grad_ckpt_start_timestep,
+                    accumulate_batches=accumulate_batches,
                 )
                 step += 1
             except StopIteration:
                 break
 
-            if step % experiment.constants.save_checkpoint_every == 0:
+            if (
+                step % experiment.constants.save_checkpoint_every == 0
+                and step > 0
+            ):
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
@@ -512,7 +496,7 @@ def train_loop(
                 )
 
             interval = experiment.constants.save_persistent_checkpoint_every
-            if step % interval == 0:
+            if step % interval == 0 and step > 0:
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,

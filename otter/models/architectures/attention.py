@@ -2,7 +2,7 @@ from typing import Optional
 
 import torch
 from torch import nn
-from xformers.ops import memory_efficient_attention  # type: ignore
+from xformers.ops import memory_efficient_attention
 
 from otter.models.architectures.rope import apply_rotary_emb
 
