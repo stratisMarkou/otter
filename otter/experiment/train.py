@@ -354,7 +354,10 @@ def train_loop(
 
         while True:
             wandb_logger = WandbLogger(step)
-            if step % experiment.constants.training.validate_every == 0:
+            if (
+                step % experiment.constants.training.validate_every == 0
+                and step > 0
+            ):
                 current_val_loss = validation_epoch(
                     model=experiment.model,
                     device=device,
@@ -401,7 +404,10 @@ def train_loop(
             except StopIteration:
                 break
 
-            if step % experiment.constants.save_checkpoint_every == 0:
+            if (
+                step % experiment.constants.save_checkpoint_every == 0
+                and step > 0
+            ):
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
@@ -414,7 +420,7 @@ def train_loop(
                 )
 
             interval = experiment.constants.save_persistent_checkpoint_every
-            if step % interval == 0:
+            if step % interval == 0 and step > 0:
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
