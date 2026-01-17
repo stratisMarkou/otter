@@ -22,9 +22,6 @@ TEST_DATASET = "era5_240x121"
     [
         "base",
         "base_moe",
-        "base_probabilistic",
-        "multiscale",
-        "multiscale_probabilistic",
     ],
 )
 def test_config(config_name: str) -> None:

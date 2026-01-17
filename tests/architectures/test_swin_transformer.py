@@ -24,7 +24,7 @@ from otter.models.architectures.transformer import SwinTransformer
         (7, 12, 15, [1, 1], 4, PositionEmbedding(12, 60, 120)),
     ],
 )
-@torch.compiler.disable()  # type: ignore
+@torch.compiler.disable()
 def test_swin_transformer(
     grid_channel_dim: int,
     token_dim: int,
@@ -70,7 +70,6 @@ def test_swin_transformer(
         drop_path_rate=0.1,
         # Can't do this in test env.
         use_rope=False,
-        batch_size=batch_dim,
     )
 
     # Create a random input tensor
