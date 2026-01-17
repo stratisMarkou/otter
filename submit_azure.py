@@ -59,6 +59,7 @@ job = command(
     environment_variables={
         "WANDB_API_KEY": wandb_api_key,
         "WANDB_MODE": "online",
+        "DATASET_MOUNT_CACHE_SIZE": "-20 GB",  # Leave 20 GB free on disk for checkpoints
     },
     # Increase shared memory size for torch dataloaders
     shm_size="16g",
