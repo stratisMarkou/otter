@@ -26,7 +26,14 @@ from otter.experiment.run_state import (
     load_run_state_from_latest_checkpoint,
     save_run_state,
 )
-from otter.experiment.utils import initialize_experiment, initialize_wandb
+from otter.experiment.utils import (
+    initialize_experiment,
+    initialize_wandb,
+    load_model_weights_from_experiment,
+)
+from otter.models.architectures.schedulers import (
+    RolloutHorizonScheduler,
+)
 from otter.models.forecasting_model import ForecastingModel
 from otter.models.losses.loss_fn import (
     LossInfo,
@@ -47,21 +54,34 @@ def assert_single_device() -> None:
         )
 
 
+def update_batch_with_rollout_horizon(
+    batch: ForecastingSample,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
+) -> ForecastingSample:
+    """Shrink the batch target to the rollout horizon."""
+    num_forecasting_steps = rollout_horizon_scheduler.get_rollout_steps()
+    target_timedelta_hours = rollout_horizon_scheduler.get_rollout_time_hours()
+    batch.trg = batch.trg[..., :num_forecasting_steps, :]
+    batch.trg_timedelta_hours = target_timedelta_hours
+    return batch
+
+
 def train_step(
-    model: torch.nn.Module,
+    model: ForecastingModel,
     loss_fn: LossFunction,
     train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
+    grad_ckpt_start_timestep: int,
     accumulate_batches: int,
     device: str = "cuda",
 ) -> None:
     w = wandb_logger
-
     loss_info = {}
 
     for _ in range(accumulate_batches):
@@ -71,9 +91,11 @@ def train_step(
             train_loader=train_loader,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
+            rollout_horizon_scheduler=rollout_horizon_scheduler,
             scaler=scaler,
             wandb_logger=w,
             mixed_precision_dtype=mixed_precision_dtype,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
             accumulate_batches=accumulate_batches,
             device=device,
         )
@@ -90,20 +112,26 @@ def train_step(
     w.timed("scaler.update", scaler.update)
     w.timed("optimizer.zero_grad", optimizer.zero_grad)
     w.timed("scheduler.step", lr_scheduler.step)
+    rollout_horizon_scheduler.step()
 
     log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
 
     current_lr = lr_scheduler.get_last_lr()[0]
     w.log({"misc/learning_rate": current_lr})
     w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
+    w.log(
+        {"misc/rollout_horizon": rollout_horizon_scheduler.get_rollout_steps()}
+    )
 
 
 def compute_gradients_single_batch(
-    model: torch.nn.Module,
+    model: ForecastingModel,
     loss_fn: LossFunction,
     train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
+    grad_ckpt_start_timestep: int,
     scaler: GradScaler,
     wandb_logger: WandbLogger,
     mixed_precision_dtype: torch.dtype,
@@ -113,6 +141,12 @@ def compute_gradients_single_batch(
     w = wandb_logger
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
+    batch = w.timed(
+        "update_batch_with_rollout_horizon",
+        update_batch_with_rollout_horizon,
+        batch=batch,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
+    )
 
     # Do forward pass with AMP autocasting. Only forward pass needs to be
     # autocasted, as the backward is computed with matching dtypes to the
@@ -125,6 +159,7 @@ def compute_gradients_single_batch(
             "model.forward",
             model.forward,
             batch,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )
 
         loss, loss_info = w.timed(
@@ -185,7 +220,7 @@ def validation_epoch(
 
 @torch.no_grad()
 def run_validation_epoch(
-    model: torch.nn.Module,
+    model: ForecastingModel,
     device: str,
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
@@ -211,7 +246,14 @@ def run_validation_epoch(
 
         for batch in tqdm(dataloader):
             batch = batch.to(device)
-            prd_dist, load_balancing_losses = model(batch)
+            # Compute the number of rollout steps not to use any gradient checkpointing
+            num_rollout_steps = np.max(
+                batch.trg_timedelta_hours // model.temporal_resolution_hours
+            )
+            prd_dist, load_balancing_losses = model(
+                batch,
+                grad_ckpt_start_timestep=num_rollout_steps,
+            )
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
@@ -234,17 +276,27 @@ def run_validation_epoch(
                 loss_infos[loss_name].append(loss_info)
 
             if compute_power_spectrum_mse:
-                psd_mean_mse_per_batch = power_spectrum_density_mse(
-                    trg=batch.trg,
-                    prd_dist=prd_dist,
-                ).cpu()
+                psd_mean_mse_per_batch, psd_trg_per_batch = (
+                    power_spectrum_density_mse(
+                        trg=batch.trg,
+                        prd_dist=prd_dist,
+                    )
+                )
 
                 psd_mean_mse_per_batch_per_var = gather_array_losses(
-                    array_losses=psd_mean_mse_per_batch,
-                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
+                    array_losses=psd_mean_mse_per_batch.cpu(),
+                    trg_variables_and_levels=model.trg_variables_and_levels,
                 )
                 metrics_array["power_spectrum_mse"].append(
                     psd_mean_mse_per_batch_per_var
+                )
+
+                psd_trg_per_batch_per_var = gather_array_losses(
+                    array_losses=psd_trg_per_batch.cpu(),
+                    trg_variables_and_levels=model.trg_variables_and_levels,
+                )
+                metrics_array["power_spectrum_target"].append(
+                    psd_trg_per_batch_per_var
                 )
 
     # Ensure model is back in training mode after validation.
@@ -293,6 +345,15 @@ def main() -> None:
 
     scaler = GradScaler(device=device)
 
+    rollout_horizon_scheduler = experiment.rollout_horizon_scheduler
+
+    if experiment.constants.load_weights_from_experiment:
+        logging.info("Loading weights from another experiment. ")
+        experiment.model = load_model_weights_from_experiment(
+            path=experiment.constants.load_weights_from_experiment,
+            model=experiment.model,
+        )
+
     if experiment.info.start_from_checkpoint:
         logging.info("Loading initial state from checkpoint.")
         initial_state = load_run_state_from_latest_checkpoint(
@@ -300,6 +361,7 @@ def main() -> None:
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             scaler=scaler,
+            rollout_horizon_scheduler=rollout_horizon_scheduler,
         )
         logging.info("Successfully loaded initial state.")
     else:
@@ -315,6 +377,7 @@ def main() -> None:
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
         best_val_loss=initial_state.best_val_loss,
     )
 
@@ -337,6 +400,7 @@ def train_loop(
     device: str,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
     scaler: GradScaler,
     best_val_loss: float = float("inf"),
 ) -> None:
@@ -345,6 +409,9 @@ def train_loop(
     """
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
     clip_grad_norm = experiment.constants.training.clip_grad_norm
+    grad_ckpt_start_timestep = (
+        experiment.constants.training.grad_ckpt_start_timestep
+    )
     accumulate_batches = experiment.constants.data.accumulate_batches
 
     log_num_params(experiment.model)
@@ -378,6 +445,7 @@ def train_loop(
                         optimizer=optimizer,
                         lr_scheduler=lr_scheduler,
                         scaler=scaler,
+                        rollout_horizon_scheduler=rollout_horizon_scheduler,
                         epoch=epoch,
                         step=step,
                         best_val_loss=best_val_loss,
@@ -398,6 +466,8 @@ def train_loop(
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
+                    rollout_horizon_scheduler=rollout_horizon_scheduler,
+                    grad_ckpt_start_timestep=grad_ckpt_start_timestep,
                     accumulate_batches=accumulate_batches,
                 )
                 step += 1
@@ -413,6 +483,7 @@ def train_loop(
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
+                    rollout_horizon_scheduler=rollout_horizon_scheduler,
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
@@ -426,6 +497,7 @@ def train_loop(
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
+                    rollout_horizon_scheduler=rollout_horizon_scheduler,
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,

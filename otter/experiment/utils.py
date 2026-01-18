@@ -21,6 +21,7 @@ from omegaconf import (
 )
 
 import wandb
+from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 Experiment = DictConfig
 
@@ -70,6 +71,15 @@ def get_module_attr(string: str) -> Any:
     module_name, class_name = string.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, class_name)
+
+
+def load_model_weights_from_experiment(
+    path: Path | str,
+    model: torch.nn.Module,
+) -> torch.nn.Module:
+    state_dict = torch.load(path, weights_only=False)
+    model.load_state_dict(state_dict["model_state"])
+    return model
 
 
 def initialize_experiment(
@@ -561,6 +571,14 @@ def get_cosine_lr_scheduler(
     )
 
 
+def get_linear_warmup_cosine_lr_scheduler(
+    optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
+) -> LinearWarmupCosineAnnealingLR:
+    return LinearWarmupCosineAnnealingLR(
+        optimizer=optimizer, **lr_scheduler_kwargs
+    )
+
+
 def get_linear_lr_scheduler(
     optimizer: torch.optim.Optimizer, num_steps: int, end_factor: float
 ) -> torch.optim.lr_scheduler.LinearLR:
@@ -569,4 +587,14 @@ def get_linear_lr_scheduler(
         start_factor=1.0,
         end_factor=end_factor,
         total_iters=num_steps,
+    )
+
+
+def get_constant_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    factor: float,
+    total_iters: int,
+) -> torch.optim.lr_scheduler.ConstantLR:
+    return torch.optim.lr_scheduler.ConstantLR(
+        optimizer, factor=factor, total_iters=total_iters
     )

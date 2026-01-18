@@ -10,6 +10,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.utils.checkpoint as checkpoint
 import xarray as xr
 
 from otter.data.datasets import (
@@ -183,7 +184,9 @@ class ForecastingModel(torch.nn.Module):
         self.distribution_kwargs = distribution_kwargs
 
     def forward(
-        self, batch: ForecastingSample
+        self,
+        batch: ForecastingSample,
+        grad_ckpt_start_timestep: int,
     ) -> tuple[Distribution, List[LoadBalancingLosses]]:
         ctx = batch.ctx
         zero_time = batch.zero_time
@@ -208,6 +211,7 @@ class ForecastingModel(torch.nn.Module):
             ctx=ctx,
             zero_time=zero_time,
             trg_timedelta_hours=trg_timedelta_hours,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )  # (batch, lat, lon, trg_time_idx, trg_var_and_level)
 
         prd_dist = prd_dist * self.trg_std
@@ -216,9 +220,7 @@ class ForecastingModel(torch.nn.Module):
         return prd_dist, load_balancing_losses
 
     def single_time_forward(
-        self,
-        ctx: torch.Tensor,
-        zero_time: npt.NDArray[np.datetime64],
+        self, ctx: torch.Tensor, zero_time: npt.NDArray[np.datetime64]
     ) -> tuple[Distribution, LoadBalancingLosses]:
         residual = ctx[
             ..., 0, self.idx_residual
@@ -245,7 +247,7 @@ class ForecastingModel(torch.nn.Module):
         ctx_with_time_embedding = torch.cat([ctx, time_embedding], dim=-1)
 
         prediction, load_balancing_losses = self.backbone_network(
-            ctx_with_time_embedding
+            x=ctx_with_time_embedding
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
@@ -272,6 +274,7 @@ class ForecastingModel(torch.nn.Module):
         ctx: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
         trg_timedelta_hours: npt.NDArray[np.int32],
+        grad_ckpt_start_timestep: int,
     ) -> tuple[Distribution, list[LoadBalancingLosses]]:
         """
         Rolls out the model over time, predicting the target variables at
@@ -293,10 +296,19 @@ class ForecastingModel(torch.nn.Module):
         predictions: List[Distribution] = list()
         all_load_balancing_losses: List[LoadBalancingLosses] = list()
         for i in range(num_rollout_steps):
-            prd_dist, load_balancing_losses = self.single_time_forward(
-                ctx,
-                zero_time=zero_time + i * self.temporal_resolution_timedelta,
-            )  # (batch, lat, lon, trg_var_and_level)
+            current_time = zero_time + i * self.temporal_resolution_timedelta
+
+            if i < grad_ckpt_start_timestep:
+                prd_dist, load_balancing_losses = self.single_time_forward(
+                    ctx=ctx, zero_time=current_time
+                )
+            else:
+                (prd_dist, load_balancing_losses) = checkpoint.checkpoint(
+                    self.single_time_forward,
+                    ctx,
+                    current_time,
+                    use_reentrant=False,
+                )
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prd_dist)

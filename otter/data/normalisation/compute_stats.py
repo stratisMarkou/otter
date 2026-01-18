@@ -188,13 +188,13 @@ def compute_normalisation_stats_from_zarr(
             if stat in stats:
                 stats[stat] = stats[stat].update(example)
             else:
-                stats[stat] = ALL_NORMALISATION_STATISTICS[stat](example)  # type: ignore
+                stats[stat] = ALL_NORMALISATION_STATISTICS[stat](example)
 
             diff = next_example - example
             if stat in diff_stats:
                 diff_stats[stat] = diff_stats[stat].update(diff)
             else:
-                diff_stats[stat] = ALL_NORMALISATION_STATISTICS[stat](diff)  # type: ignore
+                diff_stats[stat] = ALL_NORMALISATION_STATISTICS[stat](diff)
 
     if save_results:
         for stat in stats:
