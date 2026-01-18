@@ -47,7 +47,6 @@ class EfficientMultiHeadAttention(nn.Module):
 
         x: torch.Tensor = memory_efficient_attention(q, k, v)
         x = x.reshape(B, N, D)
-        # x = self.proj_drop(self.proj(x))
-        x = self.proj(x)
+        x = self.proj_drop(self.proj(x))
 
         return x

@@ -33,6 +33,8 @@ python otter/data/source/convert_saved_zarr_to_memmap.py
 # python otter/data/normalisation/compute_stats.py
 ```
 
+## Training
+
 To train a deterministic model, from the repo root, run:
 ```bash
 # This will train a model with logging to wandb. It will also check your local branch
@@ -60,12 +62,21 @@ python ./submit_azure.py otter/experiment/train.py --config_name base host=azure
 This will launch a run using the code as-is on your local machine (same git branch etc).
 
 
+To launch a training run on HPC, from the repo root, run:
+```bash
+# submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
+sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
+```
+
+
 ### RFT
 You can rollout finetune a pretrained model using:
 ```bash
 python otter/experiment/train.py --config_name rollout_finetuning constants.load_weights_from_experiment=/some/path/to/2026-01-18_13-50-fierce-eagle/checkpoints/latest.pt
 ```
 Note that your configs need to align, i.e. the model architecture defined by the config needs to match that found in the checkpoint. We are looking to make this more ergonomic.
+
+## Weatherbench Eval
 
 After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
 ```bash
@@ -82,10 +93,4 @@ python otter/evaluate/weatherbench.py \
 Finally, these results can be plotted and saved to the _plots folder using
 ```
 python otter/evaluate/plot_weatherbench_output.py <experiment_name>
-```
-
-To launch a training run on HPC, from the repo root, run:
-```bash
-# submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
-sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
 ```

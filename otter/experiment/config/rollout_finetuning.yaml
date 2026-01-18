@@ -16,7 +16,6 @@ rollout_horizon_scheduler:
   lr_scheduler_kwargs:
     T_max: ${constants.training.num_training_steps} # Only for `get_cosine_lr_scheduler`.
     warmup_epochs: 2000
-  num_steps:
 
 constants:
   data:

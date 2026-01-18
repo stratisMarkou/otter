@@ -62,7 +62,7 @@ class RolloutHorizonScheduler:
 
     def step(self) -> None:
         """
-        Increments the current step and updates the rollout horizon if is devisible by `increment_every_num_steps`.
+        Increments the current step and updates the rollout horizon if it is divisible by `increment_every_num_steps`.
         """
         self.current_step += 1
 
