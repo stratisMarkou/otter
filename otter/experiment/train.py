@@ -112,6 +112,7 @@ def train_step(
     w.timed("scaler.update", scaler.update)
     w.timed("optimizer.zero_grad", optimizer.zero_grad)
     w.timed("scheduler.step", lr_scheduler.step)
+    rollout_horizon_scheduler.step()
 
     log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
 
@@ -284,7 +285,7 @@ def run_validation_epoch(
 
                 psd_mean_mse_per_batch_per_var = gather_array_losses(
                     array_losses=psd_mean_mse_per_batch.cpu(),
-                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
+                    trg_variables_and_levels=model.trg_variables_and_levels,
                 )
                 metrics_array["power_spectrum_mse"].append(
                     psd_mean_mse_per_batch_per_var
@@ -292,7 +293,7 @@ def run_validation_epoch(
 
                 psd_trg_per_batch_per_var = gather_array_losses(
                     array_losses=psd_trg_per_batch.cpu(),
-                    trg_variables_and_levels=model.trg_variables_and_levels,  # type: ignore
+                    trg_variables_and_levels=model.trg_variables_and_levels,
                 )
                 metrics_array["power_spectrum_target"].append(
                     psd_trg_per_batch_per_var

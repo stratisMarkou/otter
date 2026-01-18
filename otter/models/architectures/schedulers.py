@@ -51,6 +51,12 @@ class RolloutHorizonScheduler:
         self.increment_every_num_steps = num_steps // (
             max_rollout_steps - min_rollout_steps + 1
         )
+        logging.info("Number of training steps: {}".format(num_steps))
+        logging.info(
+            f"RolloutHorizonScheduler will increment "
+            f"the rollout horizon every "
+            f"{self.increment_every_num_steps} steps."
+        )
 
         self.temporal_resolution_hours = temporal_resolution_hours
 
