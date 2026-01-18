@@ -32,7 +32,7 @@ from otter.experiment.utils import (
     load_model_weights_from_experiment,
 )
 from otter.models.architectures.schedulers import (
-    ForecastHorizonScheduler,
+    RolloutHorizonScheduler,
 )
 from otter.models.forecasting_model import ForecastingModel
 from otter.models.losses.loss_fn import (
@@ -54,31 +54,26 @@ def assert_single_device() -> None:
         )
 
 
-def update_batch_with_forecast_horizon(
+def update_batch_with_rollout_horizon(
     batch: ForecastingSample,
-    forecast_horizon_scheduler: ForecastHorizonScheduler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
 ) -> ForecastingSample:
-    """Shrink the batch target to the forecast horizon."""
-
-    num_forecasting_steps = (
-        forecast_horizon_scheduler.get_frame_forecast_horizon()
-    )
-    target_timedelta_hours = (
-        forecast_horizon_scheduler.get_temporal_forecast_horizon_hours()
-    )
+    """Shrink the batch target to the rollout horizon."""
+    num_forecasting_steps = rollout_horizon_scheduler.get_rollout_steps()
+    target_timedelta_hours = rollout_horizon_scheduler.get_rollout_time_hours()
     batch.trg = batch.trg[..., :num_forecasting_steps, :]
     batch.trg_timedelta_hours = target_timedelta_hours
     return batch
 
 
 def train_step(
-    model: torch.nn.Module,
+    model: ForecastingModel,
     loss_fn: LossFunction,
     train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
-    forecast_horizon_scheduler: ForecastHorizonScheduler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
     wandb_logger: WandbLogger,
     clip_grad_norm: float,
     mixed_precision_dtype: torch.dtype,
@@ -96,10 +91,11 @@ def train_step(
             train_loader=train_loader,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
-            forecast_horizon_scheduler=forecast_horizon_scheduler,
+            rollout_horizon_scheduler=rollout_horizon_scheduler,
             scaler=scaler,
             wandb_logger=w,
             mixed_precision_dtype=mixed_precision_dtype,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
             accumulate_batches=accumulate_batches,
             device=device,
         )
@@ -116,7 +112,6 @@ def train_step(
     w.timed("scaler.update", scaler.update)
     w.timed("optimizer.zero_grad", optimizer.zero_grad)
     w.timed("scheduler.step", lr_scheduler.step)
-    w.timed("forecast_horizon_scheduler.step", forecast_horizon_scheduler.step)
 
     log_loss_info_to_wandb(loss_info=loss_info, prefix="train")
 
@@ -124,19 +119,18 @@ def train_step(
     w.log({"misc/learning_rate": current_lr})
     w.log({"misc/gradient_scaler.scale": scaler.get_scale()})
     w.log(
-        {
-            "misc/forecast_horizon": forecast_horizon_scheduler.get_frame_forecast_horizon()
-        }
+        {"misc/rollout_horizon": rollout_horizon_scheduler.get_rollout_steps()}
     )
 
 
 def compute_gradients_single_batch(
-    model: torch.nn.Module,
+    model: ForecastingModel,
     loss_fn: LossFunction,
     train_loader: Iterable[ForecastingSample],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-    forecast_horizon_scheduler: ForecastHorizonScheduler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
+    grad_ckpt_start_timestep: int,
     scaler: GradScaler,
     wandb_logger: WandbLogger,
     mixed_precision_dtype: torch.dtype,
@@ -147,10 +141,10 @@ def compute_gradients_single_batch(
     batch = w.timed("make_next_batch", next, train_loader)
     batch = w.timed("batch.to", batch.to, device, non_blocking=True)
     batch = w.timed(
-        "update_batch_with_forecast_horizon",
-        update_batch_with_forecast_horizon,
+        "update_batch_with_rollout_horizon",
+        update_batch_with_rollout_horizon,
         batch=batch,
-        forecast_horizon_scheduler=forecast_horizon_scheduler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
     )
 
     # Do forward pass with AMP autocasting. Only forward pass needs to be
@@ -164,6 +158,7 @@ def compute_gradients_single_batch(
             "model.forward",
             model.forward,
             batch,
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
         )
 
         loss, loss_info = w.timed(
@@ -224,7 +219,7 @@ def validation_epoch(
 
 @torch.no_grad()
 def run_validation_epoch(
-    model: torch.nn.Module,
+    model: ForecastingModel,
     device: str,
     dataloader: Iterable[ForecastingSample],
     loss_fns: Dict[str, LossFunction],
@@ -252,13 +247,12 @@ def run_validation_epoch(
             batch = batch.to(device)
             # Compute the number of rollout steps not to use any gradient checkpointing
             num_rollout_steps = np.max(
-                batch.trg_timedelta_hours // model.temporal_resolution_hours  # type: ignore
+                batch.trg_timedelta_hours // model.temporal_resolution_hours
             )
             prd_dist, load_balancing_losses = model(
                 batch,
                 grad_ckpt_start_timestep=num_rollout_steps,
             )
-            prd_dist, load_balancing_losses = model(batch)
 
             # Compute the loss for each loss function and store results.
             for loss_name, loss_fn in loss_fns.items():
@@ -350,7 +344,7 @@ def main() -> None:
 
     scaler = GradScaler(device=device)
 
-    forecast_horizon_scheduler = experiment.forecast_horizon_scheduler
+    rollout_horizon_scheduler = experiment.rollout_horizon_scheduler
 
     if experiment.constants.load_weights_from_experiment:
         logging.info("Loading weights from another experiment. ")
@@ -366,7 +360,7 @@ def main() -> None:
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             scaler=scaler,
-            forecast_horizon_scheduler=forecast_horizon_scheduler,
+            rollout_horizon_scheduler=rollout_horizon_scheduler,
         )
         logging.info("Successfully loaded initial state.")
     else:
@@ -382,7 +376,7 @@ def main() -> None:
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
-        forecast_horizon_scheduler=forecast_horizon_scheduler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
         best_val_loss=initial_state.best_val_loss,
     )
 
@@ -405,7 +399,7 @@ def train_loop(
     device: str,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-    forecast_horizon_scheduler: ForecastHorizonScheduler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
     scaler: GradScaler,
     best_val_loss: float = float("inf"),
 ) -> None:
@@ -450,7 +444,7 @@ def train_loop(
                         optimizer=optimizer,
                         lr_scheduler=lr_scheduler,
                         scaler=scaler,
-                        forecast_horizon_scheduler=forecast_horizon_scheduler,
+                        rollout_horizon_scheduler=rollout_horizon_scheduler,
                         epoch=epoch,
                         step=step,
                         best_val_loss=best_val_loss,
@@ -471,7 +465,7 @@ def train_loop(
                     wandb_logger=wandb_logger,
                     clip_grad_norm=clip_grad_norm,
                     mixed_precision_dtype=mixed_precision_dtype,
-                    forecast_horizon_scheduler=forecast_horizon_scheduler,
+                    rollout_horizon_scheduler=rollout_horizon_scheduler,
                     grad_ckpt_start_timestep=grad_ckpt_start_timestep,
                     accumulate_batches=accumulate_batches,
                 )
@@ -488,7 +482,7 @@ def train_loop(
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
-                    forecast_horizon_scheduler=forecast_horizon_scheduler,
+                    rollout_horizon_scheduler=rollout_horizon_scheduler,
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
@@ -502,7 +496,7 @@ def train_loop(
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                     scaler=scaler,
-                    forecast_horizon_scheduler=forecast_horizon_scheduler,
+                    rollout_horizon_scheduler=rollout_horizon_scheduler,
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,

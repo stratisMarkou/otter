@@ -220,9 +220,7 @@ class ForecastingModel(torch.nn.Module):
         return prd_dist, load_balancing_losses
 
     def single_time_forward(
-        self,
-        ctx: torch.Tensor,
-        zero_time: npt.NDArray[np.datetime64],
+        self, ctx: torch.Tensor, zero_time: npt.NDArray[np.datetime64]
     ) -> tuple[Distribution, LoadBalancingLosses]:
         residual = ctx[
             ..., 0, self.idx_residual
@@ -305,25 +303,12 @@ class ForecastingModel(torch.nn.Module):
                     ctx=ctx, zero_time=current_time
                 )
             else:
-                cpu_rng_state = torch.get_rng_state()
-                cuda_rng_state = torch.cuda.get_rng_state()
-
-                (prd_dist, last_prd_dist, load_balancing_losses) = (
-                    checkpoint.checkpoint(
-                        self.single_time_forward,
-                        ctx,
-                        current_time,
-                        cpu_rng_state=cpu_rng_state,
-                        cuda_rng_state=cuda_rng_state,
-                        preserve_rng_state=True,
-                        use_reentrant=False,
-                    )
+                (prd_dist, load_balancing_losses) = checkpoint.checkpoint(
+                    self.single_time_forward,
+                    ctx,
+                    current_time,
+                    use_reentrant=False,
                 )
-
-            prd_dist, load_balancing_losses = self.single_time_forward(
-                ctx,
-                zero_time=zero_time + i * self.temporal_resolution_timedelta,
-            )  # (batch, lat, lon, trg_var_and_level)
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prd_dist)
