@@ -25,12 +25,18 @@ run_args = " ".join(sys.argv[1:])
 env = "azureml:otter-env:3"
 run_name = _generate_experiment_name()
 
+experiment_path = f"${{{{outputs.checkpoint_folder}}}}/{run_name}"
+
 job = command(
     name=run_name,
     display_name=run_name,
     # Point directly to the otter directory for the code snapshot
     code=".",
     command=(
+        # Print mount locations:
+        "echo 'Inputs:' && realpath ${{inputs.era5_data}} && "
+        "echo 'Outputs:' && realpath ${{outputs.checkpoint_folder}} && "
+        "ls -la ${{outputs.checkpoint_folder}} && "
         # Add uv to PATH for this shell session
         "export PATH=$HOME/.local/bin:$PATH && "
         # Create venv
@@ -38,7 +44,7 @@ job = command(
         ". .venv/bin/activate && "
         "uv sync && "
         "uv pip install -e . && "
-        f"python {run_args} data_source.path=${{inputs.era5_data}} info.root_results=${{outputs.checkpoint_folder}} --resume_experiment {run_name}"
+        f"python {run_args} data_source.path=${{inputs.era5_data}} info.experiment_path={experiment_path} --resume_experiment {run_name} --root_results ${{outputs.checkpoint_folder}}"
     ),
     inputs={
         "era5_data": Input(

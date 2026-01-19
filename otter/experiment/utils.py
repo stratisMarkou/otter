@@ -122,6 +122,9 @@ def initialize_experiment(
     )
     # Set the start_from_checkpoint flag if we found a config when resuming.
     config.info.start_from_checkpoint = config_dir is not None
+    config.info.root_results = args.root_results
+
+    logging.info("Config:\n" + OmegaConf.to_yaml(config))
 
     try:
         repo = git.Repo(search_parent_directories=True)
@@ -328,8 +331,6 @@ def _get_config(
             config_dir=config_dir, version_base="1.3"
         ):
             config = compose(config_name=config_name, overrides=extra_args)
-
-    logging.info("Config:\n" + OmegaConf.to_yaml(config))
 
     OmegaConf.set_struct(config, False)
 
