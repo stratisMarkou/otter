@@ -4,7 +4,7 @@ import sys
 from azure.ai.ml import Input, MLClient, Output, command
 from azure.identity import DefaultAzureCredential
 
-from otter.experiment.utils import _generate_experiment_name
+from otter.experiment.namegen import _generate_experiment_name
 
 wandb_api_key = os.environ.get("WANDB_API_KEY")
 if wandb_api_key is None:

@@ -2,9 +2,7 @@ import argparse
 import importlib
 import logging
 import os
-import random
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Sequence
 
@@ -22,6 +20,7 @@ from omegaconf import (
 
 import wandb
 from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
+from otter.experiment.namegen import _generate_experiment_name
 
 Experiment = DictConfig
 
@@ -191,61 +190,6 @@ def _parse_args(
     parser.add_argument("--root_results", type=str, default="_results")
 
     return parser.parse_known_args(args=args_list)
-
-
-def _generate_experiment_name() -> str:
-    adjectives = [
-        "swift",
-        "fierce",
-        "gentle",
-        "clever",
-        "brave",
-        "cunning",
-        "loyal",
-        "playful",
-        "quiet",
-        "bold",
-        "majestic",
-        "nimble",
-        "mighty",
-        "elegant",
-        "sly",
-        "energetic",
-        "daring",
-        "graceful",
-        "wild",
-        "fearless",
-    ]
-
-    animals = [
-        "aardvark",
-        "tiger",
-        "eagle",
-        "wolf",
-        "panther",
-        "falcon",
-        "fox",
-        "bear",
-        "lion",
-        "cheetah",
-        "hawk",
-        "otter",
-        "deer",
-        "jaguar",
-        "leopard",
-        "owl",
-        "raven",
-        "buffalo",
-        "cougar",
-        "lynx",
-        "badger",
-    ]
-
-    adjective = random.choice(adjectives)
-    animal = random.choice(animals)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-
-    return f"{timestamp}-{adjective}-{animal}"
 
 
 def initialize_wandb(config: DictConfig) -> None:
