@@ -228,3 +228,5 @@ constants:
 info:
   root_results: _results
   wandb_project: otter-base
+  experiment_name: ""
+  experiment_path: ""
