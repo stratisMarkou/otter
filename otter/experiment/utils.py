@@ -140,7 +140,7 @@ def initialize_experiment(
             _assert_correct_commit_hash(config, repo)
 
     # If the config does not contain an experiment name, generate one.
-    if "experiment_name" not in config.info:
+    if config.info.experiment_name is None:
         experiment_name = (
             args.resume_experiment
             if args.resume_experiment
@@ -152,12 +152,11 @@ def initialize_experiment(
         config.info.experiment_name = experiment_name
         config.info.experiment_path = experiment_path
 
-        config.model.device = device
-
         _write_config(config, experiment_path, repo)
 
     logging.info("Instantiating dependencies.")
 
+    config.model.device = device
     experiment: DictConfig = instantiate(config)
     return experiment, config
 
