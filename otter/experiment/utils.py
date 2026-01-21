@@ -270,10 +270,13 @@ def _get_config(
         ):
             config = compose(config_name=config_name, overrides=extra_args)
     else:
+        # This is a folder-level override, and it won't exist in the reified config.yaml file.
+        # We take it out for compatibility with the azure script.
+        overrides = [a for a in extra_args if not a.startswith("host=")]
         with hydra.initialize_config_dir(
             config_dir=config_dir, version_base="1.3"
         ):
-            config = compose(config_name=config_name, overrides=extra_args)
+            config = compose(config_name=config_name, overrides=overrides)
 
     OmegaConf.set_struct(config, False)
 
