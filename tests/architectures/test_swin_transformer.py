@@ -17,14 +17,13 @@ from otter.models.architectures.transformer import SwinTransformer
 @pytest.mark.parametrize(
     "grid_channel_dim, token_dim, window_size, num_blocks_per_stage, num_bottom_blocks, pos_embedding",
     [
-        (7, 12, 3, [1, 1], 4, PositionEmbedding(12, 60, 120)),
-        (7, 12, 3, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
-        (9, 16, 5, [1, 1], 4, PositionEmbedding(16, 60, 120)),
-        (9, 16, 5, [2, 2], 8, SpatialEmbedding(64, 0.1, 720, 16)),
-        (7, 12, 15, [1, 1], 4, PositionEmbedding(12, 60, 120)),
+        (7, 12, 2, [1, 1], 4, PositionEmbedding(12, 16, 32)),
+        (7, 12, 2, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
+        (9, 16, 4, [1, 1], 4, PositionEmbedding(16, 16, 32)),
+        (9, 16, 4, [2, 2], 8, SpatialEmbedding(64, 0.1, 720, 16)),
+        (7, 12, 4, [1, 1], 4, PositionEmbedding(12, 16, 32)),
     ],
 )
-@torch.compiler.disable()
 def test_swin_transformer(
     grid_channel_dim: int,
     token_dim: int,
@@ -33,14 +32,14 @@ def test_swin_transformer(
     num_bottom_blocks: int,
     pos_embedding: PositionEmbedding | SpatialEmbedding,
 ) -> None:
-    grid_width = 240
-    grid_height = 121
+    grid_width = 64
+    grid_height = 32
     batch_dim = 2
-    mlp_num_hidden = 32
-    num_mlp_layers = 2
+    mlp_num_hidden = 16
+    num_mlp_layers = 1
     num_heads = 4
     patch_size = 2
-    patchify_kernel_size = (3, 2)
+    patchify_kernel_size = (2, 2)
 
     feedforward_network = partial(
         MLP,

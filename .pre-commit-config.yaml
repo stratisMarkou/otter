@@ -24,6 +24,6 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: pytest tests/
+        entry: env TORCH_COMPILE_DISABLE=1 pytest tests/
         language: system
         pass_filenames: false

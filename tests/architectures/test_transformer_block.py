@@ -49,7 +49,6 @@ def test_extract_and_combine_windows(
         (64, 128, 4, 16, 128, 256),
     ],
 )
-@torch.compiler.disable()
 def test_transformer_block(
     token_dim: int,
     mlp_num_hidden: int,
