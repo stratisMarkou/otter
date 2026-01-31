@@ -621,7 +621,7 @@ class ZarrDatasource(GriddedWeatherSource):
     def to_numpy(self) -> npt.NDArray[Any]:
         scaled_ds = self.ds.copy()  # Create a temporary copy of the dataset
         for var_and_level in scaled_ds.variables:
-            var: str = var_and_level.split("/")[0]  # type: ignore
+            var: str = var_and_level.split("/")[0]
             factor = VARIABLES_WITH_SCALING_FACTORS.get(var)
             if factor:
                 scaled_ds[var_and_level] = scaled_ds[var_and_level] * factor

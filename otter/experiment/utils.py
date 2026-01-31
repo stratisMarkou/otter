@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Sequence
+from typing import Any, Dict, Iterator, Optional, Sequence, Sized
 
 import git
 import hydra
@@ -52,9 +52,11 @@ def get_model_parameters(
 
 
 def get_num_training_steps(
-    num_epochs: int, dataloader: torch.utils.data.DataLoader[Any]
+    num_epochs: int,
+    dataloader: Sized | torch.utils.data.DataLoader[Any],
+    accumulate_batches: int = 1,
 ) -> int:
-    return num_epochs * len(dataloader)
+    return (num_epochs * len(dataloader)) // accumulate_batches
 
 
 def get_num_parameters(module: torch.nn.Module) -> int:
