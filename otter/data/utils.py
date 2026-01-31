@@ -427,7 +427,7 @@ class LabelledArray(GriddedWeatherSource):
         self.data[simple_indices] = value
 
         if isinstance(self.data, np.memmap):
-            self.data.flush()  # type: ignore
+            self.data.flush()
 
     def _simplify_indices(
         self, indices: Sequence[List[int] | None]
@@ -451,12 +451,6 @@ class LabelledArray(GriddedWeatherSource):
                 raise ValueError(f"Unexpected index type: {type(idx)}")
 
         return tuple(simplified_indices)
-
-    def get_coord_by_name(self, name: str) -> Coordinate:
-        for coord in self.coords:
-            if coord.name == name:
-                return coord
-        raise ValueError(f"Coordinate {name} not found in LabelledArray")
 
 
 def _is_list_like(value: Any) -> bool:
@@ -616,7 +610,7 @@ class ZarrDatasource(GriddedWeatherSource):
             del index_coords["variable_and_level"]
 
         ds = ds.sel(**index_coords)
-        return ZarrDatasource(ds)  # type: ignore
+        return ZarrDatasource(ds)
 
     def to_numpy(self) -> npt.NDArray[Any]:
         scaled_ds = self.ds.copy()  # Create a temporary copy of the dataset
