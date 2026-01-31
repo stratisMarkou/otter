@@ -15,9 +15,6 @@ from otter.experiment.run_state import (
     load_run_state_from_latest_checkpoint,
     save_run_state,
 )
-from otter.models.architectures.schedulers import (
-    RolloutHorizonScheduler,
-)
 
 
 class SimpleModel(nn.Module):
@@ -52,30 +49,15 @@ def scaler() -> GradScaler:
 
 
 @pytest.fixture
-def rollout_horizon_scheduler() -> RolloutHorizonScheduler:
-    return RolloutHorizonScheduler(
-        num_steps=1,
-        min_rollout_steps=1,
-        max_rollout_steps=1,
-        temporal_resolution_hours=6,
-    )
-
-
-@pytest.fixture
 def run_state(
-    model: SimpleModel,
-    optimizer: Adam,
-    scheduler: StepLR,
-    scaler: GradScaler,
-    rollout_horizon_scheduler: RolloutHorizonScheduler,
+    model: SimpleModel, optimizer: Adam, scheduler: StepLR, scaler: GradScaler
 ) -> RunState:
     # Get initial states
     return RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
-        rollout_horizon_scheduler_state=rollout_horizon_scheduler.state_dict(),
         epoch=5,
         step=100,
     )
@@ -118,7 +100,6 @@ def test_runstate_creation(run_state: RunState) -> None:
     assert isinstance(run_state.optimizer_state, dict)
     assert isinstance(run_state.scheduler_state, dict)
     assert isinstance(run_state.scaler_state, dict)
-    assert isinstance(run_state.rollout_horizon_scheduler_state, dict)
 
 
 def test_to_dict_from_dict(run_state: RunState) -> None:
@@ -147,7 +128,6 @@ def test_restore(
     optimizer: Adam,
     scheduler: StepLR,
     scaler: GradScaler,
-    rollout_horizon_scheduler: RolloutHorizonScheduler,
 ) -> None:
     """Test restoring state to PyTorch objects."""
     # Modify the objects to ensure they're different from initial state
@@ -158,16 +138,13 @@ def test_restore(
     optimizer.step()
     scheduler.step()
 
-    run_state.restore(
-        model, optimizer, scheduler, scaler, rollout_horizon_scheduler
-    )
+    run_state.restore(model, optimizer, scheduler, scaler)
 
     current_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
-        rollout_horizon_scheduler_state=rollout_horizon_scheduler.state_dict(),
         epoch=run_state.epoch,
         step=run_state.step,
     )
@@ -176,19 +153,14 @@ def test_restore(
 
 
 def test_runstate_with_training(
-    model: SimpleModel,
-    optimizer: Adam,
-    scheduler: StepLR,
-    scaler: GradScaler,
-    rollout_horizon_scheduler: RolloutHorizonScheduler,
+    model: SimpleModel, optimizer: Adam, scheduler: StepLR, scaler: GradScaler
 ) -> None:
     """Test RunState in a simulated training scenario."""
     initial_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
-        rollout_horizon_scheduler_state=rollout_horizon_scheduler.state_dict(),
         epoch=0,
         step=0,
     )
@@ -203,18 +175,16 @@ def test_runstate_with_training(
         output: torch.Tensor = model(x)
         loss: torch.Tensor = criterion(output, y)
 
-    scaler.scale(loss).backward()
+    scaler.scale(loss).backward()  # type: ignore
     scaler.step(optimizer)
     scaler.update()
     scheduler.step()
-    rollout_horizon_scheduler.step()
 
     trained_state: RunState = RunState(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict(),
-        scheduler_state=scheduler.state_dict(),
+        scheduler_state=scheduler.state_dict(),  # type: ignore
         scaler_state=scaler.state_dict(),
-        rollout_horizon_scheduler_state=rollout_horizon_scheduler.state_dict(),
         epoch=1,
         step=1,
         best_val_loss=0.1,
@@ -243,7 +213,6 @@ class MockExperiment:
     optimizer: torch.optim.Optimizer
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler
     scaler: GradScaler
-    rollout_horizon_scheduler: RolloutHorizonScheduler
     info: MockExperimentInfo
 
 
@@ -252,7 +221,6 @@ def test_get_latest_checkpoint(
     optimizer: Adam,
     scheduler: StepLR,
     scaler: GradScaler,
-    rollout_horizon_scheduler: RolloutHorizonScheduler,
 ) -> None:
     """Test the wrapping functions' ability to get the latest checkpoint."""
 
@@ -263,7 +231,6 @@ def test_get_latest_checkpoint(
             optimizer=optimizer,
             lr_scheduler=scheduler,
             scaler=scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
             info=MockExperimentInfo(
                 experiment_path=str(path),
             ),
@@ -275,7 +242,6 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
             epoch=0,
             step=0,
             checkpoint_name="step_00000000.pt",
@@ -287,7 +253,6 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
             epoch=1,
             step=300,
             checkpoint_name="step_00000300.pt",
@@ -299,7 +264,6 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
             epoch=1,
             step=1000,
             checkpoint_name="step_00001000.pt",
@@ -312,11 +276,7 @@ def test_get_latest_checkpoint(
 
         # This method should find and load the latest checkpoint
         state = load_run_state_from_latest_checkpoint(
-            experiment,
-            optimizer,
-            scheduler,
-            scaler,
-            rollout_horizon_scheduler,
+            experiment, optimizer, scheduler, scaler
         )
         assert state.epoch == 1
         assert state.step == 1000
@@ -327,7 +287,6 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
             epoch=2,
             step=2000,
             checkpoint_name="latest.pt",
@@ -339,7 +298,6 @@ def test_get_latest_checkpoint(
             optimizer,
             scheduler,
             scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
             epoch=1,
             step=500,
             checkpoint_name="best.pt",
@@ -350,69 +308,9 @@ def test_get_latest_checkpoint(
 
         # This method should now load the latest.pt checkpoint
         state = load_run_state_from_latest_checkpoint(
-            experiment,
-            optimizer,
-            scheduler,
-            scaler,
-            rollout_horizon_scheduler,
+            experiment, optimizer, scheduler, scaler
         )
 
         assert state.epoch == 2
         assert state.step == 2000
         assert state.best_val_loss == 10.0
-
-
-def test_atomic_write_cleanup(
-    model: SimpleModel,
-    optimizer: Adam,
-    scheduler: StepLR,
-    scaler: GradScaler,
-    rollout_horizon_scheduler: RolloutHorizonScheduler,
-) -> None:
-    """Test that temp files are cleaned up during atomic writes."""
-    run_state = RunState.from_objects(
-        model=model,
-        optimizer=optimizer,
-        lr_scheduler=scheduler,
-        scaler=scaler,
-        rollout_horizon_scheduler=rollout_horizon_scheduler,
-        epoch=1,
-        step=100,
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        checkpoint_path = Path(tmpdir) / "checkpoint.pt"
-        tmp_path = Path(tmpdir) / "checkpoint.pt.tmp"
-
-        # Save checkpoint
-        run_state.save(checkpoint_path)
-
-        # Temp file should be cleaned up after successful save
-        assert not tmp_path.exists(), "Temp file should not exist after save"
-        assert checkpoint_path.exists(), "Checkpoint file should exist"
-
-        # Verify checkpoint is valid
-        loaded = RunState.load(checkpoint_path)
-        assert loaded.epoch == 1
-        assert loaded.step == 100
-
-        # Save again with different data - should atomically replace
-        run_state_2 = RunState.from_objects(
-            model=model,
-            optimizer=optimizer,
-            lr_scheduler=scheduler,
-            scaler=scaler,
-            rollout_horizon_scheduler=rollout_horizon_scheduler,
-            epoch=2,
-            step=200,
-        )
-
-        run_state_2.save(checkpoint_path)
-
-        # Temp file should still be cleaned up
-        assert not tmp_path.exists(), "Temp file should not exist after second save"
-
-        # Checkpoint should be atomically updated
-        loaded = RunState.load(checkpoint_path)
-        assert loaded.epoch == 2
-        assert loaded.step == 200

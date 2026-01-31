@@ -215,7 +215,7 @@ class MixtureOfExperts(torch.nn.Module):
                 in_logits * gates_khot + (1 - gates_khot) * out_logits
             )  # shape (token_batch, num_experts)
             cdf_input = (gate_logits_without_noise - kth_excluding) / noise_std
-            probs = dist.Normal(0.0, 1.0).cdf(cdf_input)
+            probs = dist.Normal(0.0, 1.0).cdf(cdf_input)  # type: ignore
             load = probs.sum(dim=0)  # shape (num_experts,)
         else:
             # If the model is not in the training mode, the gate probabilities

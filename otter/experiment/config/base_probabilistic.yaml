@@ -1,0 +1,4 @@
+defaults:
+  - base  # Extend the base.yaml config
+  - probabilistic # Extend the probabilistic.yaml config
+  - _self_

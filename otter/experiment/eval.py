@@ -1,27 +1,27 @@
 import argparse
-import os
-import pickle
 from collections import defaultdict
+import os
 from pathlib import Path
+import numpy as np
 from typing import (
     Dict,
     List,
     Optional,
     Tuple,
 )
-
-import numpy as np
 import numpy.typing as npt
+
+import pickle
 import torch
 
-from otter.experiment.run_state import (
-    get_latest_checkpoint,
-)
 from otter.experiment.train import (
     assert_single_device,
     run_validation_epoch,
 )
 from otter.experiment.utils import initialize_experiment
+from otter.experiment.run_state import (
+    get_latest_checkpoint,
+)
 from otter.models.losses.loss_fn import LossInfo, LossInfoArray
 
 
@@ -108,27 +108,6 @@ def get_mean_array_metrics(
     return mean_validation_metrics_array
 
 
-def compute_psd_relative_rmse(
-    eval_dict: Dict[str, npt.NDArray[np.float32]],
-) -> Dict[str, npt.NDArray[np.float32]]:
-    """
-    Compute the relative RMSE for power spectrum density metrics.
-    """
-    psd_relative_rmse: Dict[str, npt.NDArray[np.float32]] = {}
-    for key, value in eval_dict.items():
-        if "val/power_spectrum_mse" in key:
-            # Extract variable name from the key
-            var_name = "/".join(key.split("/")[2:])
-
-            psd_trg_var_key = f"val/power_spectrum_target/{var_name}"
-
-            # Compute relative RMSE
-            psd_relative_rmse[f"val/psd_relative_rmse/{var_name}"] = (
-                np.sqrt(value) / eval_dict[psd_trg_var_key]
-            )
-    return psd_relative_rmse
-
-
 def get_validation_metrics(
     device: str,
     checkpoint_path: Path,
@@ -155,7 +134,7 @@ def get_validation_metrics(
 
     # Load the model weights from latest checkpoint
     experiment.model.load_state_dict(
-        torch.load(checkpoint_path, weights_only=False)["model_state"]
+        torch.load(checkpoint_path)["model_state"]
     )
 
     mixed_precision_dtype = experiment.constants.training.mixed_precision_dtype
@@ -165,8 +144,9 @@ def get_validation_metrics(
         run_validation_epoch(
             model=experiment.model,
             device=device,
-            dataloader=experiment.test_dataloader,
+            dataloader=experiment.valid_dataloader,
             loss_fns=experiment.val_loss_fns,
+            scale_scheduler=experiment.inference_scale_scheduler,
             mixed_precision_dtype=mixed_precision_dtype,
             compute_power_spectrum_mse=True,
         )
@@ -182,11 +162,6 @@ def get_validation_metrics(
     mean_validation_metrics_array = get_mean_array_metrics(
         validation_metrics_array
     )
-
-    psd_relative_rmse = compute_psd_relative_rmse(
-        eval_dict=mean_validation_metrics_array
-    )
-    mean_validation_metrics_array.update(psd_relative_rmse)
 
     mean_validation_metrics_array["val/temporal_resolution"] = np.array(
         mean_validation_metrics["val/temporal_resolution"], dtype=np.float32

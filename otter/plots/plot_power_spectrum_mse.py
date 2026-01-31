@@ -14,7 +14,6 @@ def plot_power_spectrum_heatmaps_per_var(
     psd_mse_all_vars: Dict[str, npt.NDArray[np.float32]],
     time_resolution: int,
     save_path: str,
-    relative_rmse: bool = False,
 ) -> None:
     """
     Plot all variables' PSD MSE heatmaps in a single figure.
@@ -46,15 +45,11 @@ def plot_power_spectrum_heatmaps_per_var(
     )
 
     for i, (var, psd_mse_per_var) in enumerate(psd_mse_all_vars.items()):
-        if relative_rmse:
-            # If relative RMSE, we don't take the log of 1 + MSE.
-            metric = psd_mse_per_var.T.flatten()
-        else:
-            metric = np.log1p(psd_mse_per_var).T.flatten()
+        log_mse = np.log1p(psd_mse_per_var).T.flatten()
 
         df = pd.DataFrame(
             {
-                "Log(1 + PSD MSE)": metric.astype("float32"),
+                "Log(1 + PSD MSE)": log_mse.astype("float32"),
                 "Wavenumber": wavenumbers.astype("int32"),
                 "Lead Time (h)": lead_times.astype("int32"),
             }
@@ -86,9 +81,7 @@ def plot_power_spectrum_heatmaps_per_var(
 
     fig.supylabel("Wavenumber", x=-0.001)
     fig.suptitle(
-        "RRMSE vs. Wavenumber and Lead Time (All Variables)"
-        if relative_rmse
-        else "Log(1 + PSD MSE) vs. Wavenumber and Lead Time (All Variables)",
+        "Log(1 + PSD MSE) vs. Wavenumber and Lead Time (All Variables)",
         y=1.001,
     )
 
@@ -98,7 +91,6 @@ def plot_power_spectrum_heatmaps_per_var(
 
 def filter_validation_metrics(
     validation_metrics: Dict[str, npt.NDArray[np.float32]],
-    relative_rmse: bool = False,
 ) -> Dict[str, npt.NDArray[np.float32]]:
     """
     Filter validation metrics to get only the PSD MSE.
@@ -111,9 +103,7 @@ def filter_validation_metrics(
     """
     psd_mse_dict = {}
     for key, value in validation_metrics.items():
-        if not relative_rmse and "val/power_spectrum_mse" in key:
-            psd_mse_dict[key] = value
-        elif relative_rmse and "val/psd_relative_rmse" in key:
+        if "val/power_spectrum_mse" in key:
             psd_mse_dict[key] = value
     return psd_mse_dict
 
@@ -137,48 +127,27 @@ def main(
 
     # Create path for saving PSD MSE.
     psd_mse_dir = os.path.join(
-        results_path, experiment_name, "power_spectrum_metrics"
+        results_path, experiment_name, "power_spectrum_mse"
     )
 
     os.makedirs(psd_mse_dir, exist_ok=True)
-
-    # Load metrics
-    validation_metrics = load_metrics(experiment_metrics_path)
-
-    time_resolution = int(validation_metrics["val/temporal_resolution"].item())
 
     save_path = os.path.join(
         psd_mse_dir,
         f"psd_mse_{checkpoint_name}_rollout_{rollout_steps}.png",
     )
 
-    psd_mse_dict = filter_validation_metrics(
-        validation_metrics, relative_rmse=False
-    )
+    # Load metrics
+    validation_metrics = load_metrics(experiment_metrics_path)
+
+    time_resolution = int(validation_metrics["val/temporal_resolution"].item())
+    psd_mse_dict = filter_validation_metrics(validation_metrics)
 
     # Save score card.
     plot_power_spectrum_heatmaps_per_var(
         psd_mse_all_vars=psd_mse_dict,
         save_path=save_path,
         time_resolution=time_resolution,
-        relative_rmse=False,
-    )
-
-    save_path = os.path.join(
-        psd_mse_dir,
-        f"psd_relative_rmse_{checkpoint_name}_rollout_{rollout_steps}.png",
-    )
-
-    psd_rrmse_dict = filter_validation_metrics(
-        validation_metrics, relative_rmse=True
-    )
-
-    # Save score card.
-    plot_power_spectrum_heatmaps_per_var(
-        psd_mse_all_vars=psd_rrmse_dict,
-        save_path=save_path,
-        time_resolution=time_resolution,
-        relative_rmse=True,
     )
 
 
