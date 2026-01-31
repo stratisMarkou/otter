@@ -9,6 +9,7 @@ from typing import (
 import torch
 from torch.amp.grad_scaler import GradScaler
 
+from otter.experiment.azure_debug import log_checkpoint_diagnostics
 from otter.models.architectures.schedulers import RolloutHorizonScheduler
 
 
@@ -72,8 +73,13 @@ class RunState:
     @staticmethod
     def load(path: Path) -> "RunState":
         """Load RunState from disk."""
-        state_dict = torch.load(path, weights_only=False)
-        return RunState.from_dict(state_dict)
+        try:
+            state_dict = torch.load(path, weights_only=False)
+            return RunState.from_dict(state_dict)
+        except Exception as e:
+            logging.error(f"Failed to load checkpoint from {path}: {e}")
+            log_checkpoint_diagnostics(path.parent, error=e)
+            raise
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert RunState to a dictionary that can be saved to disk."""
@@ -143,24 +149,33 @@ def load_run_state_from_latest_checkpoint(
     Returns:
         The TrainState object with the initial epoch and step number.
     """
+    checkpoint_dir = get_checkpoint_dir(experiment)
+    logging.info(f"Looking for checkpoints in {checkpoint_dir}")
 
-    path = get_latest_checkpoint(get_checkpoint_dir(experiment))
+    try:
+        path = get_latest_checkpoint(checkpoint_dir)
+        logging.info(f"Found checkpoint: {path}")
 
-    # Load complete run state if available
-    run_state = RunState.load(path)
-    run_state.restore(
-        model=experiment.model,
-        optimizer=optimizer,
-        lr_scheduler=lr_scheduler,
-        scaler=scaler,
-        rollout_horizon_scheduler=rollout_horizon_scheduler,
-    )
-    step = run_state.step
-    epoch = run_state.epoch
-    best_val_loss = run_state.best_val_loss
-    logging.info(f"Successfully restored state from {path} at step {step}")
+        # Load complete run state if available
+        run_state = RunState.load(path)
+        run_state.restore(
+            model=experiment.model,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            scaler=scaler,
+            rollout_horizon_scheduler=rollout_horizon_scheduler,
+        )
+        step = run_state.step
+        epoch = run_state.epoch
+        best_val_loss = run_state.best_val_loss
+        logging.info(f"Successfully restored state from {path} at step {step}")
 
-    return TrainState(epoch=epoch, step=step, best_val_loss=best_val_loss)
+        return TrainState(epoch=epoch, step=step, best_val_loss=best_val_loss)
+
+    except Exception as e:
+        logging.error(f"Failed to load checkpoint from {checkpoint_dir}: {e}")
+        log_checkpoint_diagnostics(checkpoint_dir, error=e)
+        raise
 
 
 def get_checkpoint_dir(experiment: Any) -> Path:
@@ -175,7 +190,9 @@ def get_latest_checkpoint(path: Path) -> Path:
     # Exclude "best" checkpoints for the purpose of getting the latest.
     checkpoints = [c for c in checkpoints if "best" not in c.name]
     if not checkpoints:
-        raise FileNotFoundError(f"No checkpoint files found in {path}")
+        error = FileNotFoundError(f"No checkpoint files found in {path}")
+        log_checkpoint_diagnostics(path, error=error)
+        raise error
     return max(checkpoints, key=lambda x: str(x))
 
 
