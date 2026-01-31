@@ -9,6 +9,8 @@ from typing import (
 import torch
 from torch.amp.grad_scaler import GradScaler
 
+from otter.models.architectures.schedulers import RolloutHorizonScheduler
+
 
 @dataclass
 class TrainState:
@@ -23,6 +25,7 @@ class RunState:
     optimizer_state: Dict[str, Any]
     scheduler_state: Dict[str, Any]
     scaler_state: Dict[str, Any]
+    rollout_horizon_scheduler_state: Dict[str, Any]
     epoch: int
     step: int
     best_val_loss: float = float("inf")
@@ -33,6 +36,7 @@ class RunState:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
         scaler: GradScaler,
+        rollout_horizon_scheduler: RolloutHorizonScheduler,
         epoch: int,
         step: int,
         best_val_loss: float = float("inf"),
@@ -41,8 +45,9 @@ class RunState:
         return RunState(
             model_state=model.state_dict(),
             optimizer_state=optimizer.state_dict(),
-            scheduler_state=lr_scheduler.state_dict(),  # type: ignore
+            scheduler_state=lr_scheduler.state_dict(),
             scaler_state=scaler.state_dict(),
+            rollout_horizon_scheduler_state=rollout_horizon_scheduler.state_dict(),
             epoch=epoch,
             step=step,
             best_val_loss=best_val_loss,
@@ -56,6 +61,9 @@ class RunState:
             optimizer_state=state_dict["optimizer_state"],
             scheduler_state=state_dict["scheduler_state"],
             scaler_state=state_dict["scaler_state"],
+            rollout_horizon_scheduler_state=state_dict[
+                "rollout_horizon_scheduler_state"
+            ],
             epoch=state_dict["epoch"],
             step=state_dict["step"],
             best_val_loss=state_dict["best_val_loss"],
@@ -74,15 +82,30 @@ class RunState:
             "optimizer_state": self.optimizer_state,
             "scheduler_state": self.scheduler_state,
             "scaler_state": self.scaler_state,
+            "rollout_horizon_scheduler_state": self.rollout_horizon_scheduler_state,
             "epoch": self.epoch,
             "step": self.step,
             "best_val_loss": self.best_val_loss,
         }
 
     def save(self, path: Path) -> None:
-        """Save RunState to disk."""
+        """Save RunState to disk using atomic write to prevent corruption."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(self.to_dict(), path)
+
+        # Write to temporary file first for crash safety
+        tmp_path = path.parent / f"{path.name}.tmp"
+        try:
+            torch.save(self.to_dict(), tmp_path)
+            # Atomically replace the target file
+            # On POSIX systems, Path.replace() is atomic when on same filesystem
+            tmp_path.replace(path)
+            logging.debug(f"Successfully saved checkpoint to {path}")
+        except Exception as e:
+            # Clean up temp file if write failed
+            if tmp_path.exists():
+                tmp_path.unlink()
+            logging.error(f"Failed to save checkpoint to {path}: {e}")
+            raise
 
     def restore(
         self,
@@ -90,12 +113,16 @@ class RunState:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
         scaler: GradScaler,
+        rollout_horizon_scheduler: RolloutHorizonScheduler,
     ) -> None:
         """Restore state to provided objects."""
         model.load_state_dict(self.model_state)
         optimizer.load_state_dict(self.optimizer_state)
         lr_scheduler.load_state_dict(self.scheduler_state)
         scaler.load_state_dict(self.scaler_state)
+        rollout_horizon_scheduler.load_state_dict(
+            self.rollout_horizon_scheduler_state
+        )
 
 
 def load_run_state_from_latest_checkpoint(
@@ -103,6 +130,7 @@ def load_run_state_from_latest_checkpoint(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
 ) -> TrainState:
     """
     Load the initial state of the run from the given experiment_name.
@@ -125,6 +153,7 @@ def load_run_state_from_latest_checkpoint(
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
     )
     step = run_state.step
     epoch = run_state.epoch
@@ -155,6 +184,7 @@ def save_run_state(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: GradScaler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
     epoch: int,
     step: int,
     checkpoint_name: str,
@@ -167,6 +197,7 @@ def save_run_state(
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=scaler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
         epoch=epoch,
         step=step,
         best_val_loss=best_val_loss,

@@ -2,17 +2,9 @@ import argparse
 import importlib
 import logging
 import os
-import random
 import re
-from datetime import datetime
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Iterator,
-    Optional,
-    Sequence,
-)
+from typing import Any, Dict, Iterator, Optional, Sequence
 
 import git
 import hydra
@@ -27,6 +19,8 @@ from omegaconf import (
 )
 
 import wandb
+from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
+from otter.experiment.namegen import _generate_experiment_name
 
 Experiment = DictConfig
 
@@ -36,7 +30,7 @@ def load_experiment_config(
     override_args: list[str],
     results_dir: Path | str = "_results",
 ) -> DictConfig:
-    cfg_dir = Path(results_dir) / experiment_name / "config.yml"
+    cfg_dir = Path(results_dir) / experiment_name / "config.yaml"
 
     _register_resolvers()
     with open(cfg_dir, "r") as f:
@@ -78,6 +72,15 @@ def get_module_attr(string: str) -> Any:
     return getattr(module, class_name)
 
 
+def load_model_weights_from_experiment(
+    path: Path | str,
+    model: torch.nn.Module,
+) -> torch.nn.Module:
+    state_dict = torch.load(path, weights_only=False)
+    model.load_state_dict(state_dict["model_state"])
+    return model
+
+
 def initialize_experiment(
     device: str,
     args_list: Optional[Sequence[str]] = None,
@@ -101,27 +104,43 @@ def initialize_experiment(
         config_dir = os.path.join(
             os.path.abspath(args.root_results), args.resume_experiment
         )
-        args.config_name = "config"
+        if os.path.exists(config_dir):
+            # The config name is just the "config.yaml" file in that directory.
+            args.config_name = "config"
+        else:
+            # In Azure, this is expected: we want one command that starts or resumes an experiment.
+            logging.warning(
+                f"Experiment path {config_dir} does not exist, starting new experiment."
+            )
+            config_dir = None
     else:
         config_dir = None
 
     config = _get_config(
         args.config_module, args.config_name, extra_args, config_dir=config_dir
     )
-    # Set the start_from_checkpoint flag if we are resuming.
-    config.info.start_from_checkpoint = bool(args.resume_experiment)
+    # Set the start_from_checkpoint flag if we found a config when resuming.
+    config.info.start_from_checkpoint = config_dir is not None
+    config.info.root_results = args.root_results
 
-    repo = git.Repo(search_parent_directories=True)
+    logging.info("Config:\n" + OmegaConf.to_yaml(config))
+
+    try:
+        repo = git.Repo(search_parent_directories=True)
+    except git.exc.InvalidGitRepositoryError:
+        repo = None
+        # This happens for Azure runs, where the code (but not the github repo) is copied.
+        logging.warning("No git repository found, skipping repo checks.")
     # Check that the repo is clean, and up to date with remote branch,
     # if not in debug mode.
-    if not args.debug:
+    if not args.debug and repo is not None:
         _assert_repo_is_clean(repo)
         # If config contains commit hash, assert that it matches the current commit hash.
         if "commit" in config:
             _assert_correct_commit_hash(config, repo)
 
     # If the config does not contain an experiment name, generate one.
-    if "experiment_name" not in config.info:
+    if config.info.experiment_name is None:
         experiment_name = (
             args.resume_experiment
             if args.resume_experiment
@@ -133,12 +152,11 @@ def initialize_experiment(
         config.info.experiment_name = experiment_name
         config.info.experiment_path = experiment_path
 
-        config.model.device = device
-
         _write_config(config, experiment_path, repo)
 
     logging.info("Instantiating dependencies.")
 
+    config.model.device = device
     experiment: DictConfig = instantiate(config)
     return experiment, config
 
@@ -171,61 +189,6 @@ def _parse_args(
     parser.add_argument("--root_results", type=str, default="_results")
 
     return parser.parse_known_args(args=args_list)
-
-
-def _generate_experiment_name() -> str:
-    adjectives = [
-        "swift",
-        "fierce",
-        "gentle",
-        "clever",
-        "brave",
-        "cunning",
-        "loyal",
-        "playful",
-        "quiet",
-        "bold",
-        "majestic",
-        "nimble",
-        "mighty",
-        "elegant",
-        "sly",
-        "energetic",
-        "daring",
-        "graceful",
-        "wild",
-        "fearless",
-    ]
-
-    animals = [
-        "aardvark",
-        "tiger",
-        "eagle",
-        "wolf",
-        "panther",
-        "falcon",
-        "fox",
-        "bear",
-        "lion",
-        "cheetah",
-        "hawk",
-        "otter",
-        "deer",
-        "jaguar",
-        "leopard",
-        "owl",
-        "raven",
-        "buffalo",
-        "cougar",
-        "lynx",
-        "badger",
-    ]
-
-    adjective = random.choice(adjectives)
-    animal = random.choice(animals)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-
-    return f"{timestamp}-{adjective}-{animal}"
 
 
 def initialize_wandb(config: DictConfig) -> None:
@@ -307,14 +270,13 @@ def _get_config(
         ):
             config = compose(config_name=config_name, overrides=extra_args)
     else:
+        # This is a folder-level override, and it won't exist in the reified config.yaml file.
+        # We take it out for compatibility with the azure script.
+        overrides = [a for a in extra_args if not a.startswith("host=")]
         with hydra.initialize_config_dir(
             config_dir=config_dir, version_base="1.3"
         ):
-            config = compose(config_name=config_name, overrides=extra_args)
-
-    logging.info("Config:\n" + OmegaConf.to_yaml(config))
-
-    assert type(config) is DictConfig  # Check this to silence mypy.
+            config = compose(config_name=config_name, overrides=overrides)
 
     OmegaConf.set_struct(config, False)
 
@@ -368,12 +330,16 @@ def _create_experiment_path(config: DictConfig, experiment_name: str) -> str:
     return path
 
 
-def _write_config(config: DictConfig, path: str, repo: git.Repo) -> None:
+def _write_config(
+    config: DictConfig, path: str, repo: git.Repo | None
+) -> None:
     # Write config to file together with commit hash
     path = f"{path}/config.yaml"
     logging.info(f"Writing reified config to {path}.")
     with open(path, "w") as file:
-        hash = _get_current_commit_hash(repo)
+        hash = (
+            _get_current_commit_hash(repo) if repo is not None else "unknown"
+        )
         config_to_save: DictConfig = OmegaConf.to_container(config)  # type: ignore
         config_to_save.update({"commit": hash})
         yaml.dump(config_to_save, file, indent=4, sort_keys=False)
@@ -457,10 +423,105 @@ def get_adamw_optimizer(
     return torch.optim.AdamW(params=module.parameters(), **optimizer_kwargs)
 
 
+class CombinedOptimizer(torch.optim.Optimizer):
+    """A simple wrapper to combine multiple optimizers into one."""
+
+    def __init__(self, optimizers: list[torch.optim.Optimizer]) -> None:
+        self.optimizers = optimizers
+        self.param_groups = [
+            pg for opt in optimizers for pg in opt.param_groups
+        ]
+
+    def step(self) -> None:  # type: ignore
+        for opt in self.optimizers:
+            opt.step()
+
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        """Resets the gradients of all optimized :class:`torch.Tensor` s."""
+        for opt in self.optimizers:
+            opt.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self) -> Dict[str, Any]:
+        """Returns the state of the optimizer as a :class:`dict`."""
+        return {"optimizers": [opt.state_dict() for opt in self.optimizers]}
+
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        """Loads the optimizer state."""
+        optimizer_states = state_dict["optimizers"]
+        if len(optimizer_states) != len(self.optimizers):
+            raise ValueError(
+                "Loaded state dict contains a different number of optimizers."
+            )
+
+        for opt, sd in zip(self.optimizers, optimizer_states):
+            opt.load_state_dict(sd)
+
+        # The child optimizers have replaced their param_groups objects
+        # during load_state_dict, so we must update our references.
+        self.param_groups = [
+            pg for opt in self.optimizers for pg in opt.param_groups
+        ]
+
+
+def get_muon_optimizer(
+    model: torch.nn.Module,
+    muon_momentum: float,
+    adamw_lr: float,
+    adamw_betas: tuple[float, float],
+    adamw_weight_decay: float,
+) -> CombinedOptimizer:
+    """Get a Muon optimizer for the given module."""
+    muon_params = []
+    adamw_params = []
+
+    for p in model.parameters():
+        if not p.requires_grad:
+            continue
+        if p.ndim == 2:
+            muon_params.append(p)
+        else:
+            adamw_params.append(p)
+
+    num_muon_params = sum(p.numel() for p in muon_params)
+    num_adamw_params = sum(p.numel() for p in adamw_params)
+    logging.info(
+        f"Using Muon optimizer for {num_muon_params / 1e6:.1f}M parameters"
+    )
+    logging.info(
+        f"Using AdamW optimizer for {num_adamw_params / 1e6:.1f}M parameters"
+    )
+
+    opt_muon = torch.optim.Muon(
+        muon_params,
+        lr=adamw_lr,
+        momentum=muon_momentum,
+        weight_decay=adamw_weight_decay,
+        # Should allow us to use AdamW LR and weight decay.
+        adjust_lr_fn="match_rms_adamw",
+    )
+
+    opt_adamw = torch.optim.AdamW(
+        adamw_params,
+        lr=adamw_lr,
+        betas=adamw_betas,
+        weight_decay=adamw_weight_decay,
+    )
+
+    return CombinedOptimizer([opt_muon, opt_adamw])
+
+
 def get_cosine_lr_scheduler(
     optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
 ) -> torch.optim.lr_scheduler.CosineAnnealingLR:
     return torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer=optimizer, **lr_scheduler_kwargs
+    )
+
+
+def get_linear_warmup_cosine_lr_scheduler(
+    optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
+) -> LinearWarmupCosineAnnealingLR:
+    return LinearWarmupCosineAnnealingLR(
         optimizer=optimizer, **lr_scheduler_kwargs
     )
 
@@ -473,4 +534,14 @@ def get_linear_lr_scheduler(
         start_factor=1.0,
         end_factor=end_factor,
         total_iters=num_steps,
+    )
+
+
+def get_constant_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    factor: float,
+    total_iters: int,
+) -> torch.optim.lr_scheduler.ConstantLR:
+    return torch.optim.lr_scheduler.ConstantLR(
+        optimizer, factor=factor, total_iters=total_iters
     )

@@ -1,21 +1,19 @@
 # Otter
 
 ## Getting started
-The project uses conda to manage dependencies.
-If you haven't installed conda you can do so by
+The project uses uv to manage dependencies.
+If you haven't installed uv you can do so by
 ```bash
-mkdir -p ~/miniconda3
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
-    -O ~/miniconda3/miniconda.sh
-bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-Then clone the repo, go to its root and create a conda environment.
+Then clone the repo, go to its root, create a virtual environment and sync dependencies.
 ```bash
-git clone git@github.com:stratisMarkou/otter.git
+git clone git@github.com:jonas-scholz123/otter.git
 cd otter
-conda env create -n otter -f env.yaml
+uv venv
+source .venv/bin/activate
+uv sync
 ```
-The environment is built each time from scratch to run tests, so the environment yaml is always up to date.
 Last, if you want to commit code you probably want to install pre-commit hooks, to run pre-commit checks before each commit.
 ```bash
 pre-commit install
@@ -35,7 +33,9 @@ python otter/data/source/convert_saved_zarr_to_memmap.py
 # python otter/data/normalisation/compute_stats.py
 ```
 
-To train a (deterministic) single-scale model, from the repo root, run:
+## Training
+
+To train a deterministic model, from the repo root, run:
 ```bash
 # This will train a model with logging to wandb. It will also check your local branch
 # is clean, i.e. that it has no changes relative to the remote branch.
@@ -45,60 +45,52 @@ wandb online; python otter/experiment/train.py --config_name base
 wandb online; python otter/experiment/train.py --config_name base --debug
 ```
 
-After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
+To train a model on Azure, make sure that you first set the `WANDB_API_KEY` environment variable. This will be transmitted to the Azure VM.
+You will also need to install the azure CLI:
 ```bash
-python otter/experiment/save_samples.py <experiment_name>
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 ```
-The experiment name is the same as in wandb or in the _results directory.
-
-For model evaluation (to save evaluation metrics), run:
+and authenticate:
 ```bash
-python otter/experiment/eval.py --experiment_name <experiment_name> \
---results_path <results_path> --checkpoint_name <checkpoint_name> \
-constants.data.valid_num_target_frames=<num_target_frames>
-```
-The experiment name is the same as in wandb or in the <results_path> directory.
-
-Number of target frames determines the forecasting horizon.
-
-Checkpoint name (e.g. latest, best) determines which model weights to load.
-
-When evaluation is done, to create a plot for power spectrum density MSE per variable, run:
-```bash
-python otter/plots/plot_power_spectrum_mse.py --experiment_name <experiment_name> \
---rollout_steps <num_target_frames> --checkpoint_name <checkpoint_name>
+az login
 ```
 
-It will create a PNG image in the `experiment_name/power_spectrum_mse` folder.
-
-To create a score card to compare two models, run:
+Then, run (including your overrides):
 ```bash
-python otter/plots/plot_score_card.py --experiment_name <experiment_name> \
---base_experiment_name <base_experiment_name> --rollout_steps <num_target_frames> \
---base_rollout_steps <base_num_target_frames> --checkpoint_name <checkpoint_name> \
---base_checkpoint_name <base_checkpoint_name>
+python ./submit_azure.py otter/experiment/train.py --config_name base host=azure
 ```
+This will launch a run using the code as-is on your local machine (same git branch etc).
 
-To compare to Arches Weather M model, use `_baselines/arches_weather/validation/metrics_latest_rollout_40.pkl`.
 
 To launch a training run on HPC, from the repo root, run:
 ```bash
-# ENV_PATH indicates the path to otter venv, default is set to otter.
 # submit.sh requests one gpu for 36 hours, the account is OTTER-SL2-GPU.
-ENV_PATH="otter" sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
+sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
 ```
 
 
+### RFT
+You can rollout finetune a pretrained model using:
+```bash
+python otter/experiment/train.py --config_name rollout_finetuning constants.load_weights_from_experiment=/some/path/to/2026-01-18_13-50-fierce-eagle/checkpoints/latest.pt
+```
+Note that your configs need to align, i.e. the model architecture defined by the config needs to match that found in the checkpoint. We are looking to make this more ergonomic.
 
-__Priorities:__
-- [ ] Add spatial Fourier embeddings to model.
-- [ ] Train a larger model to estimate performance gains from increased size.
-- [ ] Add mixture of experts functionality to the model.
+## Weatherbench Eval
 
-__Sub goals:__
-- [ ] Train an MSE model to match Stormer / ArchesWeather.
-- [ ] Train a multi-scale model to match the probabilistic ArchesWeather model performance.
+After a model has been trained, it can be used to generate cached forecasts for later evaluation. To do so for a given `experiment_name`, run:
+```bash
+python otter/evaluate/save_forecasts.py <experiment_name>
+```
+The experiment name is the same as in wandb or in the _results directory, e.g. `2025-11-06_19-08-bold-wolf`.
 
-__Tests to implement:__
-- [ ] Test for gridded weather data task.
-    - [ ] Decide if we need to profile this within tests (i.e. test within CI that loading is not too slow).
+For weatherbench model evaluation (to save evaluation metrics), run:
+```bash
+python otter/evaluate/weatherbench.py \
+--experiment_name=<experiment_name> \
+--runner=DirectRunner
+```
+Finally, these results can be plotted and saved to the _plots folder using
+```
+python otter/evaluate/plot_weatherbench_output.py <experiment_name>
+```
