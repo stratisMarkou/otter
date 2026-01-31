@@ -19,6 +19,7 @@ from omegaconf import (
 )
 
 import wandb
+from otter.experiment.azure_debug import log_experiment_diagnostics
 from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
 from otter.experiment.namegen import _generate_experiment_name
 
@@ -107,11 +108,14 @@ def initialize_experiment(
         if os.path.exists(config_dir):
             # The config name is just the "config.yaml" file in that directory.
             args.config_name = "config"
+            logging.info(f"Resuming experiment from {config_dir}")
         else:
             # In Azure, this is expected: we want one command that starts or resumes an experiment.
             logging.warning(
                 f"Experiment path {config_dir} does not exist, starting new experiment."
             )
+            # Log diagnostics to help debug why the path doesn't exist
+            log_experiment_diagnostics(Path(config_dir))
             config_dir = None
     else:
         config_dir = None
@@ -259,6 +263,9 @@ def _get_config(
 ) -> DictConfig:
     """
     Reads the config file, evaluates expressions, and merges it with overrides.
+
+    When loading from a config_dir (e.g. when resuming an experiment), logs
+    diagnostic information about the directory contents to aid debugging.
     """
     _register_resolvers()
 
@@ -273,10 +280,16 @@ def _get_config(
         # This is a folder-level override, and it won't exist in the reified config.yaml file.
         # We take it out for compatibility with the azure script.
         overrides = [a for a in extra_args if not a.startswith("host=")]
-        with hydra.initialize_config_dir(
-            config_dir=config_dir, version_base="1.3"
-        ):
-            config = compose(config_name=config_name, overrides=overrides)
+        # Log diagnostics for debugging Azure issues
+        log_experiment_diagnostics(Path(config_dir))
+        try:
+            with hydra.initialize_config_dir(
+                config_dir=config_dir, version_base="1.3"
+            ):
+                config = compose(config_name=config_name, overrides=overrides)
+        except Exception as e:
+            logging.error(f"Failed to load config from {config_dir}: {e}")
+            raise
 
     OmegaConf.set_struct(config, False)
 
