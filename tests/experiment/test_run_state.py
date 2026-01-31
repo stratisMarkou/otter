@@ -360,3 +360,59 @@ def test_get_latest_checkpoint(
         assert state.epoch == 2
         assert state.step == 2000
         assert state.best_val_loss == 10.0
+
+
+def test_atomic_write_cleanup(
+    model: SimpleModel,
+    optimizer: Adam,
+    scheduler: StepLR,
+    scaler: GradScaler,
+    rollout_horizon_scheduler: RolloutHorizonScheduler,
+) -> None:
+    """Test that temp files are cleaned up during atomic writes."""
+    run_state = RunState.from_objects(
+        model=model,
+        optimizer=optimizer,
+        lr_scheduler=scheduler,
+        scaler=scaler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
+        epoch=1,
+        step=100,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        checkpoint_path = Path(tmpdir) / "checkpoint.pt"
+        tmp_path = Path(tmpdir) / "checkpoint.pt.tmp"
+
+        # Save checkpoint
+        run_state.save(checkpoint_path)
+
+        # Temp file should be cleaned up after successful save
+        assert not tmp_path.exists(), "Temp file should not exist after save"
+        assert checkpoint_path.exists(), "Checkpoint file should exist"
+
+        # Verify checkpoint is valid
+        loaded = RunState.load(checkpoint_path)
+        assert loaded.epoch == 1
+        assert loaded.step == 100
+
+        # Save again with different data - should atomically replace
+        run_state_2 = RunState.from_objects(
+            model=model,
+            optimizer=optimizer,
+            lr_scheduler=scheduler,
+            scaler=scaler,
+            rollout_horizon_scheduler=rollout_horizon_scheduler,
+            epoch=2,
+            step=200,
+        )
+
+        run_state_2.save(checkpoint_path)
+
+        # Temp file should still be cleaned up
+        assert not tmp_path.exists(), "Temp file should not exist after second save"
+
+        # Checkpoint should be atomically updated
+        loaded = RunState.load(checkpoint_path)
+        assert loaded.epoch == 2
+        assert loaded.step == 200

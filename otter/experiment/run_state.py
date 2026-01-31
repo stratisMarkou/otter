@@ -89,9 +89,23 @@ class RunState:
         }
 
     def save(self, path: Path) -> None:
-        """Save RunState to disk."""
+        """Save RunState to disk using atomic write to prevent corruption."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(self.to_dict(), path)
+
+        # Write to temporary file first for crash safety
+        tmp_path = path.parent / f"{path.name}.tmp"
+        try:
+            torch.save(self.to_dict(), tmp_path)
+            # Atomically replace the target file
+            # On POSIX systems, Path.replace() is atomic when on same filesystem
+            tmp_path.replace(path)
+            logging.debug(f"Successfully saved checkpoint to {path}")
+        except Exception as e:
+            # Clean up temp file if write failed
+            if tmp_path.exists():
+                tmp_path.unlink()
+            logging.error(f"Failed to save checkpoint to {path}: {e}")
+            raise
 
     def restore(
         self,
