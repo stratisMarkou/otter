@@ -139,21 +139,21 @@ val_loss_fns:
     loss_fn: ${get_module_attr:otter.models.losses.loss_fn.lwrmse}
     weighting_coefficients_power: 1
 
-optimizer:
-  _target_: otter.experiment.utils.get_adamw_optimizer
-  _partial_: true
-  optimizer_kwargs:
-    lr: ${constants.training.initial_learning_rate}
-    betas: ${constants.training.betas}
-    weight_decay: ${constants.training.weight_decay}
+# optimizer:
+#   _target_: otter.experiment.utils.get_adamw_optimizer
+#   _partial_: true
+#   optimizer_kwargs:
+#     lr: ${constants.training.initial_learning_rate}
+#     betas: ${constants.training.betas}
+#     weight_decay: ${constants.training.weight_decay}
 
-#optimizer:
-#  _target_: otter.experiment.utils.get_muon_optimizer
-#  _partial_: true
-#  muon_momentum: 0.95 # default value
-#  adamw_lr: ${constants.training.initial_learning_rate}
-#  adamw_betas: ${constants.training.betas}
-#  adamw_weight_decay: ${constants.training.weight_decay}
+optimizer:
+  _target_: otter.experiment.utils.get_muon_optimizer
+  _partial_: true
+  muon_momentum: 0.95 # default value
+  adamw_lr: ${constants.training.initial_learning_rate}
+  adamw_betas: ${constants.training.betas}
+  adamw_weight_decay: ${constants.training.weight_decay}
 
 
 rollout_horizon_scheduler:
@@ -162,10 +162,11 @@ rollout_horizon_scheduler:
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
 
 lr_scheduler:
-  _target_: otter.experiment.utils.get_linear_lr_scheduler
+  _target_: otter.experiment.utils.get_sequential_warmup_cosine_lr_scheduler
   _partial_: true
-  num_steps: ${constants.training.num_lr_decay_steps}
-  end_factor: 0.01
+  warmup_steps: 500
+  total_steps: ${constants.training.num_lr_decay_steps}
+  eta_min: 2e-6
 
 constants:
   num_stats: 1
@@ -189,7 +190,7 @@ constants:
     # Until we refactor the calculations in a python helper, we need to
     # manually set the number of sufficient statistics for the output.
     # Actual batch size for training.
-    batch_size: 4
+    batch_size: 16
     # Max batch size that fits into memory. Should divide the actual batch size evenly.
     memory_max_batch_size: 4
     accumulate_batches: ${eval:'${constants.data.batch_size} // ${constants.data.memory_max_batch_size}'}
@@ -199,16 +200,17 @@ constants:
     # lots of time validating while training.
     val_task_subsampling_factor: 5
   training:
-    initial_learning_rate: 1e-4
+    initial_learning_rate: 2e-4
     betas: [0.9, 0.95]
     weight_decay: 0.1
     dropout_rate: 0.1
     drop_path_rate: 0.1
-    epochs: 35
+    epochs: 20
     num_lr_decay_steps:
       _target_: otter.experiment.utils.get_num_training_steps
-      num_epochs: 35
+      num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
+      accumulate_batches: ${constants.data.accumulate_batches}
     num_training_steps:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}

@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Sequence
+from typing import Any, Dict, Iterator, Optional, Sequence, Sized
 
 import git
 import hydra
@@ -20,7 +20,6 @@ from omegaconf import (
 
 import wandb
 from otter.experiment.azure_debug import log_experiment_diagnostics
-from otter.experiment.lr_scheduler import LinearWarmupCosineAnnealingLR
 from otter.experiment.namegen import _generate_experiment_name
 
 Experiment = DictConfig
@@ -52,9 +51,11 @@ def get_model_parameters(
 
 
 def get_num_training_steps(
-    num_epochs: int, dataloader: torch.utils.data.DataLoader[Any]
+    num_epochs: int,
+    dataloader: Sized | torch.utils.data.DataLoader[Any],
+    accumulate_batches: int = 1,
 ) -> int:
-    return num_epochs * len(dataloader)
+    return (num_epochs * len(dataloader)) // accumulate_batches
 
 
 def get_num_parameters(module: torch.nn.Module) -> int:
@@ -531,14 +532,6 @@ def get_cosine_lr_scheduler(
     )
 
 
-def get_linear_warmup_cosine_lr_scheduler(
-    optimizer: torch.optim.Optimizer, lr_scheduler_kwargs: Dict[str, Any]
-) -> LinearWarmupCosineAnnealingLR:
-    return LinearWarmupCosineAnnealingLR(
-        optimizer=optimizer, **lr_scheduler_kwargs
-    )
-
-
 def get_linear_lr_scheduler(
     optimizer: torch.optim.Optimizer, num_steps: int, end_factor: float
 ) -> torch.optim.lr_scheduler.LinearLR:
@@ -557,4 +550,30 @@ def get_constant_lr_scheduler(
 ) -> torch.optim.lr_scheduler.ConstantLR:
     return torch.optim.lr_scheduler.ConstantLR(
         optimizer, factor=factor, total_iters=total_iters
+    )
+
+
+def get_sequential_warmup_cosine_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    warmup_steps: int,
+    total_steps: int,
+    eta_min: float,
+) -> torch.optim.lr_scheduler.SequentialLR:
+    """
+    Returns a scheduler that warms up linearly and then decays using cosine annealing.
+    Uses native torch.optim.lr_scheduler.SequentialLR.
+    """
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1e-10, end_factor=1.0, total_iters=warmup_steps
+    )
+
+    decay_steps = max(1, total_steps - warmup_steps - 1)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=decay_steps, eta_min=eta_min
+    )
+
+    return torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps]
     )
