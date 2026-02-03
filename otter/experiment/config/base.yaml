@@ -215,8 +215,7 @@ constants:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
-      accumulate_batches: ${constants.data.accumulate_batches}
-    validate_every: 5000
+    validate_every: ${eval:'5000 // ${constants.data.accumulate_batches}'}
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
     clip_grad_norm: 10.0
@@ -224,8 +223,9 @@ constants:
   num_evaluation_rollout_hours: 240
   load_weights_from_experiment: null
   save_best_checkpoint: true
-  save_checkpoint_every: 5_000
-  save_persistent_checkpoint_every: 200_000
+  # Divide by accumulate_batches to get the actual number of steps.
+  save_checkpoint_every: ${eval:'5000 // ${constants.data.accumulate_batches}'}
+  save_persistent_checkpoint_every: ${eval:'200_000 // ${constants.data.accumulate_batches}'}
   log_code: True
 
 info:

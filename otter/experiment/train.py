@@ -504,6 +504,19 @@ def train_loop(
                     checkpoint_name=f"step_{step:08d}.pt",
                 )
 
+    logging.info("Training finished. Saving final checkpoint (latest.pt).")
+    save_run_state(
+        experiment=experiment,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+        scaler=scaler,
+        rollout_horizon_scheduler=rollout_horizon_scheduler,
+        epoch=experiment.constants.training.epochs - 1,
+        step=step,
+        best_val_loss=best_val_loss,
+        checkpoint_name="latest.pt",
+    )
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
