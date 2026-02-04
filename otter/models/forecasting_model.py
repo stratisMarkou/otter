@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import (
     Any,
     List,
@@ -11,13 +10,15 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.utils.checkpoint as checkpoint
 import xarray as xr
 
-from otter.data.datasets import (  # type: ignore
+from otter.data.datasets import (
     ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
     ALL_GRID_STATIC_VARIABLES,
     ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
     ALL_GRID_VARIABLE_LEVELS,
+    ForecastingSample,
 )
 from otter.data.normalisation.utils import load_statistic
 from otter.data.utils import (
@@ -25,7 +26,6 @@ from otter.data.utils import (
     split_into_different_variables_along_dim,
     stack_dataset_variable_and_levels,
 )
-from otter.experiment.downsample import downsample
 from otter.models.architectures.embeddings import TimeEmbedding
 from otter.models.architectures.moe import LoadBalancingLosses
 from otter.models.distributions import (
@@ -118,23 +118,7 @@ def _get_normalisation_mean_and_std(
     return mean, std
 
 
-@dataclass
-class MultiscaleInput:
-    ctx: torch.Tensor
-    zero_time: npt.NDArray[np.datetime64]
-    downsampled_trg: torch.Tensor
-    scale: int
-    trg_timedelta_hours: npt.NDArray[np.int32]
-
-    def to(self, device: str, non_blocking: bool = False) -> "MultiscaleInput":
-        self.ctx = self.ctx.to(device, non_blocking=non_blocking)
-        self.downsampled_trg = self.downsampled_trg.to(
-            device, non_blocking=non_blocking
-        )
-        return self
-
-
-class MultiscaleModel(torch.nn.Module):
+class ForecastingModel(torch.nn.Module):
     def __init__(
         self,
         backbone_network: torch.nn.Module,
@@ -147,7 +131,7 @@ class MultiscaleModel(torch.nn.Module):
         distribution_type: Type[Distribution],
         distribution_kwargs: dict[str, Any],
         device: str,
-        downsampling_noise_std: float = 0.0,
+        scale_compatible: bool = False,
     ) -> None:
         super().__init__()
 
@@ -199,15 +183,15 @@ class MultiscaleModel(torch.nn.Module):
 
         self.distribution_type = distribution_type
         self.distribution_kwargs = distribution_kwargs
-
-        self.downsampling_noise_std = downsampling_noise_std
+        self.scale_compatible = scale_compatible
 
     def forward(
-        self, batch: MultiscaleInput, scales: torch.Tensor
+        self,
+        batch: ForecastingSample,
+        grad_ckpt_start_timestep: int,
     ) -> tuple[Distribution, List[LoadBalancingLosses]]:
         ctx = batch.ctx
         zero_time = batch.zero_time
-        downsampled_trg = batch.downsampled_trg
         trg_timedelta_hours = batch.trg_timedelta_hours
         if np.any(trg_timedelta_hours % self.temporal_resolution_hours != 0):
             raise ValueError(
@@ -216,14 +200,6 @@ class MultiscaleModel(torch.nn.Module):
 
         ctx = ctx - self.ctx_mean
         ctx = ctx / self.ctx_std
-
-        # Special case: when the downsampled_trg tensor is erased, i.e. all
-        # zeros, we don't want to apply normalisation to it.
-        # Could check all elements, but checking just the first one is
-        # sufficient in practice, as no real data will be all zeros.
-        if (downsampled_trg[0, 0, 0, 0, :] != 0).sum() > 0:
-            downsampled_trg = downsampled_trg - self.trg_mean
-            downsampled_trg = downsampled_trg / self.trg_std
 
         expected_shape = tuple(
             (self.data_grid_num_lat, self.data_grid_num_lon)
@@ -236,37 +212,25 @@ class MultiscaleModel(torch.nn.Module):
         prd_dist, load_balancing_losses = self.time_rollout(
             ctx=ctx,
             zero_time=zero_time,
-            downsampled_trg=downsampled_trg,
-            scales=scales,
             trg_timedelta_hours=trg_timedelta_hours,
-        )  # (batch, lat, lon, trg_time_idx, scale, trg_var_and_level)
+            grad_ckpt_start_timestep=grad_ckpt_start_timestep,
+        )  # (batch, lat, lon, trg_time_idx, trg_var_and_level)
 
         prd_dist = prd_dist * self.trg_std
         prd_dist = prd_dist + self.trg_mean
 
         return prd_dist, load_balancing_losses
 
-    def single_scale_forward(
-        self,
-        ctx: torch.Tensor,
-        downsampled_trg: torch.Tensor,
-        zero_time: npt.NDArray[np.datetime64],
-    ) -> tuple[Distribution, Optional[LoadBalancingLosses]]:
+    def single_time_forward(
+        self, ctx: torch.Tensor, zero_time: npt.NDArray[np.datetime64]
+    ) -> tuple[Distribution, LoadBalancingLosses]:
         residual = ctx[
             ..., 0, self.idx_residual
         ]  # (batch, lat, lon, time_idx, res_var_and_level)
 
-        ctx_reshaped = ctx.reshape(
+        ctx = ctx.reshape(
             *ctx.shape[:-2], -1
         )  # (batch, lat, lon, ctx_time_idx * ctx_var_and_level)
-
-        downsampled_trg_reshaped = downsampled_trg.reshape(
-            *downsampled_trg.shape[:-2], -1
-        )  # (batch, lat, lon, trg_time_idx * trg_var_and_level)
-
-        ctx_and_downsampled_trg = torch.cat(
-            [ctx_reshaped, downsampled_trg_reshaped], dim=-1
-        )
 
         time_embedding: torch.Tensor = self.time_embedding(
             zero_time
@@ -277,17 +241,28 @@ class MultiscaleModel(torch.nn.Module):
         # feature dimension (last).
         time_embedding = time_embedding[:, None, None, :]
         time_embedding = time_embedding.repeat(
-            1, *ctx_and_downsampled_trg.shape[1:-1], 1
+            1, *ctx.shape[1:-1], 1
         )  # (batch, lat, lon, embedding_dim)
-        time_embedding = time_embedding.to(ctx_and_downsampled_trg.device)
+        time_embedding = time_embedding.to(ctx.device)
 
         # Concatenate the time embedding with the reshaped context.
-        ctx_with_time_embedding = torch.cat(
-            [ctx_and_downsampled_trg, time_embedding], dim=-1
-        )
+        if self.scale_compatible:
+            # Old checkpoints expected downsampled_trg (all zeros for base
+            # models) concatenated between ctx and time_embedding.
+            zeros = torch.zeros(
+                *ctx.shape[:-1],
+                len(self.trg_variables_and_levels),
+                device=ctx.device,
+                dtype=ctx.dtype,
+            )
+            ctx_with_time_embedding = torch.cat(
+                [ctx, zeros, time_embedding], dim=-1
+            )
+        else:
+            ctx_with_time_embedding = torch.cat([ctx, time_embedding], dim=-1)
 
         prediction, load_balancing_losses = self.backbone_network(
-            ctx_with_time_embedding
+            x=ctx_with_time_embedding
         )  # (batch, lat, lon, trg_var_and_level * num_stats)
 
         # Split prediction stats into the sufficient statistics.
@@ -309,78 +284,12 @@ class MultiscaleModel(torch.nn.Module):
 
         return prd_dist, load_balancing_losses
 
-    def _add_downsampling_noise(
-        self, downsampled_trg: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Adds Gaussian noise to the downsampled target tensor.
-        """
-        if self.downsampling_noise_std > 0:
-            downsampled_trg = torch.normal(
-                mean=downsampled_trg, std=self.downsampling_noise_std
-            )
-        return downsampled_trg
-
-    def multiscale_forward(
-        self,
-        ctx: torch.Tensor,
-        downsampled_trg: torch.Tensor,
-        zero_time: npt.NDArray[np.datetime64],
-        scales: torch.Tensor,
-    ) -> tuple[Distribution, Distribution, list[LoadBalancingLosses]]:
-        prd_dists = []
-        all_load_balancing_losses = []
-
-        # Add noise to the downsampled target if specified.
-        downsampled_trg = self._add_downsampling_noise(downsampled_trg)
-
-        prd_dist, load_balancing_losses = self.single_scale_forward(
-            ctx=ctx,
-            downsampled_trg=downsampled_trg,
-            zero_time=zero_time,
-        )  # (batch, lat, lon, trg_var_and_level)
-        prd_dists.append(prd_dist)
-        if load_balancing_losses:
-            all_load_balancing_losses.append(load_balancing_losses)
-
-        # Optionally refine the prediction via rollout through scales.
-        for scale in scales:
-            # Unsqueeze along time dimension to match shape of downsampled_trg
-            sample = prd_dist.sample().unsqueeze(-2)
-            downsampled_trg = downsample(
-                sample,
-                int(scale),
-            )  # (batch, lat, lon, 1, trg_var_and_level)
-
-            # Add noise to the downsampled target if specified.
-            downsampled_trg = self._add_downsampling_noise(downsampled_trg)
-
-            prd_dist, load_balancing_losses = self.single_scale_forward(
-                ctx=ctx,
-                downsampled_trg=downsampled_trg,
-                zero_time=zero_time,
-            )  # (batch, lat, lon, trg_var_and_level)
-            prd_dists.append(prd_dist)
-            if load_balancing_losses:
-                all_load_balancing_losses.append(load_balancing_losses)
-
-        product_prd_dist = product_distribution(
-            prd_dists, dim=-2
-        )  # (batch, lat, lon, scale, trg_var_and_level)
-
-        return (
-            product_prd_dist,
-            prd_dist,
-            all_load_balancing_losses,
-        )
-
     def time_rollout(
         self,
         ctx: torch.Tensor,
         zero_time: npt.NDArray[np.datetime64],
-        downsampled_trg: torch.Tensor,
-        scales: torch.Tensor,
         trg_timedelta_hours: npt.NDArray[np.int32],
+        grad_ckpt_start_timestep: int,
     ) -> tuple[Distribution, list[LoadBalancingLosses]]:
         """
         Rolls out the model over time, predicting the target variables at
@@ -390,14 +299,10 @@ class MultiscaleModel(torch.nn.Module):
             ctx: The context data tensor of shape (batch, lat, lon,
                 ctx_time_idx, ctx_var_and_level).
             zero_time: The time of the latest context timestep.
-            downsampled_trg: The downsampled target data tensor of shape
-                (batch, lat, lon, trg_time_idx, trg_var_and_level).
-                At validation, this should be a tensor of zeros.
-            scales: The scales to use for the rollout through scales.
             trg_timedelta_hours: The target times at which to predict.
         Returns:
             The prediction distribution of shape (batch, lat, lon,
-                trg_time_idx, scale, trg_var_and_level).
+                trg_time_idx, trg_var_and_level).
         """
         num_rollout_steps = np.max(
             (trg_timedelta_hours // self.temporal_resolution_hours)
@@ -406,22 +311,25 @@ class MultiscaleModel(torch.nn.Module):
         predictions: List[Distribution] = list()
         all_load_balancing_losses: List[LoadBalancingLosses] = list()
         for i in range(num_rollout_steps):
-            # Choose the downsampled target slice for the current time step.
-            downsampled_slice = downsampled_trg[..., i : i + 1, :]
-            (
-                prd_dist,
-                last_prd_dist,
-                load_balancing_losses,
-            ) = self.multiscale_forward(
-                ctx,
-                downsampled_trg=downsampled_slice,
-                zero_time=zero_time + i * self.temporal_resolution_timedelta,
-                scales=scales,
-            )  # (batch, lat, lon, scale, trg_var_and_level)
+            current_time = zero_time + i * self.temporal_resolution_timedelta
+
+            if i < grad_ckpt_start_timestep:
+                prd_dist, load_balancing_losses = self.single_time_forward(
+                    ctx=ctx, zero_time=current_time
+                )
+            else:
+                (prd_dist, load_balancing_losses) = checkpoint.checkpoint(
+                    self.single_time_forward,
+                    ctx,
+                    current_time,
+                    use_reentrant=False,
+                )
 
             if (i + 1) * self.temporal_resolution_hours in trg_timedelta_hours:
                 predictions.append(prd_dist)
-            all_load_balancing_losses += load_balancing_losses
+
+            if load_balancing_losses is not None:
+                all_load_balancing_losses.append(load_balancing_losses)
 
             # Using this prediction, update the context data for the next step.
             # NOTE: We can't simply assign the prediction e.g. using
@@ -430,30 +338,20 @@ class MultiscaleModel(torch.nn.Module):
             # context data (e.g. static/known data).
             ctx_next_time_frame = ctx[..., :1, :].clone()
 
-            # Autoregressively update the context with the prediction of the
-            # latest scale.
-            # TODO(jonas, stratis): This samples distribution over all scales
-            # and then selects the last scale, which is inefficient. We should
-            # first slice the distribution and then sample.
-            prd_sample = (
-                last_prd_dist.sample()
-            )  # (batch, lat, lon, trg_var_and_level)
-            prd_sample = prd_sample.unsqueeze(
-                -2
-            )  # (batch, lat, lon, 1, trg_var_and_level)
+            # (batch, lat, lon, trg_var_and_level)
+            prd_sample = prd_dist.sample()
+            # (batch, lat, lon, 1, trg_var_and_level)
+            prd_sample = prd_sample.unsqueeze(-2)
             ctx_next_time_frame[..., 0:1, self.idx_ctx_for_update] = prd_sample
 
             ctx = torch.cat([ctx_next_time_frame, ctx[..., :-1, :]], dim=3)
 
         # Concat the time rollout steps along the time dimension
         product_prd_dist = product_distribution(predictions, dim=3)
-        return (
-            product_prd_dist,
-            all_load_balancing_losses,
-        )
+        return product_prd_dist, all_load_balancing_losses
 
 
-def make_multiscale_model(
+def make_forecasting_model(
     backbone_network: torch.nn.Module,
     time_embedding: TimeEmbedding,
     temporal_resolution_hours: int,
@@ -464,8 +362,9 @@ def make_multiscale_model(
     device: str,
     distribution_type: Type[Distribution],
     distribution_kwargs: dict[str, Any],
-    downsampling_noise_std: float = 0.0,
-) -> MultiscaleModel:
+    scale_compatible: bool = False,
+    downsampling_noise_std: float = 0.0,  # Ignored, for old config compat
+) -> ForecastingModel:
     ctx_variables_and_levels = get_ctx_vars_and_levels(ctx_variables_to_remove)
     trg_variables_and_levels = get_trg_vars_and_levels(trg_variables_to_remove)
 
@@ -481,7 +380,7 @@ def make_multiscale_model(
             "Non-static context variables must be a subset of target variables"
         )
 
-    return MultiscaleModel(
+    return ForecastingModel(
         backbone_network=backbone_network,
         time_embedding=time_embedding,
         temporal_resolution_hours=temporal_resolution_hours,
@@ -492,5 +391,5 @@ def make_multiscale_model(
         distribution_type=distribution_type,
         distribution_kwargs=distribution_kwargs,
         device=device,
-        downsampling_noise_std=downsampling_noise_std,
+        scale_compatible=scale_compatible,
     )

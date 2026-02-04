@@ -62,8 +62,7 @@ def _is_val_metric(metric: str) -> bool:
         len(parts) in (5, 6)
         and parts[0] == "val"
         and parts[2] in VAR_MAP
-        and parts[-2].startswith("time_")
-        and parts[-1].startswith("scale_")
+        and parts[-1].startswith("time_")
     )
 
 
@@ -80,9 +79,8 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
             metric = parts[1]
             var = parts[2]
             time_step = (
-                int(parts[-2].split("_")[-1]) + 1
+                int(parts[-1].split("_")[-1]) + 1
             ) * temporal_resolution
-            scale = parts[-1]
 
             if len(parts) == 5:
                 # If the metric is not a pressure level metric, set level to "".
@@ -90,7 +88,7 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
             else:
                 level = parts[3].split("_")[-1]
 
-            data.append((metric, var, level, time_step, scale, value))
+            data.append((metric, var, level, time_step, value))
 
     df = pd.DataFrame(
         data,
@@ -99,16 +97,10 @@ def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
             "Variable",
             "Pressure Level",
             "Lead Time",
-            "Scale",
             "Value",
         ],
     )
-    # Only keep results for the final scale.
-    # 128 for the basic model, 2 for the probabilistic model.
-    min_scale = df["Scale"].min()
 
-    df = df[df["Scale"] == min_scale]
-    df = df.drop(columns=["Scale"])
     return df
 
 

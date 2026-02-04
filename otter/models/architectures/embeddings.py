@@ -102,8 +102,8 @@ class TimeEmbedding(FourierExpansionEmbedding):
 
     def forward(
         self,
-        x: npt.NDArray[np.datetime64],  # type: ignore
-    ) -> torch.Tensor:
+        x: npt.NDArray[np.datetime64],
+    ) -> torch.Tensor:  # type: ignore
         hours = _get_hours_from_reference_time(x)
         return super().forward(torch.tensor(hours).float())
 

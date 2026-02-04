@@ -13,6 +13,8 @@ def main() -> None:
     parser.add_argument("--output_dir", type=str, default="_data")
     parser.add_argument("--overwrite_existing", action="store_true")
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--start_date", type=str, default="")
+    parser.add_argument("--end_date", type=str, default="")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -29,6 +31,8 @@ def main() -> None:
             args.output_dir,
             args.overwrite_existing,
             args.test,
+            args.start_date,
+            args.end_date,
         )
 
 

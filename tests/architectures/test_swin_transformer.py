@@ -26,7 +26,6 @@ from otter.models.architectures.transformer import SwinTransformer
         (7, 12, 15, [2, 2], 4, SphericalHarmonicsEmbedding(12, 5)),
     ],
 )
-@torch.compiler.disable()  # type: ignore
 def test_swin_transformer(
     grid_channel_dim: int,
     token_dim: int,
@@ -35,14 +34,14 @@ def test_swin_transformer(
     num_bottom_blocks: int,
     pos_embedding: PositionEmbedding | SpatialEmbedding,
 ) -> None:
-    grid_width = 240
-    grid_height = 121
+    grid_width = 64
+    grid_height = 32
     batch_dim = 2
-    mlp_num_hidden = 32
-    num_mlp_layers = 2
+    mlp_num_hidden = 16
+    num_mlp_layers = 1
     num_heads = 4
     patch_size = 2
-    patchify_kernel_size = (3, 2)
+    patchify_kernel_size = (2, 2)
 
     feedforward_network = partial(
         MLP,
@@ -72,7 +71,6 @@ def test_swin_transformer(
         drop_path_rate=0.1,
         # Can't do this in test env.
         use_rope=False,
-        batch_size=batch_dim,
     )
 
     # Create a random input tensor

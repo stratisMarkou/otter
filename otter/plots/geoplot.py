@@ -89,9 +89,9 @@ class GeoPlotter:
             transform=ccrs.PlateCarree(),
         )
 
-        ax.coastlines()  # type: ignore
+        ax.coastlines()
 
-        gl = ax.gridlines(  # type: ignore
+        gl = ax.gridlines(
             crs=ccrs.PlateCarree(),
             draw_labels=True,
             linewidth=1,

@@ -20,7 +20,7 @@ class Distribution(ABC):
 
     @classmethod
     @abstractmethod
-    def stack(cls, dists: List[Self], dim: int) -> Self:
+    def stack(cls, dists: List[Distribution], dim: int) -> Self:
         pass
 
     @abstractmethod
@@ -42,7 +42,7 @@ class Delta(Distribution):
         return self.mean
 
     @classmethod
-    def stack(cls, dists: List[Self], dim: int) -> Self:
+    def stack(cls, dists: List[Distribution], dim: int) -> Self:
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
         return cls(mean)
 
@@ -79,11 +79,11 @@ class Gaussian(Distribution):
         return self.dist.rsample()
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        log_prob: torch.Tensor = self.dist.log_prob(x)  # type: ignore[no-untyped-call]
+        log_prob: torch.Tensor = self.dist.log_prob(x)
         return log_prob
 
     @classmethod
-    def stack(cls, dists: List[Self], dim: int) -> Self:
+    def stack(cls, dists: List[Distribution], dim: int) -> Self:
         mean = torch.stack([dist.mean for dist in dists], dim=dim)
         unconstrained_stddev = torch.stack(
             [dist.unconstrained_stddev for dist in dists], dim=dim
