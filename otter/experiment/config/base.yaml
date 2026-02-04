@@ -215,6 +215,7 @@ constants:
       _target_: otter.experiment.utils.get_num_training_steps
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
+      accumulate_batches: ${constants.data.accumulate_batches}
     validate_every: ${eval:'5000 // ${constants.data.accumulate_batches}'}
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
