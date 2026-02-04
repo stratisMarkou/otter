@@ -1,10 +1,17 @@
+import argparse
 import os
 import sys
+from datetime import datetime
 
 from azure.ai.ml import Input, MLClient, Output, command
 from azure.identity import DefaultAzureCredential
 
 from otter.experiment.namegen import _generate_experiment_name
+
+# Parse --resume_experiment argument separately
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--resume_experiment", type=str, default=None)
+known_args, remaining_args = parser.parse_known_args()
 
 wandb_api_key = os.environ.get("WANDB_API_KEY")
 if wandb_api_key is None:
@@ -20,12 +27,24 @@ ml_client = MLClient(
 
 era5_data = ml_client.data.get("era5-1959-2023-6h-240x121", version="1")
 
-run_args = " ".join(sys.argv[1:])
+# Pass remaining args (without --resume_experiment) to the training script
+run_args = " ".join(remaining_args)
 
 env = "azureml:otter-env:3"
-run_name = _generate_experiment_name()
 
-experiment_path = f"${{{{outputs.checkpoint_folder}}}}/{run_name}"
+# Determine run names
+if known_args.resume_experiment:
+    # Resuming a crashed run - use the original experiment name for resumption
+    resume_experiment_name = known_args.resume_experiment
+    # Azure job name must be unique, so add a timestamp suffix
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name = f"{resume_experiment_name}-restarted-{timestamp}"
+else:
+    # New run - generate a fresh name
+    run_name = _generate_experiment_name()
+    resume_experiment_name = run_name
+
+experiment_path = f"${{{{outputs.checkpoint_folder}}}}/{resume_experiment_name}"
 
 job = command(
     name=run_name,
@@ -44,7 +63,7 @@ job = command(
         ". .venv/bin/activate && "
         "uv sync && "
         "uv pip install -e . && "
-        f"python {run_args} data_source.path=${{inputs.era5_data}} info.experiment_path={experiment_path} --resume_experiment {run_name} --root_results ${{outputs.checkpoint_folder}}"
+        f"python {run_args} data_source.path=${{inputs.era5_data}} info.experiment_path={experiment_path} --resume_experiment {resume_experiment_name} --root_results ${{outputs.checkpoint_folder}}"
     ),
     inputs={
         "era5_data": Input(
