@@ -131,6 +131,7 @@ class ForecastingModel(torch.nn.Module):
         distribution_type: Type[Distribution],
         distribution_kwargs: dict[str, Any],
         device: str,
+        scale_compatible: bool = False,
     ) -> None:
         super().__init__()
 
@@ -182,6 +183,7 @@ class ForecastingModel(torch.nn.Module):
 
         self.distribution_type = distribution_type
         self.distribution_kwargs = distribution_kwargs
+        self.scale_compatible = scale_compatible
 
     def forward(
         self,
@@ -244,7 +246,20 @@ class ForecastingModel(torch.nn.Module):
         time_embedding = time_embedding.to(ctx.device)
 
         # Concatenate the time embedding with the reshaped context.
-        ctx_with_time_embedding = torch.cat([ctx, time_embedding], dim=-1)
+        if self.scale_compatible:
+            # Old checkpoints expected downsampled_trg (all zeros for base
+            # models) concatenated between ctx and time_embedding.
+            zeros = torch.zeros(
+                *ctx.shape[:-1],
+                len(self.trg_variables_and_levels),
+                device=ctx.device,
+                dtype=ctx.dtype,
+            )
+            ctx_with_time_embedding = torch.cat(
+                [ctx, zeros, time_embedding], dim=-1
+            )
+        else:
+            ctx_with_time_embedding = torch.cat([ctx, time_embedding], dim=-1)
 
         prediction, load_balancing_losses = self.backbone_network(
             x=ctx_with_time_embedding
@@ -347,6 +362,8 @@ def make_forecasting_model(
     device: str,
     distribution_type: Type[Distribution],
     distribution_kwargs: dict[str, Any],
+    scale_compatible: bool = False,
+    downsampling_noise_std: float = 0.0,  # Ignored, for old config compat
 ) -> ForecastingModel:
     ctx_variables_and_levels = get_ctx_vars_and_levels(ctx_variables_to_remove)
     trg_variables_and_levels = get_trg_vars_and_levels(trg_variables_to_remove)
@@ -374,4 +391,5 @@ def make_forecasting_model(
         distribution_type=distribution_type,
         distribution_kwargs=distribution_kwargs,
         device=device,
+        scale_compatible=scale_compatible,
     )
