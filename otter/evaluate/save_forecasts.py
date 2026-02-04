@@ -80,8 +80,8 @@ def generate_forecasts(
     for batch_idx, batch in tqdm(enumerate(dataloader)):
         zero_times = batch.zero_time
         batch = batch.to("cuda")
-        with torch.no_grad():
-            prd_dist, _ = model(batch=batch)
+        with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.float16):
+            prd_dist, _ = model(batch=batch, grad_ckpt_start_timestep=9999)
             forecast: npt.NDArray[Any] = prd_dist.mean.cpu().numpy()
 
         ds_batch = forecast_to_xarray(

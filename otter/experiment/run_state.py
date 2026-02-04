@@ -56,15 +56,17 @@ class RunState:
 
     @staticmethod
     def from_dict(state_dict: Dict[str, Any]) -> "RunState":
-        """Create RunState from a dictionary loaded from disk."""
+        """Create RunState from a dictionary loaded from disk.
+        """
         return RunState(
             model_state=state_dict["model_state"],
             optimizer_state=state_dict["optimizer_state"],
             scheduler_state=state_dict["scheduler_state"],
             scaler_state=state_dict["scaler_state"],
-            rollout_horizon_scheduler_state=state_dict[
-                "rollout_horizon_scheduler_state"
-            ],
+            # Old checkpoints may not have this key
+            rollout_horizon_scheduler_state=state_dict.get(
+                "rollout_horizon_scheduler_state", {}
+            ),
             epoch=state_dict["epoch"],
             step=state_dict["step"],
             best_val_loss=state_dict["best_val_loss"],
