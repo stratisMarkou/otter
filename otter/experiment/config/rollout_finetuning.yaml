@@ -9,13 +9,7 @@ rollout_horizon_scheduler:
   max_rollout_steps: ${constants.data.train_num_target_frames}
   temporal_resolution_hours: ${constants.data.temporal_resolution_hours}
 
-# TODO: jonas, figure out LR schedule for finetuning.
-+lr_scheduler:
-  _target_: otter.experiment.utils.get_linear_warmup_cosine_lr_scheduler
-  _partial_: true
-  lr_scheduler_kwargs:
-    T_max: ${constants.training.num_training_steps} # Only for `get_cosine_lr_scheduler`.
-    warmup_epochs: 2000
+
 
 constants:
   data:
@@ -25,7 +19,7 @@ constants:
     valid_num_target_frames: 12
     batch_size: 1
     memory_max_batch_size: 1
-  load_weights_from_experiment: ???
+  load_weights_from_experiment: null
   save_checkpoint_every: 1_000
   training:
     grad_ckpt_start_timestep: 0
