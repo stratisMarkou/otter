@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from torch.utils.data import Dataset
+import logging
 
 from otter.data.source.utils import (
     ALL_GRID_MULTILEVEL_DYNAMIC_VARIABLES,
@@ -77,11 +78,13 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
     def __init__(
         self,
         data_source: GriddedWeatherSource,
-        start_date: str,
-        end_date: str,
         num_context_frames: int,
         num_target_frames: int,
         temporal_resolution_hours: int,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        start_date_zero_time: str | None = None,
+        end_date_zero_time: str | None = None,
         ctx_surface_dynamic_variables: List[
             str
         ] = ALL_GRID_SURFACE_DYNAMIC_VARIABLES,
@@ -101,11 +104,36 @@ class GriddedWeatherTask(Dataset[ForecastingSample]):
         super().__init__()
         assert num_context_frames > 0
         assert num_target_frames > 0
+        assert start_date is not None or start_date_zero_time is not None
+        assert start_date is None or start_date_zero_time is None
+        assert end_date is not None or end_date_zero_time is not None
+        assert end_date is None or end_date_zero_time is None
 
-        # Start and end dates that will be used to form training tasks,
-        # i.e. no tasks will contain data outside of this range.
-        self.start_date = np.datetime64(start_date)
-        self.end_date = np.datetime64(end_date)
+        if start_date is not None:
+            # Start and end dates that will be used to form training tasks,
+            # i.e. no tasks will contain data outside of this range.
+            self.start_date = np.datetime64(start_date)
+        if end_date is not None:
+            self.end_date = np.datetime64(end_date)
+
+        if start_date_zero_time is not None:
+            start_zero_dt = np.datetime64(start_date_zero_time)
+            # last context frame is zero time
+            self.start_date = start_zero_dt - np.timedelta64(
+                temporal_resolution_hours * (num_context_frames - 1), "h"
+            )
+            logging.info(
+                f"Setting start_date to {self.start_date} based on start_date_zero_time {start_date_zero_time}"
+            )
+        
+        if end_date_zero_time is not None:
+            end_zero_dt = np.datetime64(end_date_zero_time)
+            self.end_date = end_zero_dt + np.timedelta64(
+                temporal_resolution_hours * num_target_frames, "h"
+            )        
+            logging.info(
+                f"Setting end_date to {self.end_date} based on end_date_zero_time {end_date_zero_time}"
+            )
 
         # Temporal resolution of the tasks in hours. This is used as the
         # lead time resolution as well as the context frame resolution.

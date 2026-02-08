@@ -24,15 +24,12 @@ logging.basicConfig(level=logging.INFO)
 def load_dependencies(
     experiment_name: str, overrides: list[str] | None = None
 ):
-    override_args = [
-        "constants.data.batch_size=1"
-    ]
-    if overrides:
-        override_args.extend(overrides)
+    if overrides is None:
+        overrides = []
 
     config = load_experiment_config(
         experiment_name,
-        override_args=override_args,
+        override_args=overrides,
     )
     config.model.device = "cuda"
 
