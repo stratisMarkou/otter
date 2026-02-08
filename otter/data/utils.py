@@ -628,3 +628,11 @@ class ZarrDatasource(GriddedWeatherSource):
 
         stacked = stack_dataset_variable_and_levels(scaled_ds)
         return stacked.values
+    
+    def get_coord_by_name(self, name: str) -> Coordinate:
+        if name in self.ds.coords:
+            values = self.ds.coords[name].values
+            is_sorted = _dim_is_sorted(values)
+            return Coordinate(name, values, is_sorted)
+        else:
+            raise ValueError(f"Coordinate {name} not found in dataset")

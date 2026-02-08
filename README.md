@@ -72,9 +72,8 @@ sbatch submit.sh otter/experiment/train.py --config_name base host=hpc
 ### RFT
 You can rollout finetune a pretrained model using:
 ```bash
-python otter/experiment/train.py --config_name rollout_finetuning constants.load_weights_from_experiment=/some/path/to/2026-01-18_13-50-fierce-eagle/checkpoints/latest.pt
+python otter/experiment/rollout_finetune.py <experiment_name> <other overrides>
 ```
-Note that your configs need to align, i.e. the model architecture defined by the config needs to match that found in the checkpoint. We are looking to make this more ergonomic.
 
 ## Weatherbench Eval
 

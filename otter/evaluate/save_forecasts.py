@@ -25,8 +25,7 @@ def load_dependencies(
     experiment_name: str, overrides: list[str] | None = None
 ):
     override_args = [
-        "data_source.path=_data/era5_240x121_single_array_float32",
-        "constants.data.batch_size=1",
+        "constants.data.batch_size=1"
     ]
     if overrides:
         override_args.extend(overrides)
@@ -79,6 +78,7 @@ def generate_forecasts(
     # Loop through the dataloader and save to Zarr
     for batch_idx, batch in tqdm(enumerate(dataloader)):
         zero_times = batch.zero_time
+        print(f"Generating forecast with zero_time {zero_times}")
         batch = batch.to("cuda")
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.float16):
             prd_dist, _ = model(batch=batch, grad_ckpt_start_timestep=9999)
