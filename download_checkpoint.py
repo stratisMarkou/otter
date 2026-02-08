@@ -75,12 +75,15 @@ def download_checkpoint(run_name: str, output_dir: str = "_results") -> None:
             continue
 
         local_path = os.path.join(local_run_dir, relative_path)
+        local_dir = os.path.dirname(local_path)
 
         # Create parent directories
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        if local_dir:
+            os.makedirs(local_dir, exist_ok=True)
 
         print(f"Downloading: {relative_path}")
-        fs.download(file_path, local_path)
+        # Download to the parent directory - Azure will create the file with correct name
+        fs.download(file_path, local_dir if local_dir else local_run_dir)
 
     print(f"\nDownload complete! Files saved to: {local_run_dir}")
 

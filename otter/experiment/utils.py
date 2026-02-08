@@ -158,6 +158,13 @@ def initialize_experiment(
         config.info.experiment_path = experiment_path
 
         _write_config(config, experiment_path, repo)
+    elif config.info.experiment_path is not None:
+        # experiment_name was set via override - check if we need to create the path and write config
+        experiment_path = config.info.experiment_path
+        config_path = os.path.join(experiment_path, "config.yaml")
+        if not os.path.exists(config_path):
+            _create_experiment_path(config, config.info.experiment_name)
+            _write_config(config, experiment_path, repo)
 
     logging.info("Instantiating dependencies.")
 
