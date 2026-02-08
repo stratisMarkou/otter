@@ -85,10 +85,15 @@ The experiment name is the same as in wandb or in the _results directory, e.g. `
 
 For weatherbench model evaluation (to save evaluation metrics), run:
 ```bash
-python otter/evaluate/weatherbench.py \
---experiment_name=<experiment_name> \
---runner=DirectRunner
+python otter/evaluate/weatherbench.py --experiment_name=<experiment_name>
 ```
+
+Or in one command:
+```bash
+EXP_NAME=<experiment_name> && CUDA_VISIBLE_DEVICES=<> python otter/evaluate/save_forecasts.py $EXP_NAME && python otter/evaluate/weatherbench.py --experiment_name=$EXP_NAME --lead_time_stop 30
+```
+
+
 Finally, these results can be plotted and saved to the _plots folder using
 ```
 python otter/evaluate/plot_weatherbench_output.py <experiment_name>
