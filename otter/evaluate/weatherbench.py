@@ -1,12 +1,14 @@
 # Adapted from weatherbenchX github repository:
 # https://github.com/google-research/weatherbenchX/blob/main/evaluation_scripts/run_example_evaluation.py
 
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
 import apache_beam as beam
 import numpy as np
 from absl import app, flags
+from apache_beam.runners.direct.direct_runner import DirectRunner
 from weatherbenchX import (
     aggregation,
     beam_pipeline,
@@ -61,7 +63,7 @@ TIME_FREQUENCY = flags.DEFINE_integer(
     "time_frequency", 12, help="Init frequency."
 )
 TIME_CHUNK_SIZE = flags.DEFINE_integer(
-    "time_chunk_size", 40, help="Time chunk size."
+    "time_chunk_size", 10, help="Time chunk size."
 )
 LEAD_TIME_START = flags.DEFINE_integer(
     "lead_time_start", 6, help="Lead time start in hours."
@@ -154,7 +156,17 @@ def main(argv: Sequence[str]) -> None:
         experiment_path / "weatherbench_aggregation_state.nc"
     )
 
-    with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:  # type: ignore
+    options = beam.pipeline_options.PipelineOptions(
+        [
+            "--worker_shutdown_timeout=3600",
+            "--job_server_timeout=3600",
+        ]
+    )
+
+    runner = DirectRunner()
+
+    start = time.time()
+    with beam.Pipeline(runner=runner, options=options) as root:
         beam_pipeline.define_pipeline(
             root,
             times,
@@ -165,6 +177,8 @@ def main(argv: Sequence[str]) -> None:
             out_path=str(output_path),
             aggregation_state_out_path=str(aggregation_state_output_path),
         )
+    end = time.time()
+    print(f"Total evaluation time: {end - start:.2f} seconds")
 
 
 if __name__ == "__main__":

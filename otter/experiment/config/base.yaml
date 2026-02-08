@@ -55,14 +55,9 @@ test_dataloader:
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
     data_source: ${data_source}
-    # We want to test on all 00:00 and 12:00 UTC times in 2020.
-    # Since we have 4 context frames, we need to start at 06:00 UTC on Dec 31, 2019.
-    # Then, the first zero time will be Jan 1, 00:00 UTC, with context at
-    # Dec 31, 06:00, 12:00, 18:00, and Jan 1, 00:00 UTC.
-    start_date: "2019-12-31 06:00:00"
+    start_date_zero_time: "2020-01-01 00:00:00"
+    end_date_zero_time: "2021-01-01 00:00:00"
     task_sub_sampling_factor: 2
-    # Overshoot a bit to include the full day of Dec 31, 2020.
-    end_date: "2021-01-02 00:00:00"
     num_context_frames: ${constants.data.num_context_frames}
     # 10 days = 240 hours, num frames depends on temporal resolution.
     num_target_frames: ${eval:'${constants.num_evaluation_rollout_hours} // ${constants.data.temporal_resolution_hours}'}

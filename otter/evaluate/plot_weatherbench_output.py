@@ -22,21 +22,20 @@ ds = xr.open_dataset(results_path)
 ds = ds.sel(region="global")
 
 plottables = [
-    ("2m_temperature", None),
-    ("mean_sea_level_pressure", None),
-    ("10m_u_component_of_wind", None),
-    ("10m_v_component_of_wind", None),
-    ("u_component_of_wind", 850),
-    ("v_component_of_wind", 850),
-    ("specific_humidity", 700),
-    ("temperature", 850),
-    ("geopotential", 500),
-    ("geopotential", 850),
+    ("geopotential", 500, 44.96, 41.93),
+    ("temperature", 850, 0.615, 0.593),
+    ("specific_humidity", 700, 0.000527, 0.000513),
+    ("u_component_of_wind", 850, 1.219, 1.172),
+    ("v_component_of_wind", 850, 1.251, 1.203),
+    ("2m_temperature", None, 0.539, 0.517),
+    ("mean_sea_level_pressure", None, 56.22, 52.22),
+    ("10m_u_component_of_wind", None, 0.783, 0.749),
+    ("10m_v_component_of_wind", None, 0.819, 0.783),
 ]
 
 fig, axs = plt.subplots(len(plottables), 1, figsize=(8, 4 * len(plottables)))
 
-for ax, (var, level) in zip(axs, plottables):
+for ax, (var, level, arches_m, arches_4m) in zip(axs, plottables):
     rmse_var = f"rmse.{var}"
     if rmse_var not in ds:
         print(f"{var} not in dataset, skipping plot.")
@@ -57,12 +56,13 @@ for ax, (var, level) in zip(axs, plottables):
     ax.set_ylabel("RMSE")
     ax.legend()
 
-fig.savefig(
-    f"_plots/{experiment_name}_rmse_over_time.pdf", bbox_inches="tight"
-)
+path = Path("_plots") / f"{experiment_name}_rmse_over_time.pdf"
+path.parent.mkdir(exist_ok=True)
+
+fig.savefig(path, bbox_inches="tight")
 
 # Print 24h RMSE for all variables:
-for var, level in plottables:
+for var, level, arches_m, arches_4m in plottables:
     rmse_var = f"rmse.{var}"
     if rmse_var not in ds:
         continue
@@ -71,7 +71,15 @@ for var, level in plottables:
     else:
         da = ds[rmse_var]
     rmse_24h = da.sel(lead_time=np.timedelta64(24, "h")).values
+    percent_m = 100 * (arches_m - rmse_24h) / arches_m
+    percent_4m = 100 * (arches_4m - rmse_24h) / arches_4m
     if level is not None:
-        print(f"{var} at {level} hPa: {rmse_24h}")
+        print(
+            f"{var} at {level} hPa: {rmse_24h:.3f} (Arches M: {arches_m}, Arches 4M: {arches_4m})"
+        )
     else:
-        print(f"{var}: {rmse_24h:.4f}")
+        print(
+            f"{var}: {rmse_24h:.3f} (Arches M: {arches_m}, Arches 4M: {arches_4m})"
+        )
+    print(f"Percent better than Arches M: {percent_m:.2f}%")
+    print(f"Percent better than Arches 4M: {percent_4m:.2f}%\n")
