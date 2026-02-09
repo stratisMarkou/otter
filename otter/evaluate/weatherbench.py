@@ -7,6 +7,8 @@ from pathlib import Path
 
 import apache_beam as beam
 import numpy as np
+import pandas as pd
+import xarray as xr
 from absl import app, flags
 from apache_beam.runners.direct.direct_runner import DirectRunner
 from weatherbenchX import (
@@ -18,6 +20,31 @@ from weatherbenchX import (
 )
 from weatherbenchX.data_loaders import xarray_loaders
 from weatherbenchX.metrics import deterministic
+
+VAR_MAP = {
+    "geopotential": "Z",
+    "temperature": "T",
+    "u_component_of_wind": "U",
+    "v_component_of_wind": "V",
+    "specific_humidity": "Q",
+    "2m_temperature": "T2M",
+    "mean_sea_level_pressure": "SP",
+    "10m_u_component_of_wind": "U10M",
+    "10m_v_component_of_wind": "V10M",
+}
+
+# Variables and their primary evaluation levels (None for surface variables)
+VARIABLE_LEVELS = [
+    ("geopotential", 500),
+    ("temperature", 850),
+    ("specific_humidity", 700),
+    ("u_component_of_wind", 850),
+    ("v_component_of_wind", 850),
+    ("2m_temperature", None),
+    ("mean_sea_level_pressure", None),
+    ("10m_u_component_of_wind", None),
+    ("10m_v_component_of_wind", None),
+]
 
 _DEFAULT_VARIABLES = [
     "geopotential",
@@ -93,6 +120,63 @@ REDUCE_DIMS = flags.DEFINE_list(
     help="Comma delimited list of dimensions to reduce over.",
 )
 RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
+OUTPUT_CSV = flags.DEFINE_string(
+    "output_csv",
+    "_results/experiment_results.csv",
+    help="Path to CSV file for accumulating results across experiments",
+)
+
+
+def extract_rmse_data(ds: xr.Dataset, experiment_name: str) -> pd.DataFrame:
+    """Extract RMSE data from dataset into a DataFrame."""
+    rows = []
+
+    for var, level in VARIABLE_LEVELS:
+        rmse_var = f"rmse.{var}"
+        if rmse_var not in ds:
+            continue
+
+        if level is not None:
+            da = ds.sel(level=level)[rmse_var]
+        else:
+            da = ds[rmse_var]
+
+        # Get the mapped variable name
+        name = VAR_MAP[var]
+        if level is not None:
+            name += str(level)
+
+        # Convert lead times to hours and extract values
+        lead_times = da.lead_time
+        lead_times_hours = lead_times / np.timedelta64(1, "h")
+
+        for lt, rmse in zip(lead_times_hours.values, da.values):
+            rows.append({
+                "name": experiment_name,
+                "variable": name,
+                "lead_time": lt,
+                "rmse": rmse,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def add_to_csv(df: pd.DataFrame, csv_path: str) -> None:
+    """Append results to CSV, creating it if it doesn't exist."""
+    csv_path = Path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if csv_path.exists():
+        existing_df = pd.read_csv(csv_path)
+        # Remove existing entries for the same experiment to avoid duplicates
+        experiment_names = df["name"].unique()
+        existing_df = existing_df[~existing_df["name"].isin(experiment_names)]
+        combined_df = pd.concat([existing_df, df], ignore_index=True)
+    else:
+        combined_df = df
+
+    combined_df.to_csv(csv_path, index=False)
+    print(f"Results saved to {csv_path}")
 
 
 def main(argv: Sequence[str]) -> None:
@@ -179,6 +263,13 @@ def main(argv: Sequence[str]) -> None:
         )
     end = time.time()
     print(f"Total evaluation time: {end - start:.2f} seconds")
+
+    # Export results to CSV
+    ds = xr.open_dataset(output_path)
+    ds = ds.sel(region="global")
+    results_df = extract_rmse_data(ds, EXPERIMENT_NAME.value)
+    add_to_csv(results_df, OUTPUT_CSV.value)
+    print(f"Added {len(results_df)} rows for experiment '{EXPERIMENT_NAME.value}'")
 
 
 if __name__ == "__main__":
