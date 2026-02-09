@@ -4,15 +4,38 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import xarray as xr
+
+var_map = {
+    "geopotential": "Z",
+    "temperature": "T",
+    "u_component_of_wind": "U",
+    "v_component_of_wind": "V",
+    "specific_humidity": "Q",
+    "2m_temperature": "T2M",
+    "mean_sea_level_pressure": "SP",
+    "10m_u_component_of_wind": "U10M",
+    "10m_v_component_of_wind": "V10M",
+}
 
 results_path = Path("/home/jonas/Documents/code/otter/results.nc")
 parser = argparse.ArgumentParser()
 parser.add_argument("experiment_name", type=str)
 parser.add_argument("--results_directory", type=str, default="_results")
+parser.add_argument("--baseline", type=str, default=None)
+parser.add_argument("--baseline_time", type=int, default=24)
 args = parser.parse_args()
 
+have_baseline = args.baseline is not None
+
 experiment_name = args.experiment_name
+if have_baseline:
+    df = pd.read_csv("_baselines/weatherbench/wb_results.csv")
+    names = df.name.unique()
+    if args.baseline not in names:
+        raise ValueError(f"Baseline {args.baseline} not found in {names}")
+    df = df[df.name == args.baseline]
 
 results_path = (
     Path(args.results_directory) / experiment_name / "weatherbench_results.nc"
@@ -35,6 +58,8 @@ plottables = [
 
 fig, axs = plt.subplots(len(plottables), 1, figsize=(8, 4 * len(plottables)))
 
+baseline_improvement = 0
+
 for ax, (var, level, arches_m, arches_4m) in zip(axs, plottables):
     rmse_var = f"rmse.{var}"
     if rmse_var not in ds:
@@ -50,11 +75,30 @@ for ax, (var, level, arches_m, arches_4m) in zip(axs, plottables):
     # Currently a nanosecond timedelta, convert to hours
     lead_times = da.lead_time
     lead_times_hours = lead_times / np.timedelta64(1, "h")
-
     ax.plot(lead_times_hours, da, label=title, marker="x", linestyle="--")
+
+    if have_baseline:
+        name = var_map[var]
+        if level is not None:
+            name += str(level)
+        sub_df = df[df.variable == name]
+        sub_df = sub_df[sub_df["lead_time"] <= lead_times_hours.max().values]
+        baseline_times = sub_df["lead_time"].values
+        baseline_rmses = sub_df["rmse"].values
+        ax.plot(baseline_times, baseline_rmses, label="Baseline", marker="x", linestyle="--")
+
+        perf_at_time = da.sel(lead_time=np.timedelta64(args.baseline_time, "h")).values
+        baseline_perf_at_time = sub_df[sub_df["lead_time"] == args.baseline_time]["rmse"].values
+        baseline_improvement += (baseline_perf_at_time - perf_at_time) / baseline_perf_at_time
+
     ax.set_xlabel("Lead time (hours)")
     ax.set_ylabel("RMSE")
     ax.legend()
+
+if have_baseline:
+    baseline_improvement /= len(plottables)
+    baseline_improvement = float(baseline_improvement)
+    print(f"Improvement over baseline {args.baseline} is {baseline_improvement * 100}% at {args.baseline_time} hours")
 
 path = Path("_plots") / f"{experiment_name}_rmse_over_time.pdf"
 path.parent.mkdir(exist_ok=True)
@@ -83,3 +127,6 @@ for var, level, arches_m, arches_4m in plottables:
         )
     print(f"Percent better than Arches M: {percent_m:.2f}%")
     print(f"Percent better than Arches 4M: {percent_4m:.2f}%\n")
+#%%
+import pandas as pd
+
