@@ -41,7 +41,6 @@ MODELS = [
     Model("ArchesWeather-M vs ERA5", "Arches-M", a100_days=5, release_date=date(2024, 5, 23), is_baseline=True),
     Model("ArchesWeather-Mx4 vs ERA5", "Arches-4M", a100_days=20, release_date=date(2024, 5, 23), is_baseline=True),
     Model("Stormer ENS (mean) vs ERA5", "Stormer ENS", a100_days=128, release_date=date(2024, 3, 1), is_baseline=True),
-    Model("Aurora (oper.) vs Analysis", "Aurora (oper.)", a100_days=126, release_date=date(2024, 11, 21), resolution=0.1, is_baseline=True),
     # Non-ML baseline (no release date = gray)
     Model("IFS HRES vs Analysis", "IFS HRES", a100_days=0, release_date=None, resolution=0, is_baseline=True),
     # 2026 - Ours
@@ -73,8 +72,8 @@ def _compute_colors():
 _compute_colors()
 
 # Reference baseline for computing improvement (IFS HRES)
-#REFERENCE_BASELINE = "IFS HRES vs Analysis"
-REFERENCE_BASELINE = "rft_2026-01-31_15-55-elegant-buffalo"
+REFERENCE_BASELINE = "IFS HRES vs Analysis"
+#REFERENCE_BASELINE = "rft_2026-01-31_15-55-elegant-buffalo"
 
 # Build lookup dicts from MODELS
 BASELINES_TO_INCLUDE = [m.name for m in MODELS if m.is_baseline]
@@ -86,6 +85,7 @@ COLORS = {m.name: m.color for m in MODELS}
 # Experiments to include in RMSE over time plots
 EXPERIMENTS_FOR_RMSE_PLOT = [
     "rft_2026-01-31_15-55-elegant-buffalo",
+    #"GraphCast vs ERA5",
 ]
 
 # Variables to plot RMSE over time for
