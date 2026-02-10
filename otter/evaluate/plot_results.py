@@ -30,7 +30,7 @@ class Model:
 MODELS = [
     # 2022
     Model("Keisler (2022) vs ERA5", "Keisler", a100_days=5.5, release_date=date(2022, 2, 15), resolution=1, is_baseline=True),
-    Model("Pangu-Weather vs ERA5", "Pangu-Weather", a100_days=1440, release_date=date(2022, 11, 3), resolution=0.25, is_baseline=True),
+    Model("Pangu-Weather vs ERA5", "Pangu", a100_days=1440, release_date=date(2022, 11, 3), resolution=0.25, is_baseline=True),
     # 2023
     Model("FuXi vs ERA5", "FuXi", a100_days=26, release_date=date(2023, 6, 22), resolution=0.25, is_baseline=True),
     Model("GraphCast vs ERA5", "GraphCast", a100_days=1344, release_date=date(2023, 11, 14), resolution=0.25, is_baseline=True),
@@ -42,9 +42,9 @@ MODELS = [
     Model("ArchesWeather-Mx4 vs ERA5", "Arches-4M", a100_days=20, release_date=date(2024, 5, 23), is_baseline=True),
     Model("Stormer ENS (mean) vs ERA5", "Stormer ENS", a100_days=128, release_date=date(2024, 3, 1), is_baseline=True),
     # Non-ML baseline (no release date = gray)
-    Model("IFS HRES vs Analysis", "IFS HRES", a100_days=0, release_date=None, resolution=0, is_baseline=True),
+    Model("IFS HRES vs Analysis", "IFS HRES", a100_days=0, release_date=None, resolution=0, is_baseline=True, color="black"),
     # 2026 - Ours
-    Model("rft_2026-01-31_15-55-elegant-buffalo", "Otter Weather (Ours)", a100_days=3, release_date=date(2026, 2, 1)),
+    Model("rft_2026-01-31_15-55-elegant-buffalo", "Otter (Ours)", a100_days=3, release_date=date(2026, 2, 1), color="tomato"),
 ]
 
 # Compute colors from release dates using a colormap
@@ -62,6 +62,8 @@ def _compute_colors():
     date_range = (max_date - min_date).days or 1  # Avoid division by zero
     
     for m in MODELS:
+        if m.color:
+            continue  # Skip manually-set colors
         if m.release_date is None:
             m.color = "#757575"  # Gray for non-ML models
         else:
@@ -74,6 +76,10 @@ _compute_colors()
 # Reference baseline for computing improvement (IFS HRES)
 REFERENCE_BASELINE = "IFS HRES vs Analysis"
 #REFERENCE_BASELINE = "rft_2026-01-31_15-55-elegant-buffalo"
+#REFERENCE_BASELINE = "2026-01-31_15-55-elegant-buffalo"
+
+REFERENCE_START_TIME = 24
+REFERENCE_END_TIME = 24
 
 # Build lookup dicts from MODELS
 BASELINES_TO_INCLUDE = [m.name for m in MODELS if m.is_baseline]
@@ -85,11 +91,21 @@ COLORS = {m.name: m.color for m in MODELS}
 # Experiments to include in RMSE over time plots
 EXPERIMENTS_FOR_RMSE_PLOT = [
     "rft_2026-01-31_15-55-elegant-buffalo",
-    #"GraphCast vs ERA5",
+    "GraphCast vs ERA5",
 ]
 
 # Variables to plot RMSE over time for
-VARIABLES_FOR_RMSE_PLOT = ["Z500", "T850", "T2M"]
+VARIABLES_FOR_RMSE_PLOT = [
+    "Z500",
+    "T850",
+    "Q700",
+    "U850",
+    "V850",
+    "T2M",
+    "SP",
+    "U10M",
+    "V10M",
+]
 
 # Paths
 RESULTS_CSV = "_results/weatherbench_results.csv"
@@ -115,31 +131,45 @@ def load_data() -> pd.DataFrame:
 
 
 # =============================================================================
-# 1. COMPUTE IMPROVEMENT OVER REFERENCE BASELINE AT 24H
+# 1. COMPUTE IMPROVEMENT OVER REFERENCE BASELINE
 # =============================================================================
 
 
-def compute_improvement_over_reference(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute average RMSE improvement over reference baseline at 24h for all models."""
-    df_24h = df[df["lead_time"] == 24].copy()
+def compute_improvement_over_reference(
+    df: pd.DataFrame,
+    start_time: int = 24,
+    end_time: int = 24,
+) -> pd.DataFrame:
+    """Compute average RMSE improvement over reference baseline for all models.
 
-    # Get reference baseline values
-    ref_df = df_24h[df_24h["name"] == REFERENCE_BASELINE]
-    ref_rmse = ref_df.set_index("variable")["rmse"].to_dict()
+    Args:
+        df: DataFrame with columns name, variable, lead_time, rmse.
+        start_time: Start of the lead-time range (hours, inclusive). Default 24.
+        end_time: End of the lead-time range (hours, inclusive). Default 24.
+
+    Returns:
+        DataFrame with columns name, avg_improvement_pct sorted descending.
+    """
+    df_range = df[(df["lead_time"] >= start_time) & (df["lead_time"] <= end_time)].copy()
+
+    # Get reference baseline values: mean RMSE per variable over the time range
+    ref_df = df_range[df_range["name"] == REFERENCE_BASELINE]
+    ref_rmse = ref_df.groupby("variable")["rmse"].mean().to_dict()
 
     results = []
-    for name in df_24h["name"].unique():
+    for name in df_range["name"].unique():
         if name == REFERENCE_BASELINE:
             continue
 
-        model_df = df_24h[df_24h["name"] == name]
+        model_df = df_range[df_range["name"] == name]
+        # Mean RMSE per variable over the time range
+        model_rmse = model_df.groupby("variable")["rmse"].mean()
         improvements = []
 
-        for _, row in model_df.iterrows():
-            var = row["variable"]
+        for var, rmse in model_rmse.items():
             if var in ref_rmse:
                 # Positive = better than reference
-                improvement = (ref_rmse[var] - row["rmse"]) / ref_rmse[var] * 100
+                improvement = (ref_rmse[var] - rmse) / ref_rmse[var] * 100
                 improvements.append(improvement)
 
         if improvements:
@@ -197,21 +227,21 @@ def plot_compute_vs_improvement(improvement_df: pd.DataFrame) -> None:
         is_baseline = row["name"] in BASELINES_TO_INCLUDE
         xytext = (10, 0)
         if row["name"] == "NeuralGCM 0.7 vs ERA5":
-            xytext = (-55, -15)
+            xytext = (-87, -15)
         if row["name"] == "NeuralGCM ENS (mean) vs ERA5":
-            xytext = (-85, -15)
+            xytext = (-138, -15)
         ax.annotate(
             label,
             (row["a100_days"], row["improvement"]),
             textcoords="offset points",
             xytext=xytext,
-            fontsize=8,
+            fontsize=12,
             fontweight="regular" if is_baseline else "bold",
         )
 
     ax.set_xscale("log")
     ax.set_xlabel("Compute Cost (A100 Days)", fontsize=10)
-    ax.set_ylabel("24h RMSE Improvement over IFS HRES (%)", fontsize=10)
+    ax.set_ylabel("RMSE Improvement over IFS HRES (%)", fontsize=10)
     ax.axhline(y=0, color="black", linestyle="--", alpha=0.5, label="IFS HRES baseline")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right")
@@ -227,14 +257,61 @@ def plot_compute_vs_improvement(improvement_df: pd.DataFrame) -> None:
 # 3. PLOT RMSE OVER TIME
 # =============================================================================
 
+# Variable display names, units, and scale factors (name, unit, scale)
+VARIABLE_UNITS = {
+    "Z500": ("Z500", "m²/s²", 1),
+    "T850": ("T850", "K", 1),
+    "Q700": ("Q700", "g/kg", 1000),  # data is in kg/kg, multiply by 1000
+    "U850": ("U850", "m/s", 1),
+    "V850": ("V850", "m/s", 1),
+    "T2M": ("T2M", "K", 1),
+    "SP": ("SP", "Pa", 1),
+    "U10M": ("U10M", "m/s", 1),
+    "V10M": ("V10M", "m/s", 1),
+}
+
 
 def plot_rmse_over_time(df: pd.DataFrame) -> None:
-    """Plot RMSE over lead time for selected experiments and variables."""
-    # Models to include: experiments + reference baseline
+    """Plot RMSE over lead time for selected experiments and variables.
+
+    Creates a single combined figure with:
+    - Top row: first 4 variables
+    - Middle: shared legend
+    - Bottom row: remaining 5 variables
+    """
+    import matplotlib.gridspec as gridspec
+
     models_to_plot = EXPERIMENTS_FOR_RMSE_PLOT + [REFERENCE_BASELINE]
 
-    for var in VARIABLES_FOR_RMSE_PLOT:
-        fig, ax = plt.subplots(figsize=(10, 6))
+    n_vars = len(VARIABLES_FOR_RMSE_PLOT)
+    assert n_vars == 9, f"Expected 9 variables, got {n_vars}"
+
+    # Figure with gridspec: top row (5 plots), bottom row (5 plots)
+    fig = plt.figure(figsize=(14, 6.5))
+    gs = gridspec.GridSpec(
+        2, 5,  # 2 rows, 5 columns
+        hspace=0.2,
+        wspace=0.25,
+    )
+
+    # Top row: 5 plots
+    top_axes = []
+    for i in range(5):
+        ax = fig.add_subplot(gs[0, i])
+        top_axes.append(ax)
+
+    # Bottom row: 5 plots (4 variables + 1 average improvement)
+    bottom_axes = []
+    for i in range(5):
+        ax = fig.add_subplot(gs[1, i])
+        bottom_axes.append(ax)
+
+    all_axes = top_axes + bottom_axes
+    legend_handles = []
+
+    for idx, var in enumerate(VARIABLES_FOR_RMSE_PLOT):
+        ax = all_axes[idx]
+        display_name, unit, scale = VARIABLE_UNITS.get(var, (var, "", 1))
 
         for model in models_to_plot:
             model_df = df[(df["name"] == model) & (df["variable"] == var)]
@@ -243,25 +320,117 @@ def plot_rmse_over_time(df: pd.DataFrame) -> None:
                 continue
 
             model_df = model_df.sort_values("lead_time")
-            label = model if len(model) <= 30 else model[:27] + "..."
-            ax.plot(
-                model_df["lead_time"],
-                model_df["rmse"],
+            model_df = model_df[model_df["lead_time"] <= 236]
+            label = PLOT_NAMES.get(model, model)
+            color = COLORS.get(model, None)
+            line, = ax.plot(
+                model_df["lead_time"] / 24,
+                model_df["rmse"] * scale,
                 marker="o",
+                markersize=3,
                 label=label,
+                color=color,
             )
+            # Collect handles from first subplot only
+            if idx == 0:
+                legend_handles.append(line)
 
-        ax.set_xlabel("Lead Time (hours)", fontsize=12)
-        ax.set_ylabel("RMSE", fontsize=12)
-        ax.set_title(f"RMSE over Lead Time - {var}", fontsize=14)
-        ax.legend()
+        # Only show x-axis label on bottom row center
+        if idx == 7:  # bottom row center
+            ax.set_xlabel("Lead Time (days)", fontsize=9)
+        # Only show y-axis label on leftmost plot of each row
+        if idx == 0 or idx == 5:  # first in top row / first in bottom row
+            ax.set_ylabel("RMSE", fontsize=10)
+        ax.set_title(f"{display_name} ({unit})", fontsize=9, fontweight="bold")
+        ax.set_xticks([1, 3, 5, 7, 9])
         ax.grid(True, alpha=0.3)
+        ax.tick_params(labelsize=8)
 
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        path = OUTPUT_DIR / f"rmse_over_time_{var}.pdf"
-        fig.savefig(path, bbox_inches="tight")
-        print(f"Saved RMSE over time plot to {path}")
-        plt.close(fig)
+    # Place legend inside the last top-row subplot (V850)
+    bottom_axes[4].legend(
+        handles=legend_handles,
+        loc="upper right",
+        fontsize=8,
+        frameon=True,
+        fancybox=True,
+        edgecolor="#cccccc",
+    )
+
+    # 10th subplot: Average improvement over IFS HRES (%) at each lead time
+    ax_avg = all_axes[9]
+    ref_name = REFERENCE_BASELINE
+
+    for model in models_to_plot:
+        if model == ref_name:
+            continue
+        # Get all lead times that both this model and the reference have
+        model_data = df[df["name"] == model]
+        ref_data = df[df["name"] == ref_name]
+
+        # Find common lead times
+        model_lead_times = set()
+        for var in VARIABLES_FOR_RMSE_PLOT:
+            lt = model_data[model_data["variable"] == var]["lead_time"].values
+            if len(model_lead_times) == 0:
+                model_lead_times = set(lt)
+            else:
+                model_lead_times &= set(lt)
+
+        ref_lead_times = set()
+        for var in VARIABLES_FOR_RMSE_PLOT:
+            lt = ref_data[ref_data["variable"] == var]["lead_time"].values
+            if len(ref_lead_times) == 0:
+                ref_lead_times = set(lt)
+            else:
+                ref_lead_times &= set(lt)
+
+        common_lead_times = sorted(model_lead_times & ref_lead_times)
+        if not common_lead_times:
+            continue
+
+        # Drop last lead time and take every other datapoint
+        common_lead_times = [lt for lt in common_lead_times if lt <= 240]
+        common_lead_times = common_lead_times[::2]
+        if not common_lead_times:
+            continue
+
+        avg_improvements = []
+        for lt in common_lead_times:
+            improvements = []
+            for var in VARIABLES_FOR_RMSE_PLOT:
+                m_rmse = model_data[(model_data["variable"] == var) & (model_data["lead_time"] == lt)]["rmse"]
+                r_rmse = ref_data[(ref_data["variable"] == var) & (ref_data["lead_time"] == lt)]["rmse"]
+                if len(m_rmse) > 0 and len(r_rmse) > 0:
+                    improvement = (r_rmse.values[0] - m_rmse.values[0]) / r_rmse.values[0] * 100
+                    improvements.append(improvement)
+            if improvements:
+                avg_improvements.append(sum(improvements) / len(improvements))
+            else:
+                avg_improvements.append(float("nan"))
+
+        label = PLOT_NAMES.get(model, model)
+        color = COLORS.get(model, None)
+        ax_avg.plot(
+            [lt / 24 for lt in common_lead_times],
+            avg_improvements,
+            marker="o",
+            markersize=3,
+            label=label,
+            color=color,
+        )
+
+    ax_avg.axhline(y=0, color="black", linestyle="--", alpha=1, linewidth=0.8)
+    ax_avg.set_title("Skill over IFS HRES (%)", fontsize=10, fontweight="bold")
+    ax_avg.set_xticks([1, 3, 5, 7, 9])
+    ax_avg.grid(True, alpha=0.3)
+    ax_avg.tick_params(labelsize=8)
+    ax_avg.set_ylabel("Improvement (%)", fontsize=8)
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    path = OUTPUT_DIR / "rmse_over_time_combined.pdf"
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    print(f"Saved combined RMSE over time plot to {path}")
+    plt.close(fig)
 
 
 # =============================================================================
@@ -275,8 +444,8 @@ if __name__ == "__main__":
     print(f"Models: {df['name'].unique().tolist()}")
 
     # 1. Compute improvement over reference
-    improvement_df = compute_improvement_over_reference(df)
-    print(f"\n=== Improvement over {REFERENCE_BASELINE} at 24h ===")
+    improvement_df = compute_improvement_over_reference(df, start_time=REFERENCE_START_TIME, end_time=REFERENCE_END_TIME)
+    print(f"\n=== Improvement over {REFERENCE_BASELINE} ({REFERENCE_START_TIME}h-{REFERENCE_END_TIME}h) ===")
     print(improvement_df.to_string(index=False))
 
     # Save to CSV
