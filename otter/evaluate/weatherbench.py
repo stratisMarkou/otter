@@ -122,7 +122,7 @@ REDUCE_DIMS = flags.DEFINE_list(
 RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
 OUTPUT_CSV = flags.DEFINE_string(
     "output_csv",
-    "_results/experiment_results.csv",
+    "_results/weatherbench_results.csv",
     help="Path to CSV file for accumulating results across experiments",
 )
 
