@@ -163,7 +163,7 @@ def extract_rmse_data(ds: xr.Dataset, experiment_name: str) -> pd.DataFrame:
 
 def add_to_csv(df: pd.DataFrame, csv_path: str) -> None:
     """Append results to CSV, creating it if it doesn't exist."""
-    csv_path = Path(csv_path)
+    csv_path = Path(csv_path) # type: ignore
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
     if csv_path.exists():

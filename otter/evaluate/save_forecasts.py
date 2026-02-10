@@ -25,7 +25,10 @@ def load_dependencies(
     experiment_name: str, overrides: list[str] | None = None
 ):
     if overrides is None:
-        overrides = []
+        overrides = [
+            "test_dataloader.num_workers=1",
+            "test_dataloader.batch_size=4",
+        ]
 
     config = load_experiment_config(
         experiment_name,

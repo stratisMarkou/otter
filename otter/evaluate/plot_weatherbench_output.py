@@ -127,6 +127,3 @@ for var, level, arches_m, arches_4m in plottables:
         )
     print(f"Percent better than Arches M: {percent_m:.2f}%")
     print(f"Percent better than Arches 4M: {percent_4m:.2f}%\n")
-#%%
-import pandas as pd
-

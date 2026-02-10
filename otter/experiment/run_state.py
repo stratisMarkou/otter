@@ -76,7 +76,7 @@ class RunState:
     def load(path: Path) -> "RunState":
         """Load RunState from disk."""
         try:
-            state_dict = torch.load(path, weights_only=False)
+            state_dict = torch.load(path, weights_only=False, map_location="cpu")
             return RunState.from_dict(state_dict)
         except Exception as e:
             logging.error(f"Failed to load checkpoint from {path}: {e}")
