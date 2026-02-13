@@ -92,12 +92,12 @@ model:
     width: 256
     patch_size: 2
     patchify_kernel_size: [3, 2] # [height, width] kernel size for (un)patchification.
-    token_dimensions: [2304, 2304, 2304] # 2048 + 256
+    token_dimensions: [1536, 1536, 1536] # 2048 + 256
     output_dimension: ${constants.data.num_output_channels}
     window_size: 15
     num_heads: 16
-    num_blocks_per_stage: [1, 4]
-    num_bottom_blocks: 1
+    num_blocks_per_stage: [2, 8]
+    num_bottom_blocks: 4
     dropout_rate: ${constants.training.dropout_rate}
     drop_path_rate: ${constants.training.drop_path_rate}
     feedforward_network: ${feedforward_network}
@@ -197,8 +197,8 @@ constants:
   training:
     initial_learning_rate: 2e-4
     betas: [0.9, 0.95]
-    weight_decay: 0.1
-    dropout_rate: 0.1
+    weight_decay: 0.15
+    dropout_rate: 0.0
     drop_path_rate: 0.1
     epochs: 20
     num_lr_decay_steps:
@@ -211,6 +211,7 @@ constants:
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
       accumulate_batches: ${constants.data.accumulate_batches}
+    max_steps: ${constants.training.num_training_steps}
     validate_every: ${eval:'5000 // ${constants.data.accumulate_batches}'}
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
