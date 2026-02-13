@@ -414,70 +414,37 @@ def train_loop(
     )
     accumulate_batches = experiment.constants.data.accumulate_batches
 
+    max_steps = experiment.constants.training.max_steps
+
     log_num_params(experiment.model)
 
-    for epoch in range(start_epoch, experiment.constants.training.epochs):
-        train_loader = iter(tqdm(experiment.train_dataloader))
+    # Create progress bar for total training steps
+    pbar = tqdm(total=max_steps, initial=step, desc="Training progress")
 
-        while True:
-            wandb_logger = WandbLogger(step)
-            if (
-                step % experiment.constants.training.validate_every == 0
-                and step > 0
-            ):
-                current_val_loss = validation_epoch(
-                    model=experiment.model,
-                    device=device,
-                    dataloader=experiment.valid_dataloader,
-                    loss_fns=experiment.val_loss_fns,
-                    wandb_logger=wandb_logger,
-                    mixed_precision_dtype=mixed_precision_dtype,
-                )
+    epoch = start_epoch
+    train_loader = iter(experiment.train_dataloader)
 
-                if (
-                    experiment.constants.save_best_checkpoint
-                    and current_val_loss < best_val_loss
-                ):
-                    best_val_loss = current_val_loss
-
-                    save_run_state(
-                        experiment=experiment,
-                        optimizer=optimizer,
-                        lr_scheduler=lr_scheduler,
-                        scaler=scaler,
-                        rollout_horizon_scheduler=rollout_horizon_scheduler,
-                        epoch=epoch,
-                        step=step,
-                        best_val_loss=best_val_loss,
-                        checkpoint_name="best.pt",
-                    )
-
-            try:
-                wandb_logger.timed(
-                    "train_step",
-                    train_step,
-                    loss_fn=experiment.loss_fn,
-                    model=experiment.model,
-                    train_loader=train_loader,
-                    optimizer=optimizer,
-                    lr_scheduler=lr_scheduler,
-                    device=device,
-                    scaler=scaler,
-                    wandb_logger=wandb_logger,
-                    clip_grad_norm=clip_grad_norm,
-                    mixed_precision_dtype=mixed_precision_dtype,
-                    rollout_horizon_scheduler=rollout_horizon_scheduler,
-                    grad_ckpt_start_timestep=grad_ckpt_start_timestep,
-                    accumulate_batches=accumulate_batches,
-                )
-                step += 1
-            except StopIteration:
-                break
+    while step < max_steps:
+        wandb_logger = WandbLogger(step)
+        if (
+            step % experiment.constants.training.validate_every == 0
+            and step > 0
+        ):
+            current_val_loss = validation_epoch(
+                model=experiment.model,
+                device=device,
+                dataloader=experiment.valid_dataloader,
+                loss_fns=experiment.val_loss_fns,
+                wandb_logger=wandb_logger,
+                mixed_precision_dtype=mixed_precision_dtype,
+            )
 
             if (
-                step % experiment.constants.save_checkpoint_every == 0
-                and step > 0
+                experiment.constants.save_best_checkpoint
+                and current_val_loss < best_val_loss
             ):
+                best_val_loss = current_val_loss
+
                 save_run_state(
                     experiment=experiment,
                     optimizer=optimizer,
@@ -487,23 +454,68 @@ def train_loop(
                     epoch=epoch,
                     step=step,
                     best_val_loss=best_val_loss,
-                    checkpoint_name="latest.pt",
+                    checkpoint_name="best.pt",
                 )
 
-            interval = experiment.constants.save_persistent_checkpoint_every
-            if step % interval == 0 and step > 0:
-                save_run_state(
-                    experiment=experiment,
-                    optimizer=optimizer,
-                    lr_scheduler=lr_scheduler,
-                    scaler=scaler,
-                    rollout_horizon_scheduler=rollout_horizon_scheduler,
-                    epoch=epoch,
-                    step=step,
-                    best_val_loss=best_val_loss,
-                    checkpoint_name=f"step_{step:08d}.pt",
-                )
+        try:
+            wandb_logger.timed(
+                "train_step",
+                train_step,
+                loss_fn=experiment.loss_fn,
+                model=experiment.model,
+                train_loader=train_loader,
+                optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
+                device=device,
+                scaler=scaler,
+                wandb_logger=wandb_logger,
+                clip_grad_norm=clip_grad_norm,
+                mixed_precision_dtype=mixed_precision_dtype,
+                rollout_horizon_scheduler=rollout_horizon_scheduler,
+                grad_ckpt_start_timestep=grad_ckpt_start_timestep,
+                accumulate_batches=accumulate_batches,
+            )
+            step += 1
+            pbar.update(1)
+            pbar.set_postfix({"epoch": epoch, "step": step, "best_val_loss": f"{best_val_loss:.4f}"})
+        except StopIteration:
+            # Epoch finished, start a new one
+            epoch += 1
+            logging.info(f"Epoch {epoch - 1} completed. Starting epoch {epoch}. Step: {step}/{max_steps}")
+            train_loader = iter(experiment.train_dataloader)
+            continue
 
+        if (
+            step % experiment.constants.save_checkpoint_every == 0
+            and step > 0
+        ):
+            save_run_state(
+                experiment=experiment,
+                optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
+                scaler=scaler,
+                rollout_horizon_scheduler=rollout_horizon_scheduler,
+                epoch=epoch,
+                step=step,
+                best_val_loss=best_val_loss,
+                checkpoint_name="latest.pt",
+            )
+
+        interval = experiment.constants.save_persistent_checkpoint_every
+        if step % interval == 0 and step > 0:
+            save_run_state(
+                experiment=experiment,
+                optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
+                scaler=scaler,
+                rollout_horizon_scheduler=rollout_horizon_scheduler,
+                epoch=epoch,
+                step=step,
+                best_val_loss=best_val_loss,
+                checkpoint_name=f"step_{step:08d}.pt",
+            )
+
+    pbar.close()
     logging.info("Training finished. Saving final checkpoint (latest.pt).")
     save_run_state(
         experiment=experiment,
