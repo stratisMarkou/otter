@@ -232,13 +232,18 @@ class TransformerBlock(nn.Module):
             output tensor of shape (B, N, D)
         """
         # Do drop-path at the block level to skip computation during training.
-        if self.training and torch.rand(1) < self.drop_path_rate:
-            return x, None
+        if self.training and self.drop_path_rate > 0:
+            if torch.rand(1) < self.drop_path_rate:
+                return x, None
 
-        x = x + self.mhsa(self.ln1(x), freq_cis)
+            scale_factor = 1.0 / (1.0 - self.drop_path_rate)
+        else:
+            scale_factor = 1.0
+
+        x = x + self.mhsa(self.ln1(x), freq_cis) * scale_factor
 
         x_ffn, load_balancing_losses = self.ffn(self.ln2(x))
-        x = x + x_ffn
+        x = x + x_ffn * scale_factor
 
         return x, load_balancing_losses
 
