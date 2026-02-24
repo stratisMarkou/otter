@@ -163,11 +163,11 @@ def extract_rmse_data(ds: xr.Dataset, experiment_name: str) -> pd.DataFrame:
 
 def add_to_csv(df: pd.DataFrame, csv_path: str) -> None:
     """Append results to CSV, creating it if it doesn't exist."""
-    csv_path = Path(csv_path) # type: ignore
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    path = Path(csv_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    if csv_path.exists():
-        existing_df = pd.read_csv(csv_path)
+    if path.exists():
+        existing_df = pd.read_csv(path)
         # Remove existing entries for the same experiment to avoid duplicates
         experiment_names = df["name"].unique()
         existing_df = existing_df[~existing_df["name"].isin(experiment_names)]
@@ -175,8 +175,8 @@ def add_to_csv(df: pd.DataFrame, csv_path: str) -> None:
     else:
         combined_df = df
 
-    combined_df.to_csv(csv_path, index=False)
-    print(f"Results saved to {csv_path}")
+    combined_df.to_csv(path, index=False)
+    print(f"Results saved to {path}")
 
 
 def main(argv: Sequence[str]) -> None:

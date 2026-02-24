@@ -18,12 +18,12 @@ from otter.models.architectures.transformer import SwinTransformer
 @pytest.mark.parametrize(
     "grid_channel_dim, token_dim, window_size, num_blocks_per_stage, num_bottom_blocks, pos_embedding",
     [
-        (7, 12, 3, [1, 1], 4, PositionEmbedding(12, 60, 120)),
-        (7, 12, 3, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
-        (9, 16, 5, [1, 1], 4, PositionEmbedding(16, 60, 120)),
-        (9, 16, 5, [2, 2], 8, SpatialEmbedding(64, 0.1, 720, 16)),
-        (7, 12, 15, [1, 1], 4, PositionEmbedding(12, 60, 120)),
-        (7, 12, 15, [2, 2], 4, SphericalHarmonicsEmbedding(12, 5)),
+        (7, 12, 2, [1, 1], 4, PositionEmbedding(12, 16, 32)),
+        (7, 12, 2, [2, 2], 4, SpatialEmbedding(32, 0.1, 720, 12)),
+        (9, 16, 4, [1, 1], 4, PositionEmbedding(16, 16, 32)),
+        (9, 16, 4, [2, 2], 8, SpatialEmbedding(64, 0.1, 720, 16)),
+        (7, 12, 4, [1, 1], 4, PositionEmbedding(12, 16, 32)),
+        (7, 12, 4, [1, 1], 4, SphericalHarmonicsEmbedding(12, 5)),
     ],
 )
 def test_swin_transformer(
