@@ -44,25 +44,34 @@ def download_checkpoint(run_name: str, output_dir: str = "_results") -> None:
     local_run_dir = os.path.join(output_dir, run_name)
     os.makedirs(local_run_dir, exist_ok=True)
 
-    # Only download these specific files
-    files_to_download = [
-        "config.yaml",
-        "checkpoints/latest.pt",
-    ]
+    # List all files in the checkpoint folder
+    files = fs.glob("**/*")
 
-    print(f"Downloading {len(files_to_download)} files to: {local_run_dir}")
+    if not files:
+        print(f"No files found for run '{run_name}'")
+        return
 
-    for relative_path in files_to_download:
-        # Construct full Azure path
-        azure_path = f"{CHECKPOINT_PATH}/{run_name}/{relative_path}"
+    print(f"Found {len(files)} items to download...")
+    print(f"Downloading to: {local_run_dir}")
 
-        # Check if file exists
+    for file_path in files:
+        # Skip directories
         try:
-            if not fs.exists(azure_path):
-                print(f"Warning: {relative_path} not found, skipping...")
+            if fs.isdir(file_path):
                 continue
-        except Exception as e:
-            print(f"Warning: Could not check {relative_path}: {e}")
+        except Exception:
+            pass
+
+        # Get relative path (remove the datastore prefix)
+        # file_path is like: 'otter_checkpoints/run_name/checkpoints/file.pt'
+        # We need to strip 'otter_checkpoints/run_name/' prefix
+        prefix = f"{CHECKPOINT_PATH}/{run_name}/"
+        if file_path.startswith(prefix):
+            relative_path = file_path[len(prefix):]
+        else:
+            relative_path = file_path
+
+        if not relative_path:
             continue
 
         local_path = os.path.join(local_run_dir, relative_path)
@@ -73,25 +82,8 @@ def download_checkpoint(run_name: str, output_dir: str = "_results") -> None:
             os.makedirs(local_dir, exist_ok=True)
 
         print(f"Downloading: {relative_path}")
-        try:
-            # Azure fs.get() downloads to a directory, creating a subdirectory with the file name
-            # So we download to the parent and then move the file
-            temp_download_dir = local_dir if local_dir else local_run_dir
-            fs.get(azure_path, temp_download_dir)
-
-            # The file gets downloaded as temp_download_dir/filename/filename
-            # We need to move it to temp_download_dir/filename
-            filename = os.path.basename(relative_path)
-            downloaded_file = os.path.join(temp_download_dir, filename, filename)
-
-            if os.path.exists(downloaded_file):
-                # Move the file to the correct location
-                os.rename(downloaded_file, local_path)
-                # Remove the empty directory
-                os.rmdir(os.path.join(temp_download_dir, filename))
-        except Exception as e:
-            print(f"Error downloading {relative_path}: {e}")
-            continue
+        # Download to the parent directory - Azure will create the file with correct name
+        fs.download(file_path, local_dir if local_dir else local_run_dir)
 
     print(f"\nDownload complete! Files saved to: {local_run_dir}")
 
