@@ -107,6 +107,10 @@ model:
       _target_: otter.models.architectures.embeddings.SpatialEmbedding
       num_scales: 128
       token_dimension: ${model.backbone_network.token_dimensions[0]}
+    # pos_embedding:
+    #   _target_: otter.models.architectures.embeddings.SphericalHarmonicsEmbedding
+    #   token_dimension: ${model.backbone_network.token_dimensions[0]}
+    #   max_degree: 20
 
 
 loss_fn:

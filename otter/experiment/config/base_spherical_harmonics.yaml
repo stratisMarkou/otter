@@ -55,14 +55,9 @@ test_dataloader:
   dataset:
     _target_: otter.data.datasets.make_gridded_weather_task
     data_source: ${data_source}
-    # We want to test on all 00:00 and 12:00 UTC times in 2020.
-    # Since we have 4 context frames, we need to start at 06:00 UTC on Dec 31, 2019.
-    # Then, the first zero time will be Jan 1, 00:00 UTC, with context at
-    # Dec 31, 06:00, 12:00, 18:00, and Jan 1, 00:00 UTC.
-    start_date: "2019-12-31 06:00:00"
+    start_date_zero_time: "2020-01-01 00:00:00"
+    end_date_zero_time: "2021-01-01 00:00:00"
     task_sub_sampling_factor: 2
-    # Overshoot a bit to include the full day of Dec 31, 2020.
-    end_date: "2021-01-02 00:00:00"
     num_context_frames: ${constants.data.num_context_frames}
     # 10 days = 240 hours, num frames depends on temporal resolution.
     num_target_frames: ${eval:'${constants.num_evaluation_rollout_hours} // ${constants.data.temporal_resolution_hours}'}
@@ -97,12 +92,12 @@ model:
     width: 256
     patch_size: 2
     patchify_kernel_size: [3, 2] # [height, width] kernel size for (un)patchification.
-    token_dimensions: [2304, 2304, 2304] # 2048 + 256
+    token_dimensions: [1536, 1536, 1536] # 2048 + 256
     output_dimension: ${constants.data.num_output_channels}
     window_size: 15
     num_heads: 16
-    num_blocks_per_stage: [1, 4]
-    num_bottom_blocks: 1
+    num_blocks_per_stage: [2, 8]
+    num_bottom_blocks: 4
     dropout_rate: ${constants.training.dropout_rate}
     drop_path_rate: ${constants.training.drop_path_rate}
     feedforward_network: ${feedforward_network}
@@ -216,6 +211,7 @@ constants:
       num_epochs: ${constants.training.epochs}
       dataloader: ${train_dataloader}
       accumulate_batches: ${constants.data.accumulate_batches}
+    max_steps: ${constants.training.num_training_steps}
     validate_every: ${eval:'5000 // ${constants.data.accumulate_batches}'}
     log_gradients_every: 500
     mixed_precision_dtype: ${get_module_attr:torch.float16}
